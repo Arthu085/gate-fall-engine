@@ -1,81 +1,97 @@
 # CLAUDE.md — GateFall
 
-Este arquivo existe **apenas** para registrar o que diverge de
-`~/.claude/CLAUDE.md` e as invariantes experimentais do projeto. Tudo que não
-estiver declarado aqui continua valendo integralmente a partir do arquivo
-global, sem repetição.
+This file exists **only** to document what diverges from
+
+`~/.claude/CLAUDE.md` and the project's experimental invariants. Everything not
+
+declared here remains fully applicable from the global file, without repetition.
 
 ---
 
 ## Declared overrides
 
-Cada item nomeia a regra global que substitui e dá a justificativa. O escopo do
-override é a regra nomeada — nada além dela é afetado.
+Each item names the global rule it replaces and provides the justification. The scope of the
 
-- **Docs e comentários em português.** Substitui a regra de idioma do global
-  (§5, "Docs and code comments: English by default"). Código, identificadores,
-  mensagens de commit e títulos/descrições de PR permanecem em inglês — isso o
-  global não permite sobrescrever, e este repositório não sobrescreve.
-  _Justificativa:_ é um TCC avaliado por banca brasileira.
+override is the named rule — nothing beyond it is affected.
 
-- **Comentários são permitidos, sem restrição formal, mas usados com
-  moderação.** Substitui integralmente a proibição absoluta do global (§6, "No
-  comments in production code, ever"). A régua é esta: código saturado de
-  comentário é código mal fatorado — antes de comentar, tente um nome melhor ou
-  uma função menor. O comentário que se paga é o que ancora fórmula, convenção
-  de sinal, ordem de eixos/canais, unidade, ou a referência do artigo de onde o
-  descritor veio.
-  _Justificativa:_ código científico e numérico carrega significado que nenhum
-  identificador sustenta sozinho.
+- **Docs, comments, and PR titles/descriptions in Brazilian Portuguese.** Replaces the global language rule
 
-- **PR obrigatória apenas para mudanças sob `src/`.** Substitui a exigência
-  abrangente de PR do pipeline global (§3). Commits diretos são permitidos em
-  `notebooks/` e `scripts/`.
-  _Justificativa:_ exploração descartável não paga o custo de uma PR.
+  (§5, "Docs and code comments: English by default"). Code, identifiers,
 
-- **Nenhum teste é exigido; o passo `test-writer` do `code-workflow` está
-  desabilitado neste repositório.** Substitui o passo obrigatório de testes do
-  pipeline global (§3); o `implementer` verifica contra o gate do repositório e
-  nada mais muda na sequência.
-  _Justificativa:_ a validação aqui é experimental — métricas sob protocolo
-  fixo —, não unitária.
+  commit messages — these are not allowed to be overridden by the global rules, and this repository does not override them.
 
-- **Toda mudança, adição ou reformulação do projeto, deve estar de acordo com o README.md
-  e o MKdocs.**
+- \*\*Comments are allowed, without formal restrictions, but should be used
 
----
+  sparingly.\*\* Completely replaces the global absolute prohibition
 
-## Invariantes experimentais
+  (§6, "No comments in production code, ever"). The guideline is: code saturated with
 
-Não são overrides: são regras de domínio do projeto. Violá-las invalida o
-resultado, não apenas o estilo do código.
+  comments is poorly factored code — before adding a comment, try a better name or
 
-1. **A, B e C são idênticas exceto no conteúdo de cada linha da janela.**
-   Tamanho de janela, split treino/teste, seed, codificador temporal e número de
-   épocas são os mesmos nas três configurações; só muda o vetor de features por
-   timestep. Qualquer alteração que afete apenas uma delas invalida a
-   comparação — se precisar mudar, muda nas três e re-roda as três.
+  a smaller function. The comments worth keeping are those that anchor a formula, sign
 
-2. **O split treino/teste é sempre por vídeo, preferencialmente por sujeito.
-   Nunca por janela.** Janelas do mesmo vídeo nos dois lados do split vazam
-   informação e inflam a métrica.
+  convention, axis/channel ordering, unit, or the reference to the paper from which the
 
-3. **O pipeline é RGB monocular.** Nenhum descritor derivado de mapa de
-   profundidade entra em qualquer braço — incluindo as colunas D–K do CSV de
-   features do URFD, que são calculadas a partir do sensor de profundidade do
-   Kinect.
+  descriptor originated.
 
-4. **Backbones congelados, features pré-computadas offline.** YOLO-Pose, DINOv3
-   e SAM 3 não são treinados nem ajustados. Treinam apenas a cabeça de fusão e a
-   TCN.
+- \*\*No tests are required; the `test-writer` step of `code-workflow` is
 
-5. **Features são agrupadas em HDF5 por vídeo.** Nunca um arquivo por frame.
+  disabled in this repository.\*\* Replaces the mandatory testing step of the
+
+  global pipeline (§3); the `implementer` verifies against the repository gate and
+
+  nothing else changes in the sequence.
+
+- \*\*Every change, addition, or reformulation of the project must update or add to the README.md
+
+  and the MkDocs documentation.\*\*
 
 ---
 
-## Risco dominante
+## Experimental invariants
 
-O risco dominante deste projeto é **escopo, não dificuldade técnica**. Toda
-adição proposta — uma quarta configuração, um dataset extra, mais um backbone,
-mais uma métrica — precisa declarar **o que ela desloca em troca**. Sem essa
-contrapartida explícita, a resposta padrão é não.
+These are not overrides: they are project domain rules. Violating them invalidates the
+
+result, not merely the code style.
+
+1. **A, B, and C are identical except for the content of each line in the window.**
+
+   Window size, train/test split, seed, temporal encoder, and number of
+
+   epochs are the same across all three configurations; only the feature vector per
+
+   timestep changes. Any change that affects only one of them invalidates the
+
+   comparison — if a change is necessary, apply it to all three and re-run all three.
+
+2. \*\*The train/test split is always performed by video, preferably by subject.
+
+   Never by window.\*\* Windows from the same video appearing on both sides of the split leak
+
+   information and inflate the metric.
+
+3. **The pipeline is monocular RGB.** No descriptor derived from a depth map
+
+   may enter any branch — including columns D–K of the URFD feature CSV,
+
+   which are calculated from the Kinect depth sensor.
+
+4. **Frozen backbones, features precomputed offline.** YOLO-Pose, DINOv3,
+
+   and SAM 3 are neither trained nor fine-tuned. Only the fusion head and
+
+   the TCN are trained.
+
+5. **Features are grouped in HDF5 files by video.** Never one file per frame.
+
+---
+
+## Dominant risk
+
+The dominant risk of this project is **scope, not technical difficulty**. Every
+
+proposed addition — a fourth configuration, an extra dataset, another backbone,
+
+another metric — must explicitly state **what it displaces in exchange**. Without that
+
+explicit trade-off, the default answer is no.
