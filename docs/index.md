@@ -1,0 +1,37 @@
+# GateFall
+
+**Fusão Adaptativa por Confiança entre Pose e Informação Visual de Modelos de
+Fundação para Detecção Robusta de Quedas Humanas**
+
+Trabalho de Conclusão de Curso em Visão Computacional.
+Autor: Arthur Ghizi · Orientador: Rodrigo Ramos Silva.
+
+## Resumo
+
+Detectores de queda baseados exclusivamente em pose degradam justamente onde
+mais importam: oclusão parcial, truncamento pela borda do quadro e as poses
+atípicas do corpo já no chão são os regimes em que o estimador de pose perde
+confiança. O GateFall investiga se a informação visual densa de modelos de
+fundação congelados (DINOv3, SAM 3) recupera esses casos, e como a fusão deve
+ponderar pose e informação visual em função da confiança de cada fonte.
+
+O pipeline é RGB monocular. Os backbones são congelados e as features são
+pré-computadas offline; apenas a cabeça de fusão e o codificador temporal (TCN)
+são treinados.
+
+## Configurações experimentais
+
+| Config | Conteúdo de cada linha da janela |
+| --- | --- |
+| A | Pose (YOLO-Pose) |
+| B | Pose + embedding visual (DINOv3) |
+| C | Pose + DINOv3 + descritor de máscara (SAM 3) |
+
+As três configurações são mantidas rigorosamente idênticas em tamanho de janela,
+split treino/teste, seed, codificador temporal e número de épocas. A única
+variável é o conteúdo de cada linha da janela.
+
+## Estado do projeto
+
+Repositório em fase de estruturação inicial. Ainda não há código de extração de
+features, treino ou avaliação.

@@ -1,0 +1,35 @@
+site_name: GateFall
+site_description: >-
+  Fusão adaptativa por confiança entre pose e informação visual de modelos de
+  fundação para detecção robusta de quedas humanas
+site_author: Arthur Ghizi
+repo_url: https://github.com/Arthu085/gate-fall-engine
+repo_name: Arthu085/gate-fall-engine
+
+docs_dir: docs
+
+theme:
+  name: material
+  language: pt-BR
+  features:
+    - navigation.top
+    - content.code.copy
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Modo escuro
+    - scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Modo claro
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Início: index.md

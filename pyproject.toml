@@ -1,0 +1,22 @@
+[project]
+name = "gatefall"
+version = "0.1.0"
+description = "Fusão adaptativa por confiança entre pose e informação visual de modelos de fundação para detecção robusta de quedas humanas"
+readme = "README.md"
+authors = [
+    { name = "Arthur Ghizi", email = "arthurghizi22@gmail.com" }
+]
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.7",
+]
