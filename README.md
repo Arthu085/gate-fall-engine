@@ -65,6 +65,32 @@ O pipeline é **RGB monocular**: nenhum descritor derivado de mapa de
 profundidade é utilizado — incluindo as colunas D–K do CSV de features do URFD,
 calculadas a partir do sensor de profundidade do Kinect.
 
+### URFD: download e validação
+
+```bash
+scripts/download_urfd.sh
+```
+
+Baixa os 70 vídeos câmera 0 do URFD (30 quedas + 40 ADLs) para
+`data/urfd/videos/{fall,adl}/`. É idempotente: reexecutar pula os arquivos já
+presentes e válidos, sem nova requisição de rede.
+
+Os CSVs de labels (`urfall-cam0-falls.csv` e `urfall-cam0-adls.csv`) **não são
+baixados por este script** — baixe-os manualmente da fonte original e
+coloque-os em `data/urfd/labels/` antes de validar.
+
+```bash
+uv run scripts/validate_urfd.py
+```
+
+Cruza os CSVs de labels contra os frames de cada vídeo já baixado, detecta
+lacunas de `frame_idx` e anomalias de rótulo, e grava um relatório em
+`data/urfd/validation_report.csv`.
+
+Layout em disco, schema dos CSVs e as conclusões da validação (convenção de
+rótulo, base de indexação do frame, lacunas encontradas) estão documentados em
+`docs/urfd.md`.
+
 ## Licença
 
 O **código** deste repositório é distribuído sob a licença [MIT](LICENSE).

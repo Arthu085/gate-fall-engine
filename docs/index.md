@@ -34,4 +34,6 @@ variável é o conteúdo de cada linha da janela.
 ## Estado do projeto
 
 Repositório em fase de estruturação inicial. Ainda não há código de extração de
-features, treino ou avaliação.
+features, treino ou avaliação. Já existem `scripts/download_urfd.sh`, para
+baixar os vídeos câmera 0 do URFD, e `scripts/validate_urfd.py`, para validar
+a integridade dos vídeos baixados contra os CSVs de labels.
