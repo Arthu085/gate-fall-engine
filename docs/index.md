@@ -31,6 +31,15 @@ As três configurações são mantidas rigorosamente idênticas em tamanho de ja
 split treino/teste, seed, codificador temporal e número de épocas. A única
 variável é o conteúdo de cada linha da janela.
 
+## Ambiente de desenvolvimento
+
+Além da instalação local via `uv sync`, o repositório inclui um ambiente
+Docker Compose com um serviço `dev` para desenvolvimento interativo e um
+serviço `docs` que serve esta documentação em `http://localhost:8000` com
+recarregamento automático. Ver a seção
+[Instalação](https://github.com/Arthu085/gate-fall-engine/blob/main/README.md#instalação)
+do README para os comandos.
+
 ## Estado do projeto
 
 Repositório em fase de estruturação inicial. Ainda não há código de extração de

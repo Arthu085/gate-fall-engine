@@ -1,0 +1,35 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    working_dir: /app
+    volumes:
+      - .:/app
+      - gatefall-venv:/app/.venv
+    command: bash -c "uv sync --locked && bash"
+    stdin_open: true
+    tty: true
+
+  docs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    working_dir: /app
+    volumes:
+      - .:/app
+      - gatefall-venv-docs:/app/.venv
+    # 0.0.0.0 é necessário para que o servidor de docs seja acessível fora do container.
+    command: bash -c "uv sync --locked && uv run mkdocs serve --dev-addr 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+
+volumes:
+  gatefall-venv:
+  gatefall-venv-docs:
