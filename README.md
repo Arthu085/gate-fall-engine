@@ -17,11 +17,11 @@ Trabalho de Conclusão de Curso (TCC) em Visão Computacional.
 
 ## Configurações experimentais
 
-| Config | Conteúdo de cada linha da janela             | Codificador temporal |
-| ------ | -------------------------------------------- | -------------------- |
-| **A**  | Pose (YOLO-Pose)                             | TCN                  |
-| **B**  | Pose + embedding visual (DINOv3)             | TCN                  |
-| **C**  | Pose + DINOv3 + descritor de máscara (SAM 3) | TCN                  |
+| Config | Conteúdo de cada linha da janela    | Codificador temporal |
+| ------ | ----------------------------------- | -------------------- |
+| **A**  | Pose (YOLO-Pose)                    | TCN                  |
+| **B**  | Pose + embedding visual (DINOv3)    | TCN                  |
+| **C**  | Pose + descritor de máscara (SAM 3) | TCN                  |
 
 **As três configurações são mantidas rigorosamente idênticas em tudo exceto no
 conteúdo de cada linha da janela.** Tamanho de janela, split treino/teste, seed,
