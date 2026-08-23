@@ -16,7 +16,7 @@ override é a regra nomeada — nada além dela é afetado.
   (§5, "Docs and code comments: English by default"). Código, identificadores,
   mensagens de commit e títulos/descrições de PR permanecem em inglês — isso o
   global não permite sobrescrever, e este repositório não sobrescreve.
-  *Justificativa:* é um TCC avaliado por banca brasileira.
+  _Justificativa:_ é um TCC avaliado por banca brasileira.
 
 - **Comentários são permitidos, sem restrição formal, mas usados com
   moderação.** Substitui integralmente a proibição absoluta do global (§6, "No
@@ -25,20 +25,23 @@ override é a regra nomeada — nada além dela é afetado.
   uma função menor. O comentário que se paga é o que ancora fórmula, convenção
   de sinal, ordem de eixos/canais, unidade, ou a referência do artigo de onde o
   descritor veio.
-  *Justificativa:* código científico e numérico carrega significado que nenhum
+  _Justificativa:_ código científico e numérico carrega significado que nenhum
   identificador sustenta sozinho.
 
 - **PR obrigatória apenas para mudanças sob `src/`.** Substitui a exigência
   abrangente de PR do pipeline global (§3). Commits diretos são permitidos em
   `notebooks/` e `scripts/`.
-  *Justificativa:* exploração descartável não paga o custo de uma PR.
+  _Justificativa:_ exploração descartável não paga o custo de uma PR.
 
 - **Nenhum teste é exigido; o passo `test-writer` do `code-workflow` está
   desabilitado neste repositório.** Substitui o passo obrigatório de testes do
   pipeline global (§3); o `implementer` verifica contra o gate do repositório e
   nada mais muda na sequência.
-  *Justificativa:* a validação aqui é experimental — métricas sob protocolo
+  _Justificativa:_ a validação aqui é experimental — métricas sob protocolo
   fixo —, não unitária.
+
+- **Toda mudança, adição ou reformulação do projeto, deve estar de acordo com o README.md
+  e o MKdocs.**
 
 ---
 
