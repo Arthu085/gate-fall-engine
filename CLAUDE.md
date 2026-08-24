@@ -46,6 +46,12 @@ override is the named rule — nothing beyond it is affected.
 
   and the MkDocs documentation.\*\*
 
+- \*\*Every change, addition, or removal of Python code must run uv run pyright.
+
+  This check is mandatory whenever Python code is modified, added, or removed,
+
+  and the result must be verified before considering the change complete.\*\*
+
 ---
 
 ## Experimental invariants
