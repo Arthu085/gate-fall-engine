@@ -52,42 +52,6 @@ Verificação de tipos (mesmos diagnósticos que o Pylance mostra no VS Code):
 uv run pyright
 ```
 
-### Docker Compose (alternativa)
-
-Para quem prefere não instalar `uv` e Python diretamente no host, o
-repositório inclui um ambiente Docker Compose:
-
-```bash
-docker compose run --rm dev
-```
-
-O comando builda a imagem (se necessário), sincroniza as dependências via
-`uv sync --locked` e abre um shell interativo dentro do container. Por
-padrão, o usuário do container usa UID/GID 1000, o padrão do primeiro usuário
-em distribuições Linux/WSL — o que já casa com a maioria dos hosts. Se o seu
-usuário tiver UID/GID diferente, builde passando os valores explicitamente:
-
-```bash
-UID=$(id -u) GID=$(id -g) docker compose build
-```
-
-Isso evita que arquivos criados em bind mounts — como `data/` — fiquem com
-dono `root`.
-
-Para servir a documentação:
-
-```bash
-docker compose up docs
-```
-
-Acessível em <http://localhost:8000>, com recarregamento automático a partir
-de alterações em `docs/` e `mkdocs.yml`. Use `docker compose up -d docs` para
-rodar em segundo plano.
-
-Como o repositório inteiro é montado como bind mount, os datasets baixados em
-`data/` (ver seção [Dados](#dados)) ficam visíveis automaticamente dentro do
-container, sem necessidade de mount adicional.
-
 ## Dados
 
 O diretório `data/` tem três subpastas, nenhuma versionada — todo o
