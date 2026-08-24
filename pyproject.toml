@@ -19,4 +19,10 @@ build-backend = "uv_build"
 dev = [
     "mkdocs>=1.6.1",
     "mkdocs-material>=9.7.7",
+    "pyright>=1.1.400",
 ]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
