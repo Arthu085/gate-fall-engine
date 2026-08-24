@@ -5,9 +5,11 @@ import hashlib
 import json
 import os
 import sys
+import typing
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 from datasets import load_dataset
 
 DATASET_ID = "simplexsigil2/omnifall"
@@ -22,7 +24,7 @@ CONFIGS = ["le2i-cs", "labels"]
 OMNIFALL_REVISION = "68e5cee56a4bad38cca4aea791cac248f96e79a0"
 
 
-def _write_csv(df, path: Path, force: bool) -> None:
+def _write_csv(df: pd.DataFrame, path: Path, force: bool) -> None:
     if path.exists() and not force:
         print(f"skip {path} (já existe, use --force para sobrescrever)")
         return
@@ -36,14 +38,18 @@ def _write_csv(df, path: Path, force: bool) -> None:
 def fetch_splits(force: bool) -> None:
     dataset = load_dataset(DATASET_ID, "le2i-cs", revision=OMNIFALL_REVISION)
     for split, filename in SPLITS.items():
-        df = dataset[split].to_pandas()
+        # to_pandas() retorna Union[DataFrame, Iterator[DataFrame]]; aqui é sempre
+        # DataFrame pois batched nunca é passado como True.
+        df = typing.cast(pd.DataFrame, dataset[split].to_pandas())
         _write_csv(df, OUT_DIR / filename, force)
 
 
 def fetch_le2i_labels(force: bool) -> None:
     dataset = load_dataset(DATASET_ID, "labels", revision=OMNIFALL_REVISION)
-    df = dataset["train"].to_pandas()
-    df = df[df["dataset"] == "le2i"]
+    # to_pandas() retorna Union[DataFrame, Iterator[DataFrame]]; aqui é sempre
+    # DataFrame pois batched nunca é passado como True.
+    df = typing.cast(pd.DataFrame, dataset["train"].to_pandas())
+    df = typing.cast(pd.DataFrame, df[df["dataset"] == "le2i"])
     _write_csv(df, OUT_DIR / "le2i.csv", force)
 
 
