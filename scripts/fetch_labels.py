@@ -1,7 +1,6 @@
 """Baixa anotações do Le2i a partir do dataset OmniFall (HuggingFace)."""
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -11,6 +10,8 @@ from pathlib import Path
 
 import pandas as pd
 from datasets import load_dataset
+
+from _common import sha256_file
 
 DATASET_ID = "simplexsigil2/omnifall"
 OUT_DIR = Path("data/labels/omnifall")
@@ -53,14 +54,6 @@ def fetch_le2i_labels(force: bool) -> None:
     _write_csv(df, OUT_DIR / "le2i.csv", force)
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _row_count(path: Path) -> int:
     with path.open("r", encoding="utf-8") as f:
         return sum(1 for _ in f) - 1
@@ -74,7 +67,7 @@ def write_provenance() -> None:
         files.append(
             {
                 "filename": filename,
-                "sha256": _sha256(path),
+                "sha256": sha256_file(path),
                 "rows": _row_count(path),
             }
         )
@@ -118,7 +111,7 @@ def verify() -> None:
             problems.append(f"{path}: arquivo ausente")
             continue
 
-        actual_sha256 = _sha256(path)
+        actual_sha256 = sha256_file(path)
         if actual_sha256 != entry["sha256"]:
             problems.append(
                 f"{path}: sha256 divergente "
