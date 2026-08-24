@@ -46,6 +46,12 @@ Documentação local:
 uv run mkdocs serve
 ```
 
+Verificação de tipos (mesmos diagnósticos que o Pylance mostra no VS Code):
+
+```bash
+uv run pyright
+```
+
 ### Docker Compose (alternativa)
 
 Para quem prefere não instalar `uv` e Python diretamente no host, o

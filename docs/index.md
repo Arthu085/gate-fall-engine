@@ -38,7 +38,8 @@ Docker Compose com um serviço `dev` para desenvolvimento interativo e um
 serviço `docs` que serve esta documentação em `http://localhost:8000` com
 recarregamento automático. Ver a seção
 [Instalação](https://github.com/Arthu085/gate-fall-engine/blob/main/README.md#instalação)
-do README para os comandos.
+do README para os comandos. Para checagem de tipos (mesmos diagnósticos do
+Pylance no VS Code), rode `uv run pyright`.
 
 ## Dados
 
