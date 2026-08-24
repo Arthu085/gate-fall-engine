@@ -41,7 +41,20 @@ recarregamento automático. Ver a seção
 do README para os comandos. Para checagem de tipos (mesmos diagnósticos do
 Pylance no VS Code), rode `uv run pyright`.
 
+## Dados
+
+O diretório `data/` separa vídeos brutos (`data/raw/`, não versionado),
+anotações (`data/labels/`, não versionado) e features pré-computadas
+(`data/features/`, não versionado). As anotações do Le2i são obtidas do
+dataset [OmniFall](https://huggingface.co/datasets/simplexsigil2/omnifall)
+via `uv run python scripts/fetch_labels.py`; os vídeos em si continuam sendo
+obtidos manualmente na fonte original. Ver a seção
+[Dados](https://github.com/Arthu085/gate-fall-engine/blob/main/README.md#dados)
+do README para o detalhamento completo e [Proveniência dos
+dados](data-provenance.md) para a revisão fixada, checksums e citações.
+
 ## Estado do projeto
 
-Repositório em fase de estruturação inicial. Ainda não há código de extração de
-features, treino ou avaliação.
+Repositório em fase de estruturação inicial. Já existe um script de bootstrap
+das anotações (`scripts/fetch_labels.py`), mas ainda não há código de extração
+de features, treino ou avaliação.

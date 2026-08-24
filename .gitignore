@@ -71,9 +71,14 @@ Thumbs.db
 
 # --- GateFall ---------------------------------------------------------------
 
-# Datasets e features nunca são versionados (ver README, seção "Dados").
-data/*
-!data/.gitkeep
+# Datasets brutos, anotações baixadas e features derivadas nunca são
+# versionados (ver README, "Dados", e docs/data-provenance.md).
+data/raw/*
+!data/raw/.gitkeep
+data/labels/*
+!data/labels/.gitkeep
+data/features/*
+!data/features/.gitkeep
 
 # Mídia e arquivos de dados binários
 *.mp4

@@ -9,7 +9,12 @@ authors = [
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = []
+dependencies = [
+    "datasets>=5.0.1",
+    "huggingface-hub>=1.28.0",
+    "pandas>=3.0.5",
+    "pyarrow>=25.0.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]

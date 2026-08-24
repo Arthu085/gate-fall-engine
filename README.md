@@ -90,9 +90,78 @@ container, sem necessidade de mount adicional.
 
 ## Dados
 
-Os datasets **não são redistribuídos neste repositório** e devem ser baixados
-diretamente das fontes originais para `data/` (diretório versionado vazio, com
-conteúdo ignorado pelo Git):
+O diretório `data/` tem três subpastas, nenhuma versionada — todo o
+conteúdo de dados é gerado localmente ou baixado, nunca commitado:
+
+| Pasta            | Conteúdo                                   | Versionado? |
+| ---------------- | ------------------------------------------- | ----------- |
+| `data/raw/`      | Vídeos originais dos datasets (ex.: Le2i)   | Não         |
+| `data/labels/`   | CSVs de anotação (pequenos, texto puro)     | Não         |
+| `data/features/` | Features pré-computadas pelos backbones     | Não         |
+
+### Anotações (`data/labels/`)
+
+As anotações do Le2i são obtidas a partir do dataset agregado
+[OmniFall](https://huggingface.co/datasets/simplexsigil2/omnifall) no
+HuggingFace, que já resolve a correspondência entre vídeos, splits e rótulos
+de queda entre os datasets originais. Para baixá-las:
+
+```bash
+uv run python scripts/fetch_labels.py
+```
+
+O script grava em `data/labels/omnifall/`:
+
+- `train.csv`, `val.csv` e `test.csv` — split oficial `le2i-cs` do OmniFall
+  (670 / 94 / 203 vídeos, cerca de 967 no total), com colunas
+  `path, label, start, end, subject, cam, dataset`.
+- `le2i.csv` — mesmas 967 linhas, extraídas do config `labels` (pool de todos
+  os datasets de origem) e filtradas para `dataset == "le2i"`; útil para
+  conferência cruzada com os splits acima.
+- `PROVENANCE.json` — revisão do dataset fixada, checksums SHA-256 e
+  contagem de linhas de cada CSV baixado, usado por `--verify`.
+
+O download é idempotente por arquivo: rodar o comando de novo pula os CSVs já
+existentes. Use `--force` para re-baixar e sobrescrever:
+
+```bash
+uv run python scripts/fetch_labels.py --force
+```
+
+Para conferir a integridade dos arquivos já baixados contra o
+`PROVENANCE.json` gravado (sem baixar nada de novo):
+
+```bash
+uv run python scripts/fetch_labels.py --verify
+```
+
+As anotações do OmniFall são distribuídas sob a licença
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) —
+uso não comercial, com atribuição e compartilhamento pela mesma licença — por
+isso os CSVs não são versionados neste repositório, cujo código é MIT. Para a
+revisão fixada do dataset, checksums e citações completas, ver
+`docs/data-provenance.md`.
+
+### Vídeos brutos (`data/raw/`)
+
+O script acima baixa **apenas as anotações**, não os vídeos. Os vídeos do
+Le2i devem ser obtidos manualmente na fonte original e colocados em
+`data/raw/le2i/`, seguindo os caminhos referenciados pela coluna `path` dos
+CSVs de anotação.
+
+Antes de trabalhar com vídeo (extração de frames, features, etc.), confirme
+que `ffprobe` e `ffmpeg` estão instalados:
+
+```bash
+ffprobe -version && ffmpeg -version
+```
+
+Caso não estejam:
+
+```bash
+sudo apt install ffmpeg   # Debian/Ubuntu
+brew install ffmpeg       # macOS
+```
 
 ## Licença
 
