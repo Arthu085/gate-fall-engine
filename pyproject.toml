@@ -28,6 +28,6 @@ dev = [
 ]
 
 [tool.pyright]
-include = ["src"]
+include = ["src", "scripts"]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
