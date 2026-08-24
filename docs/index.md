@@ -33,13 +33,11 @@ variável é o conteúdo de cada linha da janela.
 
 ## Ambiente de desenvolvimento
 
-Além da instalação local via `uv sync`, o repositório inclui um ambiente
-Docker Compose com um serviço `dev` para desenvolvimento interativo e um
-serviço `docs` que serve esta documentação em `http://localhost:8000` com
-recarregamento automático. Ver a seção
+Instalação via `uv sync`. Ver a seção
 [Instalação](https://github.com/Arthu085/gate-fall-engine/blob/main/README.md#instalação)
-do README para os comandos. Para checagem de tipos (mesmos diagnósticos do
-Pylance no VS Code), rode `uv run pyright`.
+do README para os comandos, incluindo como servir esta documentação
+localmente (`uv run mkdocs serve`). Para checagem de tipos (mesmos
+diagnósticos do Pylance no VS Code), rode `uv run pyright`.
 
 ## Dados
 
