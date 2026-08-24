@@ -18,11 +18,11 @@ rótulos de queda entre os datasets originais que compõem o OmniFall.
 específico do repositório HuggingFace, em vez de seguir a `main` (`HEAD`)
 móvel:
 
-| Campo                | Valor                                      |
-| --------------------- | ------------------------------------------- |
-| `dataset_repo_id`     | `simplexsigil2/omnifall`                    |
-| `OMNIFALL_REVISION`   | `68e5cee56a4bad38cca4aea791cac248f96e79a0`  |
-| Configs usados        | `le2i-cs`, `labels`                         |
+| Campo               | Valor                                      |
+| ------------------- | ------------------------------------------ |
+| `dataset_repo_id`   | `simplexsigil2/omnifall`                   |
+| `OMNIFALL_REVISION` | `68e5cee56a4bad38cca4aea791cac248f96e79a0` |
+| Configs usados      | `le2i-cs`, `labels`                        |
 
 Os nomes desses configs já foram reestruturados uma vez no histórico do
 dataset upstream. Fixar a revisão garante que uma futura reestruturação não
@@ -34,12 +34,12 @@ repositório.
 Para a revisão fixada acima, o config `le2i-cs` (splits oficiais por sujeito)
 e o config `labels` (filtrado para `dataset == "le2i"`) produzem:
 
-| Arquivo      | Origem                          | Linhas |
-| ------------ | -------------------------------- | -----: |
-| `train.csv`  | `le2i-cs`, split `train`         |    670 |
-| `val.csv`    | `le2i-cs`, split `validation`    |     94 |
-| `test.csv`   | `le2i-cs`, split `test`          |    203 |
-| `le2i.csv`   | `labels`, filtrado para Le2i     |    967 |
+| Arquivo     | Origem                        | Linhas |
+| ----------- | ----------------------------- | -----: |
+| `train.csv` | `le2i-cs`, split `train`      |    670 |
+| `val.csv`   | `le2i-cs`, split `validation` |     94 |
+| `test.csv`  | `le2i-cs`, split `test`       |    203 |
+| `le2i.csv`  | `labels`, filtrado para Le2i  |    967 |
 
 `670 + 94 + 203 = 967`, ou seja, `le2i.csv` cobre exatamente a união dos três
 splits de `le2i-cs` — é usado para conferência cruzada, não como split
@@ -73,32 +73,14 @@ Este repositório mistura três escopos de licença **distintos**, sobre
 artefatos diferentes — é exatamente por isso que os CSVs de anotação não
 podem ser versionados junto do código:
 
-| Artefato                          | Licença                                                                          |
-| ---------------------------------- | --------------------------------------------------------------------------------- |
-| Código deste repositório           | MIT                                                                                |
-| Anotações do OmniFall (CSVs)       | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — uso não comercial |
-| Vídeos originais do Le2i           | [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/) — uso não comercial |
+| Artefato                     | Licença                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| Código deste repositório     | MIT                                                                                       |
+| Anotações do OmniFall (CSVs) | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — uso não comercial |
+| Vídeos originais do Le2i     | [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/) — uso não comercial |
 
 CC BY-NC-SA é incompatível com a distribuição junto de código MIT em um
 repositório público: exige atribuição, proíbe uso comercial e obriga
 compartilhamento pela mesma licença para qualquer redistribuição — condições
 que não fazem sentido aplicadas ao código do projeto. Por isso as anotações
 são sempre baixadas sob demanda a partir da fonte original, nunca commitadas.
-
-## Citações
-
-**OmniFall** (dataset agregado, fonte das anotações baixadas por este
-repositório):
-
-> Schneider, D., Marinov, Z., Mistol, M., Zhong, Z., Jaus, A., Düger, R.,
-> Baur, R., Sarfraz, M. S., & Stiefelhagen, R. (2025). *OmniFall: From
-> Staged Through Synthetic to Wild, A Unified Multi-Domain Dataset for
-> Robust Fall Detection*. arXiv:2505.19889.
-> https://arxiv.org/abs/2505.19889
-
-**Le2i** (dataset original dos vídeos, cujas anotações o OmniFall
-reorganiza):
-
-> Dubois, J., & Miteran, J. (2014). *Fall Detection Dataset (Le2i)*.
-> Laboratoire Electronique, Informatique et Image (Le2i), Université
-> Bourgogne Franche-Comté. DOI: 10.25666/DATAUBFC-2024-04-09.
