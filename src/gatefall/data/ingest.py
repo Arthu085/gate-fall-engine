@@ -1,15 +1,4 @@
-"""Constrói e verifica `data/manifest.parquet` para o Le2i.
-
-Casa os paths de vídeo anotados pelo OmniFall (train/val/test do config
-`le2i-cs`) com os arquivos locais extraídos de `data/raw/le2i/`, sonda cada
-vídeo via ffprobe e grava um manifesto único (`data/manifest.parquet`) com
-metadados de vídeo, split e status de extração de features por branch
-(pose/DINOv3/SAM), ainda pendentes de execução.
-
-Uso:
-    uv run python -m gatefall.data.ingest ingest [--force]
-    uv run python -m gatefall.data.ingest verify
-"""
+"""Constrói e verifica `data/manifest.parquet` para o Le2i."""
 
 import argparse
 

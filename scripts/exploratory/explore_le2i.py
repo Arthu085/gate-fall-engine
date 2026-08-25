@@ -1,11 +1,4 @@
-"""Script exploratório descartável (não faz parte do pipeline).
-
-Produziu, por inspeção manual da saída impressa, a regra de normalização e
-casamento entre paths do OmniFall e arquivos locais do Le2i hoje implementada
-em `src/gatefall/data/le2i/path_matching.py`. Mantido apenas para proveniência/
-reprodutibilidade dessa descoberta — não é chamado por nenhum outro script
-nem pelo pipeline de ingestão.
-"""
+"""Inspeção manual da saída impressa, a regra de normalização e casamento entre paths do OmniFall e arquivos locais do Le2i."""
 
 import shutil
 import sys
