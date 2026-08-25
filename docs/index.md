@@ -39,6 +39,14 @@ do README para os comandos, incluindo como servir esta documentação
 localmente (`uv run mkdocs serve`). Para checagem de tipos (mesmos
 diagnósticos do Pylance no VS Code), rode `uv run pyright`.
 
+### Instruções para agentes de código
+
+As regras específicas do projeto são mantidas em `CLAUDE.md`, para Claude Code,
+e em `AGENTS.md`, para Codex. Os dois arquivos preservam os mesmos invariantes
+experimentais e gates do repositório, adaptados ao formato nativo de cada
+agente. Configurações, skills e agentes personalizados globais permanecem fora
+do repositório, na configuração pessoal do desenvolvedor.
+
 ## Dados
 
 O diretório `data/` separa vídeos brutos (`data/raw/`, não versionado),

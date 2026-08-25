@@ -52,6 +52,15 @@ Verificação de tipos (mesmos diagnósticos que o Pylance mostra no VS Code):
 uv run pyright
 ```
 
+### Instruções para agentes de código
+
+O repositório mantém instruções equivalentes para os dois agentes usados no
+desenvolvimento: `CLAUDE.md` para Claude Code e `AGENTS.md` para Codex. Ambos
+registram os invariantes experimentais, as exceções de linguagem e comentários,
+a atualização obrigatória desta documentação e o gate `uv run pyright` para
+mudanças em Python. As preferências e workflows globais de cada agente ficam na
+configuração pessoal do desenvolvedor e não são versionados aqui.
+
 ## Dados
 
 O diretório `data/` tem três subpastas, nenhuma versionada — todo o
