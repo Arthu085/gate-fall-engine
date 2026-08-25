@@ -1,0 +1,105 @@
+# Manifesto e verificação
+
+`data/manifest.parquet` contém uma linha por vídeo e relaciona o arquivo local à
+anotação do OmniFall, aos metadados medidos e ao estado das futuras etapas de
+features. O manifesto é gerado localmente e não é versionado.
+
+## Construção
+
+Depois de preparar as [anotações](omnifall.md) e os [vídeos do
+Le2i](le2i.md), execute:
+
+```bash
+uv run python -m gatefall.data.ingest ingest
+```
+
+A ingestão:
+
+1. reúne os segmentos dos três splits em um índice com uma linha por path de
+   vídeo e exige `subject`, `cam` e `split` consistentes entre seus segmentos;
+2. descobre os arquivos `.avi` e exige a bijeção descrita na página do Le2i;
+3. usa `ffprobe` para ler metadados e contar os quadros;
+4. calcula o SHA-256 de cada vídeo;
+5. aplica o schema e a ordem de colunas definidos pelo projeto;
+6. ordena as linhas por `video_id` e grava o Parquet.
+
+Se `data/manifest.parquet` já existir, o comando o preserva e termina sem erro.
+Para reconstruí-lo:
+
+```bash
+uv run python -m gatefall.data.ingest ingest --force
+```
+
+A gravação usa primeiro `data/manifest.parquet.tmp` e só então substitui o
+destino. Assim, uma falha antes da substituição não publica um manifesto
+parcial.
+
+## Schema
+
+As colunas são persistidas nesta ordem:
+
+| Colunas | Tipo | Conteúdo |
+| --- | --- | --- |
+| `video_id`, `dataset` | `string` | Chave normalizada e nome do dataset |
+| `relative_path`, `absolute_path` | `string` | Caminhos relativo e absoluto do vídeo |
+| `env` | `string` | Ambiente obtido do path anotado |
+| `subject`, `cam` | `int64` | Identificadores publicados na anotação |
+| `split` | `string` | `train`, `val` ou `test` |
+| `fps` | `float64` | Taxa de quadros resolvida pelo `ffprobe` |
+| `fps_source` | `string` | Campo usado: `avg_frame_rate` ou `r_frame_rate` |
+| `n_frames_header` | `Int64` | Contagem declarada no header, se disponível |
+| `n_frames_counted` | `int64` | Contagem obtida com `ffprobe -count_frames` |
+| `duration_s` | `float64` | Duração em segundos |
+| `width`, `height` | `int64` | Resolução do vídeo |
+| `codec` | `string` | Nome do codec |
+| `sha256` | `string` | Hash do arquivo de vídeo |
+| `pose_status`, `dino_status`, `sam_status` | `string` | Estado de cada branch de features |
+
+Na ingestão atual, os três status começam como `pending`; isso não indica que a
+extração de features tenha sido implementada.
+
+O FPS nunca é assumido como constante. A resolução prefere
+`avg_frame_rate` quando o valor é válido e maior que zero; caso contrário, usa
+`r_frame_rate`. Nos arquivos avaliados, `Home_01` e `Home_02` ficam em torno de
+23,9997 fps e os demais ambientes em 25 fps, por isso o valor é sempre medido
+por vídeo.
+
+## Verificação
+
+Execute a verificação sobre o manifesto já construído:
+
+```bash
+uv run python -m gatefall.data.ingest verify
+```
+
+O comando recalcula propriedades a partir dos vídeos, das anotações e do
+manifesto. As saídas têm dois papéis distintos.
+
+### Verificações críticas
+
+Qualquer falha abaixo faz o comando terminar com código diferente de zero:
+
+- bijeção entre os vídeos locais e os paths anotados;
+- disjunção de paths de vídeo entre `train`, `val` e `test`;
+- presença de cada vídeo referenciado pelo manifesto e igualdade de seu
+  SHA-256 com o valor persistido.
+
+Todas as verificações são executadas antes do resumo final, permitindo relatar
+mais de um problema na mesma execução.
+
+### Relatórios informativos
+
+Os relatórios abaixo descrevem o conjunto, mas não determinam sucesso ou falha:
+
+- sobreposição de `subject` entre os splits;
+- distribuição de resolução e vídeos fora da resolução modal;
+- distribuição de FPS por ambiente;
+- tabela cruzada entre `cam` e `env` e avaliação da relação entre ambos;
+- estatísticas de duração dos segmentos por classe;
+- quantidade de segmentos por classe e split, com avisos para combinações
+  vazias;
+- duração total e projeção de quadros a 10, 12,5 e 25 fps.
+
+Em particular, a disjunção por sujeito é informativa. O identificador upstream
+`le2i-cs` não substitui essa medição e o nome da configuração não deve ser
+interpretado, isoladamente, como garantia de um split cross-subject.

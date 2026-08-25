@@ -14,8 +14,10 @@ invariants. Every global rule not explicitly replaced here remains applicable.
   originated.
 - **No tests are required; disable the `test-writer` step of `code-workflow`.** The `implementer`
   verifies against the repository gate instead.
-- **Every project change, addition, or reformulation must update or add to both `README.md` and the
-  MkDocs documentation.**
+- **Documentation changes follow ownership instead of mandatory duplication.** Update only the
+  surface made inaccurate by a change. Keep `README.md` limited to the project overview,
+  installation, basic usage, and links; put technical details in the corresponding MkDocs page.
+  Do not repeat the same explanation in both places merely to satisfy policy.
 - **Every addition, modification, or removal of Python code must run `uv run pyright`.** This check
   is mandatory before considering the change complete.
 
