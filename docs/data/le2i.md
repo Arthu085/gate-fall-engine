@@ -9,9 +9,6 @@ extrai o pacote já obtido.
 - Dataset: [Fall Detection Dataset — Université de
   Franche-Comté](https://search-data.ubfc.fr/imvia/FR-13002091000019-2024-04-09_Fall-Detection-Dataset.html)
   ([DOI `10.25666/DATAUBFC-2024-04-09`](https://doi.org/10.25666/DATAUBFC-2024-04-09)).
-- Artigo original: [*Optimized spatio-temporal descriptors for real-time fall
-  detection: comparison of support vector machine and Adaboost-based
-  classification*](https://doi.org/10.1117/1.JEI.22.4.041106), de Charfi et al.
 
 Consulte a página oficial e os arquivos que acompanham a distribuição para os
 termos aplicáveis aos vídeos.
@@ -65,11 +62,11 @@ macOS com Homebrew, use `brew install ffmpeg`.
 A estrutura extraída não coincide literalmente com os paths publicados pelo
 OmniFall:
 
-| Path na anotação | Arquivo extraído |
-| --- | --- |
+| Path na anotação         | Arquivo extraído                      |
+| ------------------------ | ------------------------------------- |
 | `Coffee_room_01/video_1` | `Coffee_room_01/Videos/video (1).avi` |
-| `Lecture_room/video_1` | `Lecture room/video (1).avi` |
-| `Office/video_1` | `Office/video (1).avi` |
+| `Lecture_room/video_1`   | `Lecture room/video (1).avi`          |
+| `Office/video_1`         | `Office/video (1).avi`                |
 
 O casamento percorre recursivamente os arquivos `.avi` e normaliza somente as
 diferenças conhecidas da distribuição:
