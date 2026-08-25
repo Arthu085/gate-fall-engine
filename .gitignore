@@ -72,7 +72,7 @@ Thumbs.db
 # --- GateFall ---------------------------------------------------------------
 
 # Datasets brutos, anotações baixadas e features derivadas nunca são
-# versionados (ver README, "Dados", e docs/data-provenance.md).
+# versionados (ver docs/data/organization.md).
 data/raw/*
 !data/raw/.gitkeep
 data/labels/*
