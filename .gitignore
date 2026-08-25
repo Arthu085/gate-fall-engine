@@ -79,6 +79,7 @@ data/labels/*
 !data/labels/.gitkeep
 data/features/*
 !data/features/.gitkeep
+data/manifest.parquet
 
 # Mídia e arquivos de dados binários
 *.mp4
