@@ -363,14 +363,14 @@ def build_manifest(raw_dir: Path, label_index: pd.DataFrame) -> pd.DataFrame:
     labels = normalize_label_paths(cast(pd.Series, label_index["path"]))
     matched = match_bijection(local, labels)
 
-    label_by_path = label_index.set_index("path")
+    label_records = label_index.set_index("path").to_dict("index")
 
     rows: list[dict[str, object]] = []
     for label_path, relative_path in matched.items():
         absolute_path = (raw_dir / relative_path).resolve()
         probed = probe_video(absolute_path)
         fps, fps_source = _resolve_fps(probed["r_frame_rate"], probed["avg_frame_rate"])
-        label_row = label_by_path.loc[label_path]
+        label_row = label_records[label_path]
         env = label_path.split("/", 1)[0]
 
         rows.append(
