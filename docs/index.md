@@ -25,7 +25,7 @@ são treinados.
 | --- | --- |
 | A | Pose (YOLO-Pose) |
 | B | Pose + embedding visual (DINOv3) |
-| C | Pose + DINOv3 + descritor de máscara (SAM 3) |
+| C | Pose + descritor de máscara (SAM 3) |
 
 As três configurações são mantidas rigorosamente idênticas em tamanho de janela,
 split treino/teste, seed, codificador temporal e número de épocas. A única
