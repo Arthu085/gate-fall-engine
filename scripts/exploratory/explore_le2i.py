@@ -1,4 +1,11 @@
-"""Explora as anotações OmniFall e a árvore extraída do Le2i (script descartável)."""
+"""Script exploratório descartável (não faz parte do pipeline).
+
+Produziu, por inspeção manual da saída impressa, a regra de normalização e
+casamento entre paths do OmniFall e arquivos locais do Le2i hoje implementada
+em `src/gatefall/data/ingest.py`. Mantido apenas para proveniência/
+reprodutibilidade dessa descoberta — não é chamado por nenhum outro script
+nem pelo pipeline de ingestão.
+"""
 
 import json
 import shutil

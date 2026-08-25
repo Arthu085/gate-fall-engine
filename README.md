@@ -127,6 +127,41 @@ sudo apt install ffmpeg   # Debian/Ubuntu
 brew install ffmpeg       # macOS
 ```
 
+### Manifesto de vídeos (`data/manifest.parquet`)
+
+Com os vídeos em `data/raw/le2i/`, construa o manifesto que casa cada vídeo
+com sua anotação do OmniFall e sonda seus metadados via `ffprobe`:
+
+```bash
+uv run python -m gatefall.data.ingest ingest [--force]
+```
+
+A árvore extraída do Le2i não segue o mesmo layout dos paths anotados pelo
+OmniFall (ex.: `Coffee_room_01/video_1` na label vs.
+`Coffee_room_01/Videos/video (1).avi` no disco), então o comando normaliza os
+dois lados antes de comparar e exige bijeção estrita entre os 190 vídeos
+locais e as 190 labels — qualquer entrada sem par interrompe o comando com a
+lista completa dos dois lados, em vez de descartar uma linha silenciosamente.
+Ver `docs/data-provenance.md` para a regra de normalização completa. `--force`
+é necessário para sobrescrever um manifesto já existente; sem ele, o comando
+recusa e sai sem erro.
+
+O manifesto grava uma linha por vídeo com metadados do `ffprobe` (fps,
+contagem de frames, duração, resolução, codec, sha256) e o status `pending`
+das três branches de extração de features (pose/DINOv3/SAM), ainda não
+implementadas. **O fps não é uniforme entre ambientes** — `Home_01` e
+`Home_02` rodam a ~23.9997 fps, os demais a exatamente 25 fps — por isso o
+fps é sempre lido do próprio vídeo, nunca assumido fixo. Como qualquer outro
+artefato gerado em `data/`, `data/manifest.parquet` é gitignored e nunca
+commitado.
+
+Para conferir a integridade do manifesto já construído (bijeção, sha256 de
+cada vídeo, disjunção dos splits e outras estatísticas do dataset):
+
+```bash
+uv run python -m gatefall.data.ingest verify
+```
+
 ## Licença
 
 O **código** deste repositório é distribuído sob a licença [MIT](LICENSE).

@@ -1,12 +1,5 @@
 """Helpers compartilhados entre os scripts de dados (não é um pacote público)."""
 
-import hashlib
-from pathlib import Path
+from gatefall.hashing import sha256_file
 
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+__all__ = ["sha256_file"]

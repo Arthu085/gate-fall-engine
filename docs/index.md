@@ -46,13 +46,17 @@ anotações (`data/labels/`, não versionado) e features pré-computadas
 (`data/features/`, não versionado). As anotações do Le2i são obtidas do
 dataset [OmniFall](https://huggingface.co/datasets/simplexsigil2/omnifall)
 via `uv run python scripts/fetch_labels.py`; os vídeos em si continuam sendo
-obtidos manualmente na fonte original. Ver a seção
+obtidos manualmente na fonte original. Depois de colocados em
+`data/raw/le2i/`, `uv run python -m gatefall.data.ingest ingest` casa cada
+vídeo com sua anotação e grava `data/manifest.parquet`. Ver a seção
 [Dados](https://github.com/Arthu085/gate-fall-engine/blob/main/README.md#dados)
 do README para o detalhamento completo e [Proveniência dos
-dados](data-provenance.md) para a revisão fixada, checksums e citações.
+dados](data-provenance.md) para a revisão fixada, checksums, a regra de
+casamento vídeo-label e citações.
 
 ## Estado do projeto
 
-Repositório em fase de estruturação inicial. Já existe um script de bootstrap
-das anotações (`scripts/fetch_labels.py`), mas ainda não há código de extração
-de features, treino ou avaliação.
+Repositório em fase de estruturação inicial. Já existem scripts de bootstrap
+das anotações (`scripts/fetch_labels.py`) e de ingestão dos vídeos
+(`gatefall.data.ingest`), mas ainda não há código de extração de features,
+treino ou avaliação.
