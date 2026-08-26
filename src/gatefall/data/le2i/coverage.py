@@ -26,11 +26,11 @@ def load_le2i_labels() -> pd.DataFrame:
     return pd.read_csv(path)
 
 
-def _sweep_gap_and_overlap(
+def _sweep_gap_overlap_and_intervals(
     segments: list[tuple[float, float]], video_duration_s: float
-) -> tuple[float, float]:
+) -> tuple[float, float, list[tuple[float, float]]]:
     if not segments:
-        return video_duration_s, 0.0
+        return video_duration_s, 0.0, [(0.0, video_duration_s)]
 
     # eventos (posição, delta): delta=-1 (fim) ordena antes de delta=+1 (início)
     # na mesma posição, para que segmentos apenas encostados não contem como
@@ -41,6 +41,7 @@ def _sweep_gap_and_overlap(
 
     gap_s = 0.0
     overlap_s = 0.0
+    gap_intervals: list[tuple[float, float]] = []
     multiplicity = 0
     previous_position = 0.0
     for position, delta in events:
@@ -52,6 +53,7 @@ def _sweep_gap_and_overlap(
                 clipped_length = right - left
                 if multiplicity == 0:
                     gap_s += clipped_length
+                    gap_intervals.append((left, right))
                 elif multiplicity >= 2:
                     overlap_s += (
                         multiplicity * (multiplicity - 1) / 2 * clipped_length
@@ -61,8 +63,40 @@ def _sweep_gap_and_overlap(
 
     if multiplicity == 0 and previous_position < video_duration_s:
         gap_s += video_duration_s - previous_position
+        gap_intervals.append((previous_position, video_duration_s))
 
-    return gap_s, overlap_s
+    return gap_s, overlap_s, gap_intervals
+
+
+def _split_gap_intervals(
+    gap_intervals: list[tuple[float, float]], video_duration_s: float
+) -> tuple[float, float, list[tuple[float, float]]]:
+    interior = list(gap_intervals)
+    leading_gap_s = 0.0
+    trailing_gap_s = 0.0
+    if interior and interior[0][0] <= 0.0:
+        leading_gap_s = interior[0][1] - interior[0][0]
+        interior = interior[1:]
+    if interior and interior[-1][1] >= video_duration_s:
+        trailing_gap_s = interior[-1][1] - interior[-1][0]
+        interior = interior[:-1]
+    return leading_gap_s, trailing_gap_s, interior
+
+
+def _union_length(intervals: list[tuple[float, float]]) -> float:
+    if not intervals:
+        return 0.0
+    ordered = sorted(intervals)
+    total = 0.0
+    current_start, current_end = ordered[0]
+    for start, end in ordered[1:]:
+        if start > current_end:
+            total += current_end - current_start
+            current_start, current_end = start, end
+        else:
+            current_end = max(current_end, end)
+    total += current_end - current_start
+    return total
 
 
 def build_per_video_coverage(
@@ -86,10 +120,24 @@ def build_per_video_coverage(
         frame_duration_s = 1.0 / fps
 
         segments = segments_by_video.get(video_id, [])
-        overhang_s = sum(
-            max(0.0, end - max(start, video_duration_s)) for start, end in segments
+        overhang_s = _union_length(
+            [
+                (max(start, video_duration_s), end)
+                for start, end in segments
+                if end > video_duration_s
+            ]
         )
-        gap_s, overlap_s = _sweep_gap_and_overlap(segments, video_duration_s)
+        gap_s, overlap_s, gap_intervals = _sweep_gap_overlap_and_intervals(
+            segments, video_duration_s
+        )
+
+        leading_gap_s, trailing_gap_s, interior_gap_intervals = _split_gap_intervals(
+            gap_intervals, video_duration_s
+        )
+        interior_gap_durations_s = [
+            right - left for left, right in interior_gap_intervals
+        ]
+        interior_gap_s = sum(interior_gap_durations_s)
 
         rows.append(
             {
@@ -106,6 +154,10 @@ def build_per_video_coverage(
                 "duration_delta_s": abs(
                     float(cast(float, row["duration_s"])) - video_duration_s
                 ),
+                "leading_gap_s": leading_gap_s,
+                "trailing_gap_s": trailing_gap_s,
+                "interior_gap_s": interior_gap_s,
+                "interior_gap_durations_s": interior_gap_durations_s,
             }
         )
     return pd.DataFrame(rows)
@@ -176,6 +228,106 @@ def report_gap_breakdown(per_video: pd.DataFrame, by: str) -> None:
         gap = float(cast(float, row["gap_s"]))
         pct = (gap / duration * 100) if duration else 0.0
         print(f"  {group_key}: gap_s={gap:.2f}s ({pct:.2f}% de {duration:.2f}s)")
+
+
+def report_gap_decomposition_totals(per_video: pd.DataFrame) -> None:
+    print("\n=== decomposição do gap_s (leading / trailing / interior) ===")
+    gap_s = float(cast(pd.Series, per_video["gap_s"]).sum())
+    components = {
+        "leading_gap_s": float(cast(pd.Series, per_video["leading_gap_s"]).sum()),
+        "trailing_gap_s": float(cast(pd.Series, per_video["trailing_gap_s"]).sum()),
+        "interior_gap_s": float(cast(pd.Series, per_video["interior_gap_s"]).sum()),
+    }
+    for name, value in components.items():
+        pct = (value / gap_s * 100) if gap_s else 0.0
+        print(f"  {name}: {value:.2f}s ({pct:.2f}% do gap_s total de {gap_s:.2f}s)")
+
+
+def report_gap_decomposition_by_env(per_video: pd.DataFrame) -> None:
+    print("\n=== decomposição do gap_s por env ===")
+    columns = ["leading_gap_s", "trailing_gap_s", "interior_gap_s"]
+    totals = {
+        column: float(cast(pd.Series, per_video[column]).sum()) for column in columns
+    }
+    grouped = cast(pd.DataFrame, per_video.groupby("env")[columns].sum())
+    for env, row in grouped.iterrows():
+        print(f"  {env}:")
+        for column in columns:
+            value = float(cast(float, row[column]))
+            total = totals[column]
+            pct = (value / total * 100) if total else 0.0
+            print(f"    {column}: {value:.2f}s ({pct:.2f}% do total de {column})")
+
+
+def report_home_trailing_gap_table(per_video: pd.DataFrame) -> None:
+    print("\n=== trailing_gap_s por vídeo — Home_01 / Home_02 ===")
+    home = cast(
+        pd.DataFrame, per_video[per_video["env"].isin(["Home_01", "Home_02"])]
+    )
+    if home.empty:
+        print("nenhum vídeo em Home_01/Home_02")
+        return
+    for _, row in cast(
+        pd.DataFrame, home.sort_values(["env", "video_id"])
+    ).iterrows():
+        duration = float(cast(float, row["video_duration_s"]))
+        trailing = float(cast(float, row["trailing_gap_s"]))
+        ratio = trailing / duration if duration else 0.0
+        print(
+            f"  {row['env']}/{row['video_id']}: "
+            f"video_duration_s={duration:.2f}s trailing_gap_s={trailing:.4f}s "
+            f"ratio={ratio:.4f}"
+        )
+
+
+def report_trailing_gap_correlation(per_video: pd.DataFrame) -> None:
+    print(
+        "\n=== correlação (Pearson) entre trailing_gap_s e video_duration_s, "
+        "por env ==="
+    )
+    for env, group in per_video.groupby("env"):
+        group = cast(pd.DataFrame, group)
+        trailing_gap = cast(pd.Series, group["trailing_gap_s"])
+        video_duration = cast(pd.Series, group["video_duration_s"])
+        r = cast(float, trailing_gap.corr(video_duration))
+        if pd.isna(r):
+            print(f"  {env}: r=NaN (variância insuficiente)")
+        else:
+            print(f"  {env}: r={r:.4f}")
+
+
+def report_interior_gap_distribution(per_video: pd.DataFrame) -> None:
+    print("\n=== distribuição dos gaps interiores individuais ===")
+    durations = [
+        duration
+        for durations_s in per_video["interior_gap_durations_s"]
+        for duration in durations_s
+    ]
+    if not durations:
+        print("nenhum gap interior encontrado")
+        return
+    series = pd.Series(durations)
+    print(f"contagem total: {len(series)}")
+    quantiles = {
+        "min": series.min(),
+        "p25": series.quantile(0.25),
+        "median": series.median(),
+        "p75": series.quantile(0.75),
+        "max": series.max(),
+    }
+    for name, value in quantiles.items():
+        print(f"  {name}: {float(value):.4f}s")
+
+
+def report_interior_gap_invariant(per_video: pd.DataFrame) -> bool:
+    print("\n=== invariante interno: interior_gap_s >= 0 ===")
+    violations = per_video[per_video["interior_gap_s"] < -1e-6]
+    if violations.empty:
+        print("OK: interior_gap_s não-negativo em todos os vídeos")
+        return True
+    for _, row in violations.iterrows():
+        print(f"  {row['video_id']}: interior_gap_s={row['interior_gap_s']:.6f}")
+    return False
 
 
 def report_zero_segment_videos(per_video: pd.DataFrame) -> bool:
@@ -260,10 +412,18 @@ def audit_le2i_coverage() -> None:
     report_perfectly_tiled_count(per_video)
     report_gap_breakdown(per_video, "env")
     report_gap_breakdown(per_video, "split")
+    report_gap_decomposition_totals(per_video)
+    report_gap_decomposition_by_env(per_video)
+    report_home_trailing_gap_table(per_video)
+    report_trailing_gap_correlation(per_video)
+    report_interior_gap_distribution(per_video)
+    interior_gap_invariant_ok = report_interior_gap_invariant(per_video)
     zero_segments_ok = report_zero_segment_videos(per_video)
     agreement_ok = report_annotation_source_agreement(le2i_labels, splits)
 
     failed: list[str] = []
+    if not interior_gap_invariant_ok:
+        failed.append("interior_gap_s negativo em algum vídeo")
     if not zero_segments_ok:
         failed.append("vídeos sem segmentos anotados")
     if not agreement_ok:

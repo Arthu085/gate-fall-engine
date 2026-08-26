@@ -141,6 +141,16 @@ Para cada vídeo, calcula:
   vídeo (`1 / fps`), pois o fps não é constante entre ambientes — ver
   distribuição de fps acima;
 - `gap_s` somado e como percentual, agrupado por `env` e por `split`;
+- decomposição do `gap_s` em `leading_gap_s` (antes do primeiro segmento),
+  `trailing_gap_s` (depois do último segmento) e `interior_gap_s` (entre
+  segmentos), agregada no total e por `env`;
+- tabela de `trailing_gap_s` por vídeo em `Home_01`/`Home_02` (fps ≈
+  24,000384, diferente dos demais ambientes), com a razão
+  `trailing_gap_s / video_duration_s`, e a correlação de Pearson entre
+  `trailing_gap_s` e `video_duration_s` por `env` — para expor a assinatura de
+  um possível desvio sistemático de conversão de fps nesses dois ambientes;
+- distribuição (contagem, mínimo, p25, mediana, p75, máximo) da duração dos
+  gaps interiores individuais, agrupados de todos os vídeos;
 - lista de vídeos sem nenhum segmento anotado.
 
 ### Cross-check entre fontes de anotação
@@ -152,8 +162,10 @@ label)`. Divergências são impressas em até 20 exemplos por lado.
 
 ### Falhas críticas
 
-Apenas dois problemas fazem o comando terminar com código diferente de zero:
+Apenas três problemas fazem o comando terminar com código diferente de zero:
 
+- `interior_gap_s` negativo em algum vídeo (violação do invariante interno da
+  decomposição do `gap_s`);
 - algum vídeo sem nenhum segmento anotado;
 - divergência entre `le2i.csv` e a união dos splits.
 
