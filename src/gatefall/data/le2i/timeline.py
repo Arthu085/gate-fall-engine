@@ -6,74 +6,11 @@ import numpy as np
 import pandas as pd
 
 from gatefall.config import IGNORE_LABEL, TARGET_FPS
+from gatefall.data.intervals import sweep_gaps_and_overlap, tag_gap_positions
 from gatefall.data.le2i.annotations import load_annotation_splits
 from gatefall.data.le2i.path_matching import normalize_annotation_video_path
 from gatefall.data.le2i.verification import load_le2i_manifest
 from gatefall.data.resampling import build_time_grid, labels_for_grid
-
-_EMPTY_SEGMENTS = pd.DataFrame(
-    {
-        "start": pd.Series(dtype="float64"),
-        "end": pd.Series(dtype="float64"),
-        "label": pd.Series(dtype="int64"),
-    }
-)
-
-
-def _gap_intervals(
-    segments: list[tuple[float, float]], duration_s: float
-) -> list[tuple[float, float]]:
-    if not segments:
-        return [(0.0, duration_s)] if duration_s > 0.0 else []
-
-    # eventos (posição, delta): delta=-1 (fim) ordena antes de delta=+1 (início)
-    # na mesma posição, para que segmentos apenas encostados não fechem o gap
-    # entre eles um instante antes da hora (mesma convenção de le2i/coverage.py).
-    events = sorted(
-        [(start, 1) for start, _ in segments] + [(end, -1) for _, end in segments]
-    )
-
-    intervals: list[tuple[float, float]] = []
-    multiplicity = 0
-    previous_position = 0.0
-    for position, delta in events:
-        if multiplicity == 0:
-            left = max(previous_position, 0.0)
-            right = min(position, duration_s)
-            if right > left:
-                intervals.append((left, right))
-        multiplicity += delta
-        previous_position = position
-
-    if multiplicity == 0 and previous_position < duration_s:
-        intervals.append((previous_position, duration_s))
-
-    return intervals
-
-
-def _tag_gap_positions(
-    gap_intervals: list[tuple[float, float]], duration_s: float
-) -> list[tuple[float, float, str]]:
-    remaining = list(gap_intervals)
-    tagged: list[tuple[float, float, str]] = []
-
-    if remaining and remaining[0][0] <= 0.0:
-        start, end = remaining[0]
-        tagged.append((start, end, "leading"))
-        remaining = remaining[1:]
-
-    trailing_item: tuple[float, float] | None = None
-    if remaining and remaining[-1][1] >= duration_s:
-        trailing_item = remaining[-1]
-        remaining = remaining[:-1]
-
-    for start, end in remaining:
-        tagged.append((start, end, "interior"))
-
-    if trailing_item is not None:
-        tagged.append((trailing_item[0], trailing_item[1], "trailing"))
-
-    return tagged
 
 
 def build_grid_frames(
@@ -101,7 +38,12 @@ def build_grid_frames(
         n_frames_counted = int(cast(int, row["n_frames_counted"]))
         duration_s = n_frames_counted / fps
 
-        segments = segments_by_video.get(video_id, _EMPTY_SEGMENTS)
+        if video_id not in segments_by_video:
+            raise KeyError(
+                f"nenhuma anotação encontrada para video_id={video_id!r}; a bijeção "
+                "vídeo<->anotação deveria ter sido garantida por `ingest verify`"
+            )
+        segments = segments_by_video[video_id]
         segment_tuples = list(
             zip(segments["start"].astype(float), segments["end"].astype(float))
         )
@@ -113,8 +55,9 @@ def build_grid_frames(
 
         gap_position = np.full(k, None, dtype=object)
         gap_length_s = np.full(k, np.nan, dtype=np.float64)
-        for gap_start, gap_end, position in _tag_gap_positions(
-            _gap_intervals(segment_tuples, duration_s), duration_s
+        _, _, gap_intervals = sweep_gaps_and_overlap(segment_tuples, duration_s)
+        for gap_start, gap_end, position in tag_gap_positions(
+            gap_intervals, duration_s
         ):
             lo = int(np.searchsorted(times, gap_start, side="left"))
             hi = int(np.searchsorted(times, gap_end, side="left"))

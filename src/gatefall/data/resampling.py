@@ -40,7 +40,9 @@ def labels_for_grid(
         hi = int(np.searchsorted(times, end, side="left"))
         if hi <= lo:
             continue
-        window_filled = filled[lo:hi]
+        # cópia explícita: filled[lo:hi] é uma view: sem copy(), escrever em
+        # filled mais adiante também mudaria window_filled por baixo dos panos.
+        window_filled = filled[lo:hi].copy()
         overlapped[lo:hi] |= window_filled
         to_write = ~window_filled
         labels[lo:hi] = np.where(to_write, label, labels[lo:hi])
