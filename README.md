@@ -58,7 +58,8 @@ A documentação detalhada está dividida por responsabilidade:
 - [Organização geral e fluxo dos dados](docs/data/organization.md);
 - [Anotações e proveniência do OmniFall](docs/data/omnifall.md);
 - [Obtenção e preparação do Le2i](docs/data/le2i.md);
-- [Manifesto e verificações](docs/data/manifest-verification.md).
+- [Manifesto e verificações](docs/data/manifest-verification.md);
+- [Contrato temporal](docs/data/temporal-contract.md).
 
 ## Licença
 
