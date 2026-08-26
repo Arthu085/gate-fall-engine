@@ -46,7 +46,9 @@ em sua fonte.
    `uv run python -m gatefall.data.ingest ingest`.
 4. Verifique os arquivos e as propriedades do conjunto com
    `uv run python -m gatefall.data.ingest verify`.
-5. Use o manifesto como índice para as etapas posteriores de features. Essas
+5. Audite a cobertura dos segmentos anotados sobre a duração dos vídeos com
+   `uv run python -m gatefall.data.coverage audit`.
+6. Use o manifesto como índice para as etapas posteriores de features. Essas
    etapas ainda não estão implementadas.
 
 Consulte [OmniFall](omnifall.md), [Le2i](le2i.md) e [Manifesto e
@@ -72,9 +74,12 @@ As decisões específicas do Le2i ficam em `gatefall.data.le2i`:
 - `path_matching` normaliza e casa os caminhos do OmniFall com os vídeos
   extraídos;
 - `manifest` constrói o manifesto do Le2i usando os componentes genéricos;
-- `verification` reúne as verificações críticas e os relatórios informativos.
+- `verification` reúne as verificações críticas e os relatórios informativos;
+- `coverage` audita o quanto os segmentos anotados cobrem a duração de cada
+  vídeo, a partir do manifesto e das anotações já preparados.
 
-Os arquivos `scripts/fetch_labels.py`, `scripts/extract_le2i.py` e
-`gatefall.data.ingest` são apenas pontos de entrada. A análise histórica fica em
-`scripts/exploratory/explore_le2i.py`; ela pode consumir módulos de produção,
-mas nenhuma etapa de produção depende dela.
+Os arquivos `scripts/fetch_labels.py`, `scripts/extract_le2i.py`,
+`gatefall.data.ingest` e `gatefall.data.coverage` são apenas pontos de
+entrada. A análise histórica fica em `scripts/exploratory/explore_le2i.py`;
+ela pode consumir módulos de produção, mas nenhuma etapa de produção depende
+dela.
