@@ -1,5 +1,6 @@
 """Grade de reamostragem temporal e rótulo por quadro do Le2i (somente relatório)."""
 
+import sys
 from typing import cast
 
 import numpy as np
@@ -15,7 +16,7 @@ from gatefall.data.resampling import build_time_grid, labels_for_grid
 
 def build_grid_frames(
     manifest: pd.DataFrame, splits: dict[str, pd.DataFrame]
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     pooled = cast(pd.DataFrame, pd.concat(splits.values(), ignore_index=True)).copy()
     pooled["video_id"] = pooled["path"].map(normalize_annotation_video_path)
 
@@ -28,6 +29,7 @@ def build_grid_frames(
 
     grid_frames_parts: list[pd.DataFrame] = []
     per_video_rows: list[dict[str, object]] = []
+    skipped_segments_rows: list[dict[str, object]] = []
 
     for _, row in manifest.iterrows():
         video_id = str(row["video_id"])
@@ -49,16 +51,40 @@ def build_grid_frames(
         )
 
         times, src_indices = build_time_grid(n_frames_counted, fps, TARGET_FPS)
-        labels, n_overlap_resolved = labels_for_grid(segments, times, IGNORE_LABEL)
+        grid_labels = labels_for_grid(segments, times, IGNORE_LABEL)
+        labels = grid_labels.labels
+        n_overlap_resolved = grid_labels.n_overlap_resolved
+        n_segments_skipped = grid_labels.n_segments_skipped
         is_ignore = labels == IGNORE_LABEL
         k = int(times.shape[0])
+
+        skipped_here: list[dict[str, object]] = []
+        if n_segments_skipped > 0:
+            for seg_start, seg_end in segment_tuples:
+                seg_lo = int(np.searchsorted(times, seg_start, side="left"))
+                seg_hi = int(np.searchsorted(times, seg_end, side="left"))
+                if seg_hi <= seg_lo:
+                    skipped_here.append(
+                        {"video_id": video_id, "start": seg_start, "end": seg_end}
+                    )
+        skipped_segments_rows.extend(skipped_here)
 
         gap_position = np.full(k, None, dtype=object)
         gap_length_s = np.full(k, np.nan, dtype=np.float64)
         _, _, gap_intervals = sweep_gaps_and_overlap(segment_tuples, duration_s)
+        leading_gap_s = 0.0
+        trailing_gap_s = 0.0
+        interior_gap_s = 0.0
         for gap_start, gap_end, position in tag_gap_positions(
             gap_intervals, duration_s
         ):
+            length = gap_end - gap_start
+            if position == "leading":
+                leading_gap_s += length
+            elif position == "trailing":
+                trailing_gap_s += length
+            else:
+                interior_gap_s += length
             lo = int(np.searchsorted(times, gap_start, side="left"))
             hi = int(np.searchsorted(times, gap_end, side="left"))
             if hi <= lo:
@@ -96,6 +122,10 @@ def build_grid_frames(
                 "k": k,
                 "naive_k": duration_s * TARGET_FPS,
                 "n_overlap_resolved": n_overlap_resolved,
+                "n_segments_skipped": n_segments_skipped,
+                "leading_gap_s": leading_gap_s,
+                "trailing_gap_s": trailing_gap_s,
+                "interior_gap_s": interior_gap_s,
             }
         )
 
@@ -120,8 +150,11 @@ def build_grid_frames(
         ),
     )
     per_video = pd.DataFrame(per_video_rows)
+    skipped_segments = pd.DataFrame(
+        skipped_segments_rows, columns=["video_id", "start", "end"]
+    )
 
-    return grid_frames, per_video
+    return grid_frames, per_video, skipped_segments
 
 
 def report_total_grid_frames(per_video: pd.DataFrame) -> None:
@@ -189,6 +222,19 @@ def report_overlap_resolved_total(per_video: pd.DataFrame) -> None:
     print(f"n_overlap_resolved total: {total}")
 
 
+def report_segments_without_grid_point(
+    per_video: pd.DataFrame, skipped_segments: pd.DataFrame
+) -> bool:
+    print("\n=== segmentos anotados sem nenhum ponto de grade ===")
+    total = int(cast(pd.Series, per_video["n_segments_skipped"]).sum())
+    print(f"n_segments_skipped total: {total}")
+    if total > 0:
+        print("  FALHA CRÍTICA: segmentos sem nenhum ponto de grade:")
+        for _, row in skipped_segments.iterrows():
+            print(f"    {row['video_id']}: start={row['start']:.4f} end={row['end']:.4f}")
+    return total == 0
+
+
 def report_ignore_fraction(grid_frames: pd.DataFrame) -> None:
     print("\n=== fração de quadros IGNORE_LABEL ===")
     total = len(grid_frames)
@@ -221,11 +267,65 @@ def report_ignore_gap_position_breakdown(grid_frames: pd.DataFrame) -> None:
     for position, count in counts.items():
         pct = (count / total * 100) if total else 0.0
         print(f"  {position}: {count} ({pct:.2f}%)")
+
+
+def report_gap_seconds_reconciliation(
+    grid_frames: pd.DataFrame, per_video: pd.DataFrame
+) -> bool:
     print(
-        "  lembrete — auditoria de cobertura em segundos (docs/data/"
-        "manifest-verification.md): leading 66,4% / trailing 26,0% / "
-        "interior 7,6%"
+        "\n=== reconciliação: IGNORE_LABEL (grade) vs gap_s (varredura em "
+        "segundos) ==="
     )
+    ignore = cast(pd.DataFrame, grid_frames[grid_frames["is_ignore"]])
+    frame_counts_by_position = cast(
+        pd.Series, ignore["gap_position"]
+    ).value_counts(dropna=False)
+
+    def frames_seconds(position: str | None) -> float:
+        count = int(cast(int, frame_counts_by_position.get(position, 0)))
+        return count / TARGET_FPS
+
+    total_ignore_s = len(ignore) / TARGET_FPS
+    leading_gap_s = float(cast(pd.Series, per_video["leading_gap_s"]).sum())
+    trailing_gap_s = float(cast(pd.Series, per_video["trailing_gap_s"]).sum())
+    interior_gap_s = float(cast(pd.Series, per_video["interior_gap_s"]).sum())
+    total_gap_s = leading_gap_s + trailing_gap_s + interior_gap_s
+
+    print(
+        f"  total:    IGNORE/{TARGET_FPS}={total_ignore_s:.2f}s  vs  "
+        f"gap_s={total_gap_s:.2f}s"
+    )
+    print(
+        f"  leading:  IGNORE/{TARGET_FPS}={frames_seconds('leading'):.2f}s  vs  "
+        f"gap_s={leading_gap_s:.2f}s"
+    )
+    print(
+        f"  trailing: IGNORE/{TARGET_FPS}={frames_seconds('trailing'):.2f}s  vs  "
+        f"gap_s={trailing_gap_s:.2f}s"
+    )
+    print(
+        f"  interior: IGNORE/{TARGET_FPS}={frames_seconds('interior'):.2f}s  vs  "
+        f"gap_s={interior_gap_s:.2f}s"
+    )
+    print(
+        "  leading e trailing podem divergir de propósito, em direções opostas: "
+        "um gap leading [0, g) cobre os pontos de grade 0..ceil(g*TARGET_FPS)-1 "
+        "(arredonda para cima), enquanto um gap trailing perde sua cauda para o "
+        "floor de K por vídeo (arredonda para baixo). Não é bug — só o total "
+        "abaixo é verificado."
+    )
+
+    abs_delta = abs(total_ignore_s - total_gap_s)
+    rel_delta = (abs_delta / total_gap_s) if total_gap_s else 0.0
+    print(f"  delta total: {abs_delta:.4f}s ({rel_delta * 100:.4f}%)")
+
+    ok = rel_delta <= 0.05
+    if not ok:
+        print(
+            f"  FALHA CRÍTICA: delta relativo {rel_delta * 100:.2f}% excede o "
+            "limite de 5%"
+        )
+    return ok
 
 
 def report_subframe_seam_ignore_frames(grid_frames: pd.DataFrame) -> None:
@@ -238,8 +338,17 @@ def report_subframe_seam_ignore_frames(grid_frames: pd.DataFrame) -> None:
         ],
     )
     print(f"contagem: {len(seam)}")
+    if not seam.empty:
+        print("por gap_position:")
+        for position, count in cast(
+            pd.Series, seam["gap_position"]
+        ).value_counts(dropna=False).items():
+            print(f"  {position}: {count}")
     for _, row in seam.iterrows():
-        print(f"  {row['video_id']}: time_s={row['time_s']:.4f}")
+        print(
+            f"  {row['video_id']}: time_s={row['time_s']:.4f} "
+            f"gap_position={row['gap_position']} gap_length_s={row['gap_length_s']:.4f}"
+        )
 
 
 def report_longest_ignore_runs(grid_frames: pd.DataFrame) -> None:
@@ -283,6 +392,39 @@ def report_split_env_crosstab(per_video: pd.DataFrame, grid_frames: pd.DataFrame
     print(pd.crosstab(grid_frames["split"], grid_frames["env"]))
 
 
+def report_ignore_rate_by_split_env(grid_frames: pd.DataFrame) -> None:
+    print("\n=== fração de IGNORE_LABEL por (split, env) ===")
+    totals = cast(pd.Series, grid_frames.groupby(["split", "env"]).size())
+    ignore_counts = cast(
+        pd.Series,
+        grid_frames[grid_frames["is_ignore"]].groupby(["split", "env"]).size(),
+    )
+    rate_by_cell = (ignore_counts.reindex(totals.index, fill_value=0) / totals * 100)
+    print(rate_by_cell.unstack("env").round(2))
+
+    per_env_totals = cast(pd.Series, grid_frames.groupby("env").size())
+    per_env_ignore = cast(
+        pd.Series, grid_frames[grid_frames["is_ignore"]].groupby("env").size()
+    )
+    per_env_rate = (
+        per_env_ignore.reindex(per_env_totals.index, fill_value=0) / per_env_totals
+    )
+
+    print("\nobservado vs. previsto pela composição de ambientes, por split:")
+    for split, split_group in grid_frames.groupby("split"):
+        split_group = cast(pd.DataFrame, split_group)
+        split_total = len(split_group)
+        split_ignore = int(cast(pd.Series, split_group["is_ignore"]).sum())
+        observed = (split_ignore / split_total * 100) if split_total else 0.0
+        env_counts = cast(pd.Series, split_group.groupby("env").size())
+        weights = env_counts / split_total
+        predicted = float((weights * per_env_rate.reindex(weights.index)).sum() * 100)
+        print(
+            f"  {split}: observado={observed:.2f}%  "
+            f"previsto pela mistura de env={predicted:.2f}%"
+        )
+
+
 def report_split_subject_crosstab(per_video: pd.DataFrame) -> None:
     print("\n=== crosstab split x subject (contagem de vídeos) ===")
     print(pd.crosstab(per_video["split"], per_video["subject"]))
@@ -299,7 +441,7 @@ def report_split_env_list(per_video: pd.DataFrame) -> None:
 def report_le2i_timegrid() -> None:
     manifest = load_le2i_manifest()
     splits = load_annotation_splits()
-    grid_frames, per_video = build_grid_frames(manifest, splits)
+    grid_frames, per_video, skipped_segments = build_grid_frames(manifest, splits)
 
     report_total_grid_frames(per_video)
     report_video_extremes_by_duration(per_video)
@@ -307,12 +449,25 @@ def report_le2i_timegrid() -> None:
     report_split_label_frame_counts(grid_frames)
     report_label_duration_stats(grid_frames)
     report_overlap_resolved_total(per_video)
+    segments_ok = report_segments_without_grid_point(per_video, skipped_segments)
     report_ignore_fraction(grid_frames)
     report_ignore_gap_position_breakdown(grid_frames)
+    reconciliation_ok = report_gap_seconds_reconciliation(grid_frames, per_video)
     report_subframe_seam_ignore_frames(grid_frames)
     report_longest_ignore_runs(grid_frames)
     report_split_env_crosstab(per_video, grid_frames)
+    report_ignore_rate_by_split_env(grid_frames)
     report_split_subject_crosstab(per_video)
     report_split_env_list(per_video)
 
-    print("\ntimegrid report OK: relatório concluído (sem checagens críticas)")
+    failed: list[str] = []
+    if not segments_ok:
+        failed.append("segmentos anotados sem nenhum ponto de grade")
+    if not reconciliation_ok:
+        failed.append("delta entre IGNORE_LABEL e gap_s acima do limite de 5%")
+
+    if failed:
+        print(f"\ntimegrid report FALHOU: {', '.join(failed)}", file=sys.stderr)
+        sys.exit(1)
+
+    print("\ntimegrid report OK: nenhuma falha crítica encontrada")

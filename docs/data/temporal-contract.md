@@ -78,9 +78,26 @@ verificação](manifest-verification.md)) e imprime, entre outros: o total de
 quadros da grade (`K`) e sua comparação com a projeção ingênua; `K` para os
 vídeos mais curtos e mais longos; contagens de quadros por split e por
 `(split, label)`; quadros e segundos por classe; o total de sobreposições
-resolvidas; a fração de `IGNORE_LABEL` geral, por split e por ambiente, com a
-decomposição por `gap_position`; a maior sequência de `IGNORE_LABEL`
-consecutivos por ambiente; e a composição dos splits (ambientes e sujeitos).
+resolvidas; o total de segmentos anotados que não contêm nenhum ponto de
+grade (`n_segments_skipped` — falha crítica se maior que zero); a fração de
+`IGNORE_LABEL` geral, por split e por ambiente, com a decomposição por
+`gap_position`; uma reconciliação entre a contagem de quadros
+`IGNORE_LABEL` (convertida em segundos via `TARGET_FPS`) e `gap_s` — o mesmo
+fenômeno medido pela varredura de intervalos em segundos — cujo total precisa
+bater dentro de uma tolerância relativa de 5% (as parcelas `leading`/
+`trailing` podem divergir de propósito por causa da direção de arredondamento
+em cada uma, mas só o total é verificado); os quadros `IGNORE_LABEL` cujo gap
+é menor que um quadro-fonte, agora com `gap_position` e `gap_length_s` por
+linha; a maior sequência de `IGNORE_LABEL` consecutivos por ambiente; a
+fração de `IGNORE_LABEL` por `(split, env)`, com o valor observado por split
+comparado ao previsto por uma mistura ponderada das taxas de cada ambiente; e
+a composição dos splits (ambientes e sujeitos).
+
+Assim como `coverage audit`, `report` agora termina com um código de saída
+diferente de zero se alguma checagem crítica falhar (segmentos sem ponto de
+grade, ou reconciliação de `IGNORE_LABEL`/`gap_s` acima do limite), imprimindo
+`timegrid report OK: nenhuma falha crítica encontrada` no caso de sucesso —
+deixou de ser puramente descritivo.
 
 ```bash
 uv run python -m gatefall.data.timegrid selftest
@@ -89,10 +106,10 @@ uv run python -m gatefall.data.timegrid selftest
 Verifica `build_time_grid` e `labels_for_grid` contra entradas sintéticas —
 sem acessar o dataset real. Cobre a fronteira de arredondamento do `floor` em
 `K`, a convenção semiaberta na borda entre dois segmentos, um gap sub-quadro
-entre segmentos, a resolução de sobreposição, um gap inicial (`leading`), o
-caso `K = 0` e o clamp de `src_indices`. Cada caso imprime uma linha
-`PASS`/`FAIL`; o comando termina com código diferente de zero se algum caso
-falhar.
+entre segmentos, a resolução de sobreposição, um gap inicial (`leading`), um
+segmento anotado sem nenhum ponto de grade (`n_segments_skipped`), o caso
+`K = 0` e o clamp de `src_indices`. Cada caso imprime uma linha `PASS`/`FAIL`;
+o comando termina com código diferente de zero se algum caso falhar.
 
 ## Janelamento
 

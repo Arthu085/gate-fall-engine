@@ -1,7 +1,15 @@
 """Grade de reamostragem temporal e definição do rótulo por quadro (agnóstico de dataset)."""
 
+from typing import NamedTuple
+
 import numpy as np
 import pandas as pd
+
+
+class GridLabels(NamedTuple):
+    labels: np.ndarray
+    n_overlap_resolved: int
+    n_segments_skipped: int
 
 
 def build_time_grid(
@@ -22,8 +30,8 @@ def build_time_grid(
 
 def labels_for_grid(
     segments: pd.DataFrame, times: np.ndarray, ignore_label: int
-) -> tuple[np.ndarray, int]:
-    """Retorna (labels int8[K], n_overlap_resolved).
+) -> GridLabels:
+    """Retorna GridLabels(labels int8[K], n_overlap_resolved, n_segments_skipped).
     Intervalo semiaberto [start, end). Timestamps não cobertos por nenhum segmento
     recebem ignore_label. Em sobreposição vence o segmento de menor `start`;
     devolve quantos timestamps foram afetados."""
@@ -31,6 +39,7 @@ def labels_for_grid(
     labels = np.full(k, ignore_label, dtype=np.int8)
     filled = np.zeros(k, dtype=bool)
     overlapped = np.zeros(k, dtype=bool)
+    n_segments_skipped = 0
 
     ordered = segments.sort_values("start", kind="stable")
     for start, end, label in zip(
@@ -39,6 +48,7 @@ def labels_for_grid(
         lo = int(np.searchsorted(times, start, side="left"))
         hi = int(np.searchsorted(times, end, side="left"))
         if hi <= lo:
+            n_segments_skipped += 1
             continue
         # cópia explícita: filled[lo:hi] é uma view: sem copy(), escrever em
         # filled mais adiante também mudaria window_filled por baixo dos panos.
@@ -48,4 +58,4 @@ def labels_for_grid(
         labels[lo:hi] = np.where(to_write, label, labels[lo:hi])
         filled[lo:hi] = True
 
-    return labels, int(overlapped.sum())
+    return GridLabels(labels, int(overlapped.sum()), n_segments_skipped)

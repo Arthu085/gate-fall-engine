@@ -42,7 +42,7 @@ def check_floor_boundary() -> bool:
 def check_half_open_boundary() -> bool:
     segments = pd.DataFrame({"start": [1.0, 2.0], "end": [2.0, 3.0], "label": [1, 2]})
     times = np.array([1.5, 2.0, 2.5], dtype=np.float64)
-    labels, _ = labels_for_grid(segments, times, IGNORE_LABEL)
+    labels, _, _ = labels_for_grid(segments, times, IGNORE_LABEL)
     return _check(
         "fronteira semiaberta [start, end): t=2.0 pertence ao segundo segmento",
         int(labels[1]) == 2,
@@ -53,11 +53,11 @@ def check_subframe_seam() -> bool:
     segments = pd.DataFrame({"start": [0.0, 0.9502], "end": [0.95, 2.0], "label": [1, 2]})
 
     times_inside = np.array([0.0, 0.9501, 2.0], dtype=np.float64)
-    labels_inside, _ = labels_for_grid(segments, times_inside, IGNORE_LABEL)
+    labels_inside, _, _ = labels_for_grid(segments, times_inside, IGNORE_LABEL)
     has_ignore_inside = bool(np.any(labels_inside == IGNORE_LABEL))
 
     times_outside = np.array([0.0, 1.0], dtype=np.float64)
-    labels_outside, _ = labels_for_grid(segments, times_outside, IGNORE_LABEL)
+    labels_outside, _, _ = labels_for_grid(segments, times_outside, IGNORE_LABEL)
     has_ignore_outside = bool(np.any(labels_outside == IGNORE_LABEL))
 
     ok = has_ignore_inside and not has_ignore_outside
@@ -71,7 +71,7 @@ def check_subframe_seam() -> bool:
 def check_overlap_resolution() -> bool:
     segments = pd.DataFrame({"start": [0.0, 1.0], "end": [2.0, 3.0], "label": [1, 2]})
     times = np.array([0.5, 1.5, 2.5], dtype=np.float64)
-    labels, n_overlap_resolved = labels_for_grid(segments, times, IGNORE_LABEL)
+    labels, n_overlap_resolved, _ = labels_for_grid(segments, times, IGNORE_LABEL)
     ok = int(labels[1]) == 1 and n_overlap_resolved > 0
     return _check(
         "sobreposição: segmento de menor `start` vence e n_overlap_resolved > 0",
@@ -82,10 +82,22 @@ def check_overlap_resolution() -> bool:
 def check_leading_gap() -> bool:
     times = np.arange(40, dtype=np.float64) / TARGET_FPS
     segments = pd.DataFrame({"start": [2.8], "end": [4.0], "label": [1]})
-    labels, _ = labels_for_grid(segments, times, IGNORE_LABEL)
+    labels, _, _ = labels_for_grid(segments, times, IGNORE_LABEL)
     ok = bool(np.all(labels[:28] == IGNORE_LABEL)) and int(labels[28]) == 1
     return _check(
         "gap inicial: exatamente 28 quadros IGNORE antes de t=2.8s", ok
+    )
+
+
+def check_segment_without_grid_point() -> bool:
+    times = np.array([0.0, 0.1, 0.2], dtype=np.float64)
+    segments = pd.DataFrame({"start": [0.15], "end": [0.19], "label": [1]})
+    result = labels_for_grid(segments, times, IGNORE_LABEL)
+    ok = result.n_segments_skipped == 1 and bool(np.all(result.labels == IGNORE_LABEL))
+    return _check(
+        "segmento sem nenhum ponto de grade: cai entre dois timestamps -> "
+        "n_segments_skipped=1, todos os pontos ficam IGNORE_LABEL",
+        ok,
     )
 
 
@@ -100,7 +112,7 @@ def check_empty_grid() -> bool:
             "label": pd.Series(dtype="int64"),
         }
     )
-    labels, n_overlap_resolved = labels_for_grid(empty_segments, times, IGNORE_LABEL)
+    labels, n_overlap_resolved, _ = labels_for_grid(empty_segments, times, IGNORE_LABEL)
     ok = ok and labels.shape == (0,) and n_overlap_resolved == 0
     return _check(
         "K=0 (n_frames=2, fps_src=25, fps_target=10): sem crash, arrays vazios", ok
@@ -127,6 +139,7 @@ def run_resampling_selftest() -> None:
         check_subframe_seam(),
         check_overlap_resolution(),
         check_leading_gap(),
+        check_segment_without_grid_point(),
         check_empty_grid(),
         check_src_index_clip(),
     ]
