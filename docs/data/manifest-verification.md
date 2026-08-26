@@ -103,3 +103,71 @@ Os relatórios abaixo descrevem o conjunto, mas não determinam sucesso ou falha
 Em particular, a disjunção por sujeito é informativa. O identificador upstream
 `le2i-cs` não substitui essa medição e o nome da configuração não deve ser
 interpretado, isoladamente, como garantia de um split cross-subject.
+
+## Auditoria de cobertura
+
+Execute a auditoria de cobertura das anotações sobre o manifesto já construído:
+
+```bash
+uv run python -m gatefall.data.coverage audit
+```
+
+O comando mede o quanto os segmentos anotados (`train.csv`, `val.csv` e
+`test.csv`, unidos) cobrem a duração de cada vídeo do Le2i. A duração canônica
+de um vídeo é `n_frames_counted / fps`, lida do manifesto — não o
+`duration_s` bruto do container. A auditoria é somente leitura: não grava no
+manifesto, nas anotações nem em `data/raw/`.
+
+Para cada vídeo, calcula:
+
+| Métrica | Significado |
+| --- | --- |
+| `n_segments` | Quantidade de segmentos anotados |
+| `segments_total_s` | Soma da duração dos segmentos |
+| `gap_s` | Tempo do vídeo não coberto por nenhum segmento |
+| `overlap_s` | Soma das sobreposições entre pares de segmentos |
+| `overhang_s` | Tempo de segmentos que ultrapassa o fim do vídeo |
+| `duration_delta_s` | `abs(duration_s - n_frames_counted / fps)` |
+
+### Relatórios
+
+- totais agregados de `segments_total_s`, `gap_s`, `overlap_s` e `overhang_s`,
+  com `gap_s` também como percentual da duração total;
+- os 10 piores vídeos por `gap_s`, `overlap_s`, `overhang_s` e
+  `duration_delta_s`;
+- quantis de `gap_s` (mínimo, p25, mediana, p75, máximo);
+- contagem de vídeos perfeitamente cobertos (`tiled`): `gap_s`, `overlap_s` e
+  `overhang_s` todos abaixo da duração de um quadro. A tolerância é medida por
+  vídeo (`1 / fps`), pois o fps não é constante entre ambientes — ver
+  distribuição de fps acima;
+- `gap_s` somado e como percentual, agrupado por `env` e por `split`;
+- decomposição do `gap_s` em `leading_gap_s` (antes do primeiro segmento),
+  `trailing_gap_s` (depois do último segmento) e `interior_gap_s` (entre
+  segmentos), agregada no total e por `env`;
+- tabela de `trailing_gap_s` por vídeo em `Home_01`/`Home_02` (fps ≈
+  24,000384, diferente dos demais ambientes), com a razão
+  `trailing_gap_s / video_duration_s`, e a correlação de Pearson entre
+  `trailing_gap_s` e `video_duration_s` por `env` — para expor a assinatura de
+  um possível desvio sistemático de conversão de fps nesses dois ambientes;
+- distribuição (contagem, mínimo, p25, mediana, p75, máximo) da duração dos
+  gaps interiores individuais, agrupados de todos os vídeos;
+- lista de vídeos sem nenhum segmento anotado.
+
+### Cross-check entre fontes de anotação
+
+O comando também compara `data/labels/omnifall/le2i.csv` (configuração
+`labels`, filtrada por Le2i) com a união de `train.csv` + `val.csv` +
+`test.csv` (configuração `le2i-cs`), tupla a tupla por `(path, start, end,
+label)`. Divergências são impressas em até 20 exemplos por lado.
+
+### Falhas críticas
+
+Apenas três problemas fazem o comando terminar com código diferente de zero:
+
+- `interior_gap_s` negativo em algum vídeo (violação do invariante interno da
+  decomposição do `gap_s`);
+- algum vídeo sem nenhum segmento anotado;
+- divergência entre `le2i.csv` e a união dos splits.
+
+`gap_s`, `overlap_s`, `overhang_s` e `duration_delta_s` são achados, não
+falhas: a auditoria os relata mesmo quando o comando termina com sucesso.
