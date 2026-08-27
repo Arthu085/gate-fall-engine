@@ -254,3 +254,104 @@ descarte é `ceil(K / stride)`; e nenhuma janela tem `k_end >= n_frames`. Os
 seis valores esperados são propriedades do dataset congelado — se o parquet
 mudar, queremos uma falha ruidosa, não um relatório silenciosamente
 diferente.
+
+## Decodificação de quadros
+
+`src/gatefall/data/video_io.py` decodifica quadros de vídeo sob demanda a
+partir de `frame_index`/`src_index` da grade, sem tocar em janelamento — é a
+ponte entre a grade (índices) e os pixels que os backbones (YOLO-Pose,
+DINOv3, SAM 3) vão consumir. É agnóstica de dataset, do mesmo jeito que
+`windowing.py`.
+
+Decodifica via pipe do `ffmpeg` do sistema, não via `cv2.VideoCapture`
+(OpenCV). O backend FFmpeg embutido no wheel `opencv-python-headless`
+(testado nas séries 4.14 e 5.0) trava com SIGSEGV dentro de `.read()` ao ler
+AVIs `rawvideo` reais do Le2i cujo stream de áudio MP3 tem cabeçalho
+corrompido — confirmado com um vídeo real do dataset. O `ffmpeg`/`ffprobe` do
+sistema, já uma dependência exigida por `video_metadata.py`, decodifica o
+stream de vídeo normalmente e apenas registra o erro do áudio sem travar, e
+não exige nenhuma dependência Python nova.
+
+Nenhuma das duas funções usa seek (`ffmpeg -ss` antes de um demuxer de
+`rawvideo` ainda pousaria no mesmo tipo de posição aproximada que um
+`cap.set(CAP_PROP_POS_FRAMES, ...)` do OpenCV pousaria). Em containers com
+GOP variável o seek pode pousar no keyframe mais próximo em vez do quadro
+exato, o que corromperia silenciosamente o alinhamento entre `src_index` e o
+pixel decodificado. Por isso ambas varrem sequencialmente a partir do quadro
+0, lendo o pipe do `ffmpeg` em blocos de um quadro (`width * height * 3`
+bytes, `-pix_fmt rgb24`):
+
+- `decode_frames(video_path, src_indices)` sonda `width`/`height` via
+  `ffprobe`, abre um pipe `ffmpeg` de saída `rawvideo`/`rgb24`, varre para a
+  frente coletando cada quadro pedido (o conjunto de `src_indices`, para
+  tolerar duplicatas e ordem não monotônica) até passar do maior índice
+  solicitado ou o pipe fechar, e devolve a lista na ordem original de
+  `src_indices` — uma única passada cobre duplicatas e reordenação. O
+  `-pix_fmt rgb24` da saída do `ffmpeg` já entrega RGB diretamente, sem
+  conversão manual de canal. Levanta `OSError` se `ffprobe` não encontrar
+  stream de vídeo e `EOFError` se o pipe fechar antes de cobrir o maior
+  índice pedido. `decode_frames(path, [])` devolve `[]` sem abrir o pipe.
+- `probe_frame_count(video_path)` conta quadros por decodificação completa
+  do mesmo pipe (blocos completos lidos até o pipe fechar), nunca por
+  metadado de header — o mesmo motivo pelo qual
+  `video_metadata.count_video_frames` usa `ffprobe -count_frames` em vez do
+  `nb_frames` do header: o header pode estar ausente ou divergir da
+  contagem real decodificável.
+
+Ambas as funções fecham o pipe e aguardam o processo (`process.wait()`) em
+um `finally`.
+
+## Resolução de path
+
+`src/gatefall/data/le2i/video_io.py:load_le2i_video_paths` constrói
+`{video_id: absolute_path}` a partir do manifesto já materializado
+(`load_le2i_manifest`, de `gatefall.data.le2i.verification`), que já valida
+existência e falha com código de saída diferente de zero se o manifesto não
+existir. Não chama as funções de `path_matching.py` diretamente — o
+manifesto já é a saída materializada daquele casamento entre paths do
+OmniFall e vídeos extraídos; rederivá-lo aqui duplicaria a varredura do
+diretório e a checagem de bijeção a cada execução do `report`.
+
+## Amostra do relatório
+
+`select_le2i_report_sample` escolhe 12 vídeos (2 por ambiente, nos 6
+ambientes do Le2i) de forma determinística e orientada a dados — nenhum
+`video_id` é hardcoded. Três posições são forçadas a partir de propriedades
+do manifesto: o vídeo mais longo e o mais curto por `n_frames_counted`
+(cobrindo os extremos de duração), e o primeiro (por `video_id`, ordem
+alfabética) vídeo em `Home_01`/`Home_02` com resolução 320x180 (a resolução
+minoritária, ver
+[Manifesto e verificação](manifest-verification.md#relatórios-informativos)).
+Para cada ambiente, as posições forçadas que caem naquele ambiente entram
+primeiro; o restante das duas vagas é preenchido pelos vídeos daquele
+ambiente ainda não escolhidos, também em ordem alfabética de `video_id`.
+
+## Relatório e checagens
+
+```bash
+uv run python -m gatefall.data.frames_io report
+```
+
+Lê `data/manifest.parquet` e `data/labels/le2i/frames.parquet` (falha com
+código de saída diferente de zero e mensagem indicando o comando de build
+correspondente se qualquer um estiver ausente) e roda quatro checagens por
+vídeo da amostra de 12, todas fatais — qualquer uma falhando interrompe o
+`report` com código de saída diferente de zero:
+
+1. `decode_frames` devolve a mesma quantidade de quadros solicitada.
+2. A resolução do quadro decodificado (`shape[:2]`) bate com `width`/`height`
+   do manifesto.
+3. `max(src_index)` daquele vídeo é estritamente menor que a contagem
+   decodificada por `probe_frame_count` (nunca pelo header).
+4. Todos os `src_index` daquele vídeo decodificam sem levantar exceção.
+
+## `data/scratch/`
+
+`dump_le2i_frame_pngs` grava PNGs decodificados (via outro pipe `ffmpeg`,
+recebendo os bytes RGB brutos por stdin) em
+`data/scratch/{video_id}/frame_{frame_index}_src_{src_index}.png`, para
+inspeção visual manual do alinhamento entre a grade e o vídeo fonte. É exportada mas não é chamada por nenhum outro ponto
+do pipeline — nada além de uma sessão interativa a invoca. `data/scratch/`
+está no `.gitignore` (`data/scratch/*`, preservando `.gitkeep`), pelo mesmo
+motivo dos outros diretórios de dados: os PNGs são derivados e nunca devem
+ser commitados.
