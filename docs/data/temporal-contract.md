@@ -155,4 +155,64 @@ o comando termina com código diferente de zero se algum caso falhar.
 
 ## Janelamento
 
-TBD — etapa futura, ainda não implementada nesta versão do repositório.
+O janelamento transforma a grade de reamostragem (uma linha por quadro) em
+janelas deslizantes: sequências de `WINDOW_FRAMES` quadros consecutivos,
+rotuladas pelo rótulo do último quadro da janela. As constantes vivem em
+`src/gatefall/config.py`:
+
+- `WINDOW_FRAMES = 24` — 2,4 s em `TARGET_FPS`; cobre o p75 da duração dos
+  segmentos `fall` (2,35 s) e dá timesteps suficientes para uma TCN dilatada
+  de 3 níveis, kernel 3, campo receptivo 29.
+- `TRAIN_STRIDE = 4` — em stride 1, janelas de treino consecutivas se
+  sobrepõem em 96% e viram quase-duplicatas.
+- `EVAL_STRIDE = 1` — uma predição por quadro da grade, o que dá avaliação
+  quadro a quadro e resolução de latência de 0,1 s.
+
+O contrato de janela: cada janela termina em `k_end` e cobre os quadros
+`k_end - WINDOW_FRAMES + 1 .. k_end`; para janelas próximas do início do
+vídeo, os índices abaixo de 0 são clipados para 0 — isto é replicação de
+borda (edge padding), não um caminho de código separado. O rótulo da janela é
+o rótulo do seu último quadro. Janelas cujo último quadro é `IGNORE_LABEL`
+são descartadas da loss e das métricas, mas seus quadros continuam contando
+como contexto de entrada para outras janelas que os incluam fora da posição
+final.
+
+`src/gatefall/data/windowing.py` é puro e agnóstico de dataset — não importa
+nada de `gatefall.data.le2i` ou `gatefall.data.omnifall`, e nada nele faz
+I/O. Três funções:
+
+- `window_frame_indices(k_end, n_frames, window_frames=WINDOW_FRAMES)`
+  retorna os `window_frames` índices de quadro da janela que termina em
+  `k_end`, clipados a `[0, n_frames - 1]`.
+- `window_end_indices(n_frames, stride)` retorna `0, stride, 2*stride, ...`
+  abaixo de `n_frames` — `ceil(n_frames / stride)` valores. O último fim não
+  é forçado para `n_frames - 1`: em `EVAL_STRIDE=1` todo quadro já é um fim
+  de janela, e em `TRAIN_STRIDE=4` perder no máximo 3 quadros finais por
+  vídeo é irrelevante.
+- `build_window_index(frames, stride, drop_ignored=True)` consome a tabela
+  de quadros genérica (`video_id, split, env, subject, frame_index, time_s,
+  src_index, label, gap_position`), agrupa por `video_id` e devolve um
+  DataFrame com uma linha por janela: `video_id, split, env, subject, k_end,
+  label, n_frames`. `n_frames` é o `K` daquele vídeo, necessário para quem só
+  tem o índice de janela reconstruir os `WINDOW_FRAMES` índices de quadro a
+  partir de `k_end`. Janelas nunca cruzam fronteira de vídeo.
+
+Nesta etapa não há persistência nem relatório sobre o dataset real — como já
+observado acima, o índice de janela depende do stride escolhido (diferente
+entre treino e avaliação) e é recomputado sob demanda a partir de
+`frame_index`, nunca gravado em disco.
+
+```bash
+uv run python -m gatefall.data.windows selftest
+```
+
+Verifica `window_frame_indices`, `window_end_indices` e `build_window_index`
+contra entradas sintéticas — sem acessar o dataset real. Cobre janelas
+totalmente preenchidas por padding, parcialmente preenchidas e sem padding, o
+caso de vídeo de um único quadro, o encadeamento de janelas com stride 1 em
+um vídeo curto, as fronteiras de `window_end_indices` para diferentes
+strides, a ausência de mistura de `video_id` entre janelas, a correspondência
+entre o rótulo da janela e o rótulo do quadro final, o comportamento de
+`drop_ignored` e a contagem de janelas por vídeo antes do descarte. Cada caso
+imprime uma linha `PASS`/`FAIL`; o comando termina com código diferente de
+zero se algum caso falhar.
