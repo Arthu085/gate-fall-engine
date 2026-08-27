@@ -47,6 +47,14 @@ def build_window_index(
             pd.DataFrame, group.sort_values("frame_index")
         ).reset_index(drop=True)
         n_frames = len(ordered)
+        if not np.array_equal(
+            ordered["frame_index"].to_numpy(), np.arange(n_frames, dtype=np.int64)
+        ):
+            raise ValueError(
+                f"video_id={_video_id!r}: frame_index não é contíguo 0..K-1 "
+                "— a indexação posicional de `label` por `k_end` corromperia "
+                "o rótulo de toda janela deste vídeo"
+            )
         k_end = window_end_indices(n_frames, stride)
         labels = ordered["label"].to_numpy()[k_end]
 

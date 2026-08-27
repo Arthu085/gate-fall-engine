@@ -216,3 +216,41 @@ entre o rótulo da janela e o rótulo do quadro final, o comportamento de
 `drop_ignored` e a contagem de janelas por vídeo antes do descarte. Cada caso
 imprime uma linha `PASS`/`FAIL`; o comando termina com código diferente de
 zero se algum caso falhar.
+
+```bash
+uv run python -m gatefall.data.windows report
+```
+
+Diferente de `selftest`, lê `data/labels/le2i/frames.parquet` (não reconstrói
+a grade a partir do manifesto e das anotações do OmniFall) e relata as
+contagens reais de janela sobre o dataset inteiro — o tamanho real do
+problema de aprendizado, não uma estimativa. Termina com erro claro e código
+de saída diferente de zero se o parquet não existir, indicando para rodar
+`uv run python -m gatefall.data.timegrid build` primeiro. A lógica específica
+do Le2i vive em `src/gatefall/data/le2i/windows.py`; `windows.py` em
+`gatefall/data/` continua sendo apenas a CLI fina, do mesmo jeito que
+`timegrid.py`.
+
+Para `TRAIN_STRIDE=4` e `EVAL_STRIDE=1`, imprime: o total de janelas por
+split antes de descartar as de quadro final `IGNORE_LABEL`; as janelas úteis
+por split depois do descarte, com o percentual descartado; as janelas úteis
+por `(split, label)` — o suporte por classe que precisa acompanhar todo F1 na
+tese; e as janelas úteis por `(split, env)`. Apenas em `TRAIN_STRIDE`, imprime
+dois diagnósticos adicionais por split: a fração de janelas úteis cujo
+contexto de 24 quadros (via `window_frame_indices`, sem reimplementar a
+expansão) contém ao menos um quadro `IGNORE_LABEL` não anotado; e a fração de
+janelas úteis com ao menos um quadro de edge padding (`k_end < WINDOW_FRAMES -
+1`) — o custo aceito ao escolher replicação de borda em vez de descartar os
+23 primeiros quadros de cada vídeo.
+
+Por fim, roda quatro checagens críticas, cada uma impressa como PASS/FAIL,
+com código de saída diferente de zero se qualquer uma falhar — comparações
+exatas, não tolerâncias: a contagem de janelas por split em `stride=1` com
+`drop_ignored=False` bate com a contagem de quadros da grade por split (train
+22246, val 2080, test 6168); a mesma contagem com `drop_ignored=True` bate com
+quadros da grade menos quadros `IGNORE_LABEL` (train 20740, val 2079, test
+5616); para todo vídeo e ambos os strides, a contagem de janelas antes do
+descarte é `ceil(K / stride)`; e nenhuma janela tem `k_end >= n_frames`. Os
+seis valores esperados são propriedades do dataset congelado — se o parquet
+mudar, queremos uma falha ruidosa, não um relatório silenciosamente
+diferente.
