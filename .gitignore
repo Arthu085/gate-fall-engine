@@ -100,3 +100,6 @@ runs/
 outputs/
 wandb/
 site/
+
+# Documentação
+docs/tasks
