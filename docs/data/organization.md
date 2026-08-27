@@ -14,12 +14,14 @@ data/
 │       ├── FallDataset.zip
 │       └── <ambientes extraídos>/
 ├── labels/
-│   └── omnifall/
-│       ├── train.csv
-│       ├── val.csv
-│       ├── test.csv
-│       ├── le2i.csv
-│       └── PROVENANCE.json
+│   ├── omnifall/
+│   │   ├── train.csv
+│   │   ├── val.csv
+│   │   ├── test.csv
+│   │   ├── le2i.csv
+│   │   └── PROVENANCE.json
+│   └── le2i/
+│       └── frames.parquet
 ├── features/
 └── manifest.parquet
 ```
@@ -27,7 +29,7 @@ data/
 | Artefato | Responsabilidade | Versionado? |
 | --- | --- | --- |
 | `data/raw/` | Distribuições e vídeos originais dos datasets | Não |
-| `data/labels/` | Anotações obtidas de fontes externas e sua proveniência | Não |
+| `data/labels/` | Anotações obtidas de fontes externas, sua proveniência, e artefatos tabulares derivados delas (ex.: `le2i/frames.parquet`, ver [Contrato temporal](temporal-contract.md)) | Não |
 | `data/features/` | Features pré-computadas pelos backbones | Não |
 | `data/manifest.parquet` | Relação entre vídeo, anotação, metadados e estado das features | Não |
 

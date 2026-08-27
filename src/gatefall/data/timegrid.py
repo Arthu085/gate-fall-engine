@@ -2,6 +2,7 @@
 
 import argparse
 
+from gatefall.data.le2i.frames import build_le2i_timegrid
 from gatefall.data.le2i.timeline import report_le2i_timegrid
 from gatefall.data.resampling_selftest import run_resampling_selftest
 
@@ -16,12 +17,19 @@ def main() -> None:
     subparsers.add_parser(
         "selftest", help="Verifica a grade de reamostragem contra entradas sintéticas"
     )
+    subparsers.add_parser(
+        "build",
+        help="Grava a grade de reamostragem temporal do Le2i em "
+        "data/labels/le2i/frames.parquet",
+    )
 
     args = parser.parse_args()
     if args.command == "report":
         report_le2i_timegrid()
     elif args.command == "selftest":
         run_resampling_selftest()
+    elif args.command == "build":
+        build_le2i_timegrid()
 
 
 if __name__ == "__main__":
