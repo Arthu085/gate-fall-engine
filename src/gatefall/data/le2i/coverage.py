@@ -5,6 +5,7 @@ from typing import cast
 
 import pandas as pd
 
+from gatefall.data.intervals import sweep_gaps_and_overlap, tag_gap_positions
 from gatefall.data.le2i.annotations import (
     LABELS_DIR,
     LE2I_LABELS_FILENAME,
@@ -26,61 +27,21 @@ def load_le2i_labels() -> pd.DataFrame:
     return pd.read_csv(path)
 
 
-def _sweep_gap_overlap_and_intervals(
-    segments: list[tuple[float, float]], video_duration_s: float
-) -> tuple[float, float, list[tuple[float, float]]]:
-    if not segments:
-        return video_duration_s, 0.0, [(0.0, video_duration_s)]
-
-    # eventos (posição, delta): delta=-1 (fim) ordena antes de delta=+1 (início)
-    # na mesma posição, para que segmentos apenas encostados não contem como
-    # sobreposição. Entre eventos consecutivos a multiplicidade é constante.
-    events = sorted(
-        [(start, 1) for start, _ in segments] + [(end, -1) for _, end in segments]
-    )
-
-    gap_s = 0.0
-    overlap_s = 0.0
-    gap_intervals: list[tuple[float, float]] = []
-    multiplicity = 0
-    previous_position = 0.0
-    for position, delta in events:
-        length = position - previous_position
-        if length > 0.0:
-            left = max(previous_position, 0.0)
-            right = min(position, video_duration_s)
-            if right > left:
-                clipped_length = right - left
-                if multiplicity == 0:
-                    gap_s += clipped_length
-                    gap_intervals.append((left, right))
-                elif multiplicity >= 2:
-                    overlap_s += (
-                        multiplicity * (multiplicity - 1) / 2 * clipped_length
-                    )
-        multiplicity += delta
-        previous_position = position
-
-    if multiplicity == 0 and previous_position < video_duration_s:
-        gap_s += video_duration_s - previous_position
-        gap_intervals.append((previous_position, video_duration_s))
-
-    return gap_s, overlap_s, gap_intervals
-
-
 def _split_gap_intervals(
     gap_intervals: list[tuple[float, float]], video_duration_s: float
 ) -> tuple[float, float, list[tuple[float, float]]]:
-    interior = list(gap_intervals)
-    leading_gap_s = 0.0
-    trailing_gap_s = 0.0
-    if interior and interior[0][0] <= 0.0:
-        leading_gap_s = interior[0][1] - interior[0][0]
-        interior = interior[1:]
-    if interior and interior[-1][1] >= video_duration_s:
-        trailing_gap_s = interior[-1][1] - interior[-1][0]
-        interior = interior[:-1]
-    return leading_gap_s, trailing_gap_s, interior
+    tagged = tag_gap_positions(gap_intervals, video_duration_s)
+    leading_gap_s = next(
+        (end - start for start, end, position in tagged if position == "leading"), 0.0
+    )
+    trailing_gap_s = next(
+        (end - start for start, end, position in tagged if position == "trailing"),
+        0.0,
+    )
+    interior_gap_intervals = [
+        (start, end) for start, end, position in tagged if position == "interior"
+    ]
+    return leading_gap_s, trailing_gap_s, interior_gap_intervals
 
 
 def _union_length(intervals: list[tuple[float, float]]) -> float:
@@ -127,7 +88,7 @@ def build_per_video_coverage(
                 if end > video_duration_s
             ]
         )
-        gap_s, overlap_s, gap_intervals = _sweep_gap_overlap_and_intervals(
+        gap_s, overlap_s, gap_intervals = sweep_gaps_and_overlap(
             segments, video_duration_s
         )
 
