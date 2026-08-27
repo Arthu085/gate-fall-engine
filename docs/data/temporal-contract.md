@@ -4,9 +4,11 @@ Esta etapa define a grade de reamostragem temporal do Le2i e o rótulo por
 quadro dessa grade. É a base sobre a qual o janelamento (etapa futura, ainda
 não implementada) vai operar.
 
-A etapa é somente CPU, tabular, e não grava nada em disco — nenhum `.npy`,
-`.h5`, `.parquet` ou `.csv` é produzido. O comando `report` apenas imprime no
-stdout, para inspeção manual sobre o manifesto e as anotações já construídos.
+A etapa é somente CPU e tabular. Os comandos `report` e `selftest` não gravam
+nada em disco — apenas imprimem no stdout, para inspeção manual sobre o
+manifesto e as anotações já construídos. A única exceção é o comando `build`
+(ver "Como executar" abaixo), que persiste a grade em
+`data/labels/le2i/frames.parquet`.
 
 ## Grade de reamostragem
 
@@ -98,6 +100,46 @@ diferente de zero se alguma checagem crítica falhar (segmentos sem ponto de
 grade, ou reconciliação de `IGNORE_LABEL`/`gap_s` acima do limite), imprimindo
 `timegrid report OK: nenhuma falha crítica encontrada` no caso de sucesso —
 deixou de ser puramente descritivo.
+
+```bash
+uv run python -m gatefall.data.timegrid build
+```
+
+Grava a grade em `data/labels/le2i/frames.parquet`, uma linha por ponto de
+grade, nesta ordem de colunas: `video_id`, `split`, `env`, `subject`,
+`frame_index`, `time_s`, `src_index`, `label`, `gap_position`. `subject` não
+existe no DataFrame de grade por quadro produzido por `build_grid_frames` — é
+unido a partir da tabela por vídeo (`per_video`) antes da gravação.
+
+Três colunas do relatório não entram no artefato persistido: `is_ignore` é
+redundante (derivável de `label`) e `gap_length_s`/`frame_duration_s` são
+diagnósticos que só fazem sentido para o `report`, não para o consumo
+posterior da grade. `gap_position` é mantida deliberadamente: mais adiante ela
+permite cruzar, via join em vez de recomputação, os quadros de gap `leading`
+com os quadros em que o YOLO-Pose não retorna nenhuma detecção.
+
+O índice de janela não é persistido. Ele depende do stride escolhido, que
+difere entre treino e avaliação — persistir um índice de janela criaria dois
+artefatos (este parquet, mais o esquema de janelamento futuro) que
+precisariam ser mantidos em concordância. A etapa de janelamento (ainda não
+implementada) recomputa as fronteiras de janela sob demanda a partir de
+`frame_index` e do stride escolhido.
+
+A tabela é ordenada de forma determinística por `(video_id, frame_index)`
+antes da gravação, e a gravação é atômica (escreve em um arquivo temporário e
+faz `os.replace`), de modo que uma execução interrompida nunca deixa um
+parquet pela metade. Após gravar, o comando relê o arquivo do disco e verifica
+que o DataFrame relido é idêntico ao gravado (valores e dtypes), encerrando
+com código de saída diferente de zero em caso de divergência. Por fim,
+imprime um resumo: caminho, tamanho em disco, número de linhas, contagem por
+split e um hash de conteúdo (`sha256` sobre `pandas.util.hash_pandas_object`,
+não sobre os bytes do arquivo — parquet não garante bytes estáveis entre
+gravações).
+
+`data/labels/` já está no `.gitignore` (`data/labels/*`), então
+`frames.parquet` é um artefato derivado e não versionado — nunca deve ser
+commitado, já que é derivado das anotações do OmniFall, licenciadas sob CC
+BY-NC-SA.
 
 ```bash
 uv run python -m gatefall.data.timegrid selftest
