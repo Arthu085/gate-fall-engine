@@ -15,6 +15,7 @@ from gatefall.data.frames import read_frames
 from gatefall.data.le2i.frames import FRAMES_PATH
 from gatefall.data.le2i.video_io import load_le2i_video_paths
 from gatefall.data.video_io import decode_frames
+from gatefall.pose.selection import select_person_index
 
 DEFAULT_VIDEO_ID = "coffee_room_01/video_1"
 DEFAULT_MODEL = "yolo26n-pose.pt"
@@ -102,15 +103,12 @@ def run_pose_smoke_test(video_id: str, model_name: str) -> None:
             else None
         )
 
-        # Seleção de pessoa por detecção do quadro, não por track: no Le2i (ator
-        # único) o track_id serve só como diagnóstico e descartaria quadros
-        # válidos sempre que o tracker perde e recupera a identidade.
-        selected_idx: int | None = None
-        if n_det == 1:
-            selected_idx = 0
-        elif n_det > 1 and result.boxes is not None and result.boxes.conf is not None:
-            box_conf = cast(torch.Tensor, result.boxes.conf).cpu().numpy()
-            selected_idx = int(np.argmax(box_conf))
+        box_conf = (
+            cast(torch.Tensor, result.boxes.conf).cpu().numpy()
+            if (result.boxes is not None and result.boxes.conf is not None)
+            else None
+        )
+        selected_idx = select_person_index(n_det, box_conf)
 
         if selected_idx is not None:
             frames_with_selected_person += 1

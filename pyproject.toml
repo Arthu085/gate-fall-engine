@@ -11,6 +11,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "datasets>=5.0.1",
+    "h5py>=3.16.0",
     "huggingface-hub>=1.28.0",
     "lap>=0.5.13",
     "numpy>=2.5.2",
