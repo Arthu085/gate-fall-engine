@@ -1,8 +1,9 @@
-"""Extração de pose (YOLO-Pose + ByteTrack) de um único vídeo para HDF5."""
+"""Extração de pose (YOLO-Pose + ByteTrack) de vídeos do Le2i para HDF5."""
 
 import argparse
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -29,6 +30,23 @@ WEIGHTS_DIR = Path("data/scratch/weights")
 N_KEYPOINTS = 17
 
 
+class PoseExtractSkipped(Exception):
+    """.h5 do vídeo já existe e --force não foi passado."""
+
+
+class PoseExtractError(Exception):
+    """Falha ao processar um vídeo (dados ausentes, video_id não encontrado, verificação pós-escrita divergente)."""
+
+
+@dataclass(frozen=True)
+class PoseExtractResult:
+    video_id: str
+    env: str
+    split: str
+    k: int
+    n_found: int
+
+
 def _resolve_model_path(model_name: str) -> str:
     if Path(model_name).parent != Path("."):
         return model_name
@@ -49,35 +67,47 @@ def _output_path(video_id: str) -> Path:
 
 def _select_src_indices(video_id: str) -> list[int]:
     if not FRAMES_PATH.exists():
-        print(
+        raise PoseExtractError(
             f"\npose extract FALHOU: {FRAMES_PATH} não existe — rode "
-            "`uv run python -m gatefall.data.timegrid build` primeiro",
-            file=sys.stderr,
+            "`uv run python -m gatefall.data.timegrid build` primeiro"
         )
-        sys.exit(1)
 
     frames = read_frames(FRAMES_PATH)
     video_frames = cast(
         pd.DataFrame, frames[frames["video_id"] == video_id]
     ).sort_values("frame_index")
     if video_frames.empty:
-        print(
+        raise PoseExtractError(
             f"\npose extract FALHOU: video_id '{video_id}' não encontrado "
-            f"em {FRAMES_PATH}",
-            file=sys.stderr,
+            f"em {FRAMES_PATH}"
         )
-        sys.exit(1)
 
     return [int(x) for x in video_frames["src_index"]]
 
 
-def run_pose_extract(video_id: str, model_name: str, force: bool) -> None:
+def _reset_tracker_state(model: YOLO) -> None:
+    # model.track(..., persist=True) mantém o mesmo BYTETracker durante todo o
+    # ciclo de vida de model.predictor (ultralytics.trackers.track.on_predict_start:
+    # com persist=True e predictor.trackers já existente, a reinicialização é
+    # pulada). Como o mesmo objeto YOLO é reaproveitado entre vídeos, os track_ids
+    # vazariam entre eles sem um reset explícito. BYTETracker.reset() (ultralytics
+    # 8.4.131, trackers/byte_tracker.py) limpa as faixas ativas/perdidas/removidas
+    # e zera o contador global de IDs via BaseTrack.reset_id().
+    trackers = getattr(getattr(model, "predictor", None), "trackers", None)
+    if not trackers:
+        return
+    for tracker in trackers:
+        tracker.reset()
+
+
+def run_pose_extract(
+    video_id: str, model_name: str, force: bool, *, model: YOLO | None = None
+) -> PoseExtractResult:
     output_path = _output_path(video_id)
     if output_path.exists() and not force:
-        print(
+        raise PoseExtractSkipped(
             f"skip {output_path} (já existe, use --force para sobrescrever)"
         )
-        sys.exit(0)
 
     src_indices = _select_src_indices(video_id)
     k = len(src_indices)
@@ -87,22 +117,18 @@ def run_pose_extract(video_id: str, model_name: str, force: bool) -> None:
         pd.DataFrame, manifest[manifest["video_id"] == video_id]
     )
     if manifest_row.empty:
-        print(
+        raise PoseExtractError(
             f"\npose extract FALHOU: video_id '{video_id}' não encontrado "
-            "no manifesto do Le2i",
-            file=sys.stderr,
+            "no manifesto do Le2i"
         )
-        sys.exit(1)
     manifest_row = manifest_row.iloc[0]
 
     video_paths = load_le2i_video_paths()
     if video_id not in video_paths:
-        print(
+        raise PoseExtractError(
             f"\npose extract FALHOU: video_id '{video_id}' não encontrado "
-            "no manifesto do Le2i",
-            file=sys.stderr,
+            "no manifesto do Le2i"
         )
-        sys.exit(1)
 
     frames_rgb = decode_frames(video_paths[video_id], src_indices)
     assert len(frames_rgb) == k
@@ -113,7 +139,8 @@ def run_pose_extract(video_id: str, model_name: str, force: bool) -> None:
     n_detections = np.zeros((k,), dtype=np.int16)
     track_id = np.full((k,), -1, dtype=np.int32)
 
-    model = YOLO(_resolve_model_path(model_name))
+    if model is None:
+        model = YOLO(_resolve_model_path(model_name))
 
     for frame_index, frame_rgb in enumerate(frames_rgb):
         frame_bgr = _to_bgr(frame_rgb)
@@ -195,6 +222,14 @@ def run_pose_extract(video_id: str, model_name: str, force: bool) -> None:
         f"({100.0 * n_found / k:.1f}%)"
     )
 
+    return PoseExtractResult(
+        video_id=video_id,
+        env=str(manifest_row["env"]),
+        split=str(manifest_row["split"]),
+        k=k,
+        n_found=n_found,
+    )
+
 
 def _verify_written_file(
     path: Path,
@@ -217,36 +252,157 @@ def _verify_written_file(
         for name, expected in expected_datasets.items():
             actual_dataset = cast(h5py.Dataset, h5_file[name])
             if actual_dataset.shape != expected.shape or actual_dataset.dtype != expected.dtype:
-                print(
+                raise PoseExtractError(
                     f"\npose extract FALHOU: dataset '{name}' relido de {path} "
-                    f"diverge do esperado (shape/dtype)",
-                    file=sys.stderr,
+                    f"diverge do esperado (shape/dtype)"
                 )
-                sys.exit(1)
             if not np.array_equal(actual_dataset[()], expected):
-                print(
+                raise PoseExtractError(
                     f"\npose extract FALHOU: dataset '{name}' relido de {path} "
-                    "diverge dos valores gravados",
-                    file=sys.stderr,
+                    "diverge dos valores gravados"
                 )
-                sys.exit(1)
 
         for key, expected_value in attrs.items():
             if key not in h5_file.attrs:
-                print(
-                    f"\npose extract FALHOU: atributo '{key}' ausente em {path}",
-                    file=sys.stderr,
+                raise PoseExtractError(
+                    f"\npose extract FALHOU: atributo '{key}' ausente em {path}"
                 )
-                sys.exit(1)
             actual_value = h5_file.attrs[key]
             if actual_value != expected_value:
-                print(
+                raise PoseExtractError(
                     f"\npose extract FALHOU: atributo '{key}' relido de {path} "
                     f"diverge (esperado {expected_value!r}, encontrado "
-                    f"{actual_value!r})",
-                    file=sys.stderr,
+                    f"{actual_value!r})"
                 )
-                sys.exit(1)
+
+
+def _read_existing_stats(video_id: str) -> PoseExtractResult:
+    output_path = _output_path(video_id)
+    with h5py.File(output_path, "r") as h5_file:
+        person_found = cast(h5py.Dataset, h5_file["person_found"])
+        return PoseExtractResult(
+            video_id=video_id,
+            env=str(h5_file.attrs["env"]),
+            split=str(h5_file.attrs["split"]),
+            k=int(cast(int, h5_file.attrs["K"])),
+            n_found=int(person_found[()].sum()),
+        )
+
+
+def _run_extract_cli(video_id: str, model_name: str, force: bool) -> None:
+    try:
+        run_pose_extract(video_id, model_name, force)
+    except PoseExtractSkipped as exc:
+        print(str(exc))
+        sys.exit(0)
+    except PoseExtractError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+
+
+def _print_summary(
+    per_video: pd.DataFrame,
+    processed: int,
+    skipped: int,
+    failures: list[tuple[str, str]],
+    stats: list[PoseExtractResult],
+) -> None:
+    total_grid_frames = int(cast(pd.Series, per_video["k"]).sum())
+    total_found = sum(r.n_found for r in stats)
+
+    print("\nResumo pose extract-all")
+    print(f"vídeos processados: {processed}")
+    print(f"vídeos pulados (já existiam): {skipped}")
+    print(f"vídeos com falha: {len(failures)}")
+    print(f"total de quadros da grade: {total_grid_frames}")
+    if total_grid_frames > 0:
+        print(
+            f"total de quadros com pessoa encontrada: {total_found} "
+            f"({100.0 * total_found / total_grid_frames:.1f}%)"
+        )
+
+    found_by_video = {r.video_id: r.n_found for r in stats}
+
+    print("\nPor ambiente (env):")
+    for env, group in per_video.groupby("env"):
+        n_videos = len(group)
+        n_frames = int(cast(pd.Series, group["k"]).sum())
+        n_found = sum(found_by_video.get(str(vid), 0) for vid in group.index)
+        pct = 100.0 * n_found / n_frames if n_frames > 0 else 0.0
+        print(
+            f"  {env}: {n_videos} vídeos, {n_frames} quadros, "
+            f"{n_found} com pessoa encontrada ({pct:.1f}%)"
+        )
+
+    print("\nPor split:")
+    for split, group in per_video.groupby("split"):
+        n_videos = len(group)
+        n_frames = int(cast(pd.Series, group["k"]).sum())
+        n_found = sum(found_by_video.get(str(vid), 0) for vid in group.index)
+        pct = 100.0 * n_found / n_frames if n_frames > 0 else 0.0
+        print(
+            f"  {split}: {n_videos} vídeos, {n_frames} quadros, "
+            f"{n_found} com pessoa encontrada ({pct:.1f}%)"
+        )
+
+    if failures:
+        print("\npose extract-all: falhas por vídeo:", file=sys.stderr)
+        for video_id, message in failures:
+            print(f"  {video_id}: {message}", file=sys.stderr)
+
+
+def run_pose_extract_all(model_name: str, force: bool) -> None:
+    if not FRAMES_PATH.exists():
+        print(
+            f"\npose extract-all FALHOU: {FRAMES_PATH} não existe — rode "
+            "`uv run python -m gatefall.data.timegrid build` primeiro",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    frames = read_frames(FRAMES_PATH)
+    per_video = cast(
+        pd.DataFrame,
+        frames.groupby("video_id").agg(
+            env=("env", "first"), split=("split", "first"), k=("frame_index", "size")
+        ),
+    )
+
+    model = YOLO(_resolve_model_path(model_name))
+
+    processed = 0
+    skipped = 0
+    failures: list[tuple[str, str]] = []
+    stats: list[PoseExtractResult] = []
+
+    for video_id in per_video.index:
+        video_id = str(video_id)
+        _reset_tracker_state(model)
+        try:
+            result = run_pose_extract(video_id, model_name, force, model=model)
+        except PoseExtractSkipped:
+            skipped += 1
+            existing = _read_existing_stats(video_id)
+            stats.append(existing)
+            pct = (
+                100.0 * existing.n_found / existing.k if existing.k > 0 else 0.0
+            )
+            print(
+                f"skip {video_id}: K={existing.k}, quadros com pessoa "
+                f"encontrada={existing.n_found} ({pct:.1f}%) (já existe)"
+            )
+        except Exception as exc:
+            failures.append((video_id, str(exc)))
+            print(f"\npose extract-all FALHOU em {video_id}: {exc}", file=sys.stderr)
+            continue
+        else:
+            processed += 1
+            stats.append(result)
+
+    _print_summary(per_video, processed, skipped, failures, stats)
+
+    if failures:
+        sys.exit(1)
 
 
 def main() -> None:
@@ -261,9 +417,18 @@ def main() -> None:
     extract_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_parser.add_argument("--force", action="store_true")
 
+    extract_all_parser = subparsers.add_parser(
+        "extract-all",
+        help="Roda YOLO-Pose + ByteTrack sobre todos os vídeos do Le2i listados em frames.parquet",
+    )
+    extract_all_parser.add_argument("--model", default=DEFAULT_MODEL)
+    extract_all_parser.add_argument("--force", action="store_true")
+
     args = parser.parse_args()
     if args.command == "extract":
-        run_pose_extract(args.video_id, args.model, args.force)
+        _run_extract_cli(args.video_id, args.model, args.force)
+    elif args.command == "extract-all":
+        run_pose_extract_all(args.model, args.force)
 
 
 if __name__ == "__main__":
