@@ -3,6 +3,7 @@
 import argparse
 import sys
 from collections import Counter
+from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -17,6 +18,14 @@ from gatefall.data.video_io import decode_frames
 
 DEFAULT_VIDEO_ID = "coffee_room_01/video_1"
 DEFAULT_MODEL = "yolo26n-pose.pt"
+WEIGHTS_DIR = Path("data/scratch/weights")
+
+
+def _resolve_model_path(model_name: str) -> str:
+    if Path(model_name).parent != Path("."):
+        return model_name
+    WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+    return str(WEIGHTS_DIR / model_name)
 
 
 def _select_src_indices(video_id: str) -> list[int]:
@@ -65,11 +74,12 @@ def run_pose_smoke_test(video_id: str, model_name: str) -> None:
     frames_rgb = decode_frames(video_paths[video_id], src_indices)
     assert len(frames_rgb) == k_expected
 
-    model = YOLO(model_name)
+    model = YOLO(_resolve_model_path(model_name))
 
     detections_per_frame: list[int] = []
     track_frame_counts: Counter[int] = Counter()
-    per_frame_cache: list[tuple[list[int], np.ndarray | None]] = []
+    selected_kp_conf_values: list[float] = []
+    frames_with_selected_person = 0
 
     for frame_rgb in frames_rgb:
         frame_bgr = _to_bgr(frame_rgb)
@@ -91,7 +101,21 @@ def run_pose_smoke_test(video_id: str, model_name: str) -> None:
             if (result.keypoints is not None and result.keypoints.conf is not None)
             else None
         )
-        per_frame_cache.append((frame_track_ids, kp_conf))
+
+        # Seleção de pessoa por detecção do quadro, não por track: no Le2i (ator
+        # único) o track_id serve só como diagnóstico e descartaria quadros
+        # válidos sempre que o tracker perde e recupera a identidade.
+        selected_idx: int | None = None
+        if n_det == 1:
+            selected_idx = 0
+        elif n_det > 1 and result.boxes is not None and result.boxes.conf is not None:
+            box_conf = cast(torch.Tensor, result.boxes.conf).cpu().numpy()
+            selected_idx = int(np.argmax(box_conf))
+
+        if selected_idx is not None:
+            frames_with_selected_person += 1
+            if kp_conf is not None:
+                selected_kp_conf_values.extend(kp_conf[selected_idx].tolist())
 
     print(f"\nquadros processados: {len(frames_rgb)} (esperado do grid: {k_expected})")
 
@@ -124,28 +148,20 @@ def run_pose_smoke_test(video_id: str, model_name: str) -> None:
             current_run = 0
     print(f"maior sequência consecutiva de quadros sem detecção: {longest_zero_run}")
 
-    most_persistent = (
-        min(track_frame_counts, key=lambda t: (-track_frame_counts[t], t))
-        if track_frame_counts
-        else None
+    print(
+        f"\nquadros com pessoa selecionada: {frames_with_selected_person} "
+        f"({100.0 * frames_with_selected_person / k_expected:.1f}% de K)"
     )
 
-    print("\nconfiança de keypoints da track mais persistente:")
-    if most_persistent is None:
-        print("  nenhuma track detectada")
+    print("\nconfiança de keypoints da pessoa selecionada:")
+    if not selected_kp_conf_values:
+        print("  nenhuma pessoa selecionada")
         return
 
-    values: list[float] = []
-    for frame_track_ids, kp_conf in per_frame_cache:
-        if kp_conf is None or most_persistent not in frame_track_ids:
-            continue
-        values.extend(kp_conf[frame_track_ids.index(most_persistent)].tolist())
-
-    if not values:
-        print("  nenhuma track detectada")
-        return
-
-    print(f"  track {most_persistent}: média={np.mean(values):.3f}, p10={np.percentile(values, 10):.3f}")
+    print(
+        f"  média={np.mean(selected_kp_conf_values):.3f}, "
+        f"p10={np.percentile(selected_kp_conf_values, 10):.3f}"
+    )
 
 
 def main() -> None:
