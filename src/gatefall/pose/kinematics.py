@@ -1,0 +1,374 @@
+"""Descritores cinemáticos derivados da pose (YOLO-Pose) do Le2i.
+
+Nada aqui é gravado em disco: são features derivadas, computadas em tempo de
+carregamento por design, para que uma escolha de suavização ou janelamento
+nunca fique congelada em um arquivo.
+"""
+
+import argparse
+import sys
+
+import numpy as np
+
+from gatefall.config import TARGET_FPS
+from gatefall.data.frames import read_frames
+from gatefall.data.le2i.frames import FRAMES_PATH
+from gatefall.pose.loading import (
+    bbox_descriptors,
+    impute_missing,
+    load_pose,
+    normalize_keypoints,
+)
+
+EXPECTED_K_SUM = 30494
+EXPECTED_D = 134
+
+SHOULDER_LEFT = 5
+SHOULDER_RIGHT = 6
+HIP_LEFT = 11
+HIP_RIGHT = 12
+
+
+def _feature_names() -> list[str]:
+    names: list[str] = []
+    for i in range(17):
+        names.append(f"kp_x_{i}")
+        names.append(f"kp_y_{i}")
+    for i in range(17):
+        names.append(f"kp_conf_{i}")
+    for i in range(17):
+        names.append(f"kp_vx_{i}")
+        names.append(f"kp_vy_{i}")
+    for i in range(17):
+        names.append(f"kp_ax_{i}")
+        names.append(f"kp_ay_{i}")
+    names.extend(["bbox_cx", "bbox_cy", "bbox_w", "bbox_h"])
+    names.extend(["bbox_vcx", "bbox_vcy", "bbox_vw", "bbox_vh"])
+    names.extend(["bbox_acx", "bbox_acy", "bbox_aw", "bbox_ah"])
+    names.extend(["trunk_sin", "trunk_cos", "trunk_dtheta"])
+    return names
+
+
+def _first_difference(values: np.ndarray, dt: float) -> np.ndarray:
+    diff = np.zeros_like(values, dtype=np.float32)
+    # Sem diferença de primeira ordem no primeiro quadro; a posição inicial
+    # preenche a posição líder com 0.0, replicando a borda já usada na grade
+    # temporal.
+    diff[1:] = (values[1:] - values[:-1]) / dt
+    return diff
+
+
+def _second_difference(first_diff: np.ndarray, dt: float) -> np.ndarray:
+    second = np.zeros_like(first_diff, dtype=np.float32)
+    # Sem diferença de segunda ordem nos dois primeiros quadros pelo mesmo
+    # motivo: não há vizinho anterior suficiente para formar a diferença.
+    second[2:] = (first_diff[2:] - first_diff[1:-1]) / dt
+    return second
+
+
+def _wrap_angle(angle: np.ndarray) -> np.ndarray:
+    return (angle + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def _trunk_orientation(xy: np.ndarray, dt: float) -> np.ndarray:
+    shoulder_mid = (xy[:, SHOULDER_LEFT] + xy[:, SHOULDER_RIGHT]) / 2.0
+    hip_mid = (xy[:, HIP_LEFT] + xy[:, HIP_RIGHT]) / 2.0
+    trunk_vector = hip_mid - shoulder_mid
+    theta = np.arctan2(trunk_vector[:, 1], trunk_vector[:, 0]).astype(np.float32)
+
+    trunk_sin = np.sin(theta).astype(np.float32)
+    trunk_cos = np.cos(theta).astype(np.float32)
+
+    dtheta = np.zeros_like(theta, dtype=np.float32)
+    # sin/cos em vez do ângulo bruto: o ângulo bruto salta em 2*pi entre
+    # quadros adjacentes puramente por causa do wrap +pi/-pi, e o codificador
+    # temporal leria isso como uma movimentação enorme.
+    raw_delta = theta[1:] - theta[:-1]
+    dtheta[1:] = _wrap_angle(raw_delta) / dt
+
+    return np.stack([trunk_sin, trunk_cos, dtheta], axis=1).astype(np.float32)
+
+
+def build_pose_features(video_id: str) -> tuple[np.ndarray, list[str]]:
+    dt = 1.0 / TARGET_FPS
+
+    pose = load_pose(video_id)
+    xy, conf = normalize_keypoints(pose.keypoints, pose.bbox, pose.person_found)
+    bbox_desc = bbox_descriptors(pose.bbox, pose.person_found, pose.width, pose.height)
+    xy, conf, bbox_desc = impute_missing(xy, conf, bbox_desc, pose.person_found)
+
+    k = xy.shape[0]
+    xy_flat = xy.reshape(k, 34)
+
+    kp_velocity = _first_difference(xy_flat, dt)
+    kp_acceleration = _second_difference(kp_velocity, dt)
+
+    bbox_velocity = _first_difference(bbox_desc, dt)
+    bbox_acceleration = _second_difference(bbox_velocity, dt)
+
+    trunk = _trunk_orientation(xy, dt)
+
+    # Não emitimos deslocamento bruto como bloco separado: deslocamento é
+    # velocidade vezes uma constante (dt), logo é exatamente redundante com o
+    # bloco de velocidade acima e só acrescentaria 34 colunas colineares.
+    #
+    # Os blocos de bbox (posição/velocidade/aceleração) não são decoração
+    # opcional: normalize_keypoints centra os keypoints no centro da bbox, o
+    # que remove deliberadamente a translação global do corpo de `xy`. O
+    # movimento descendente de uma queda vive inteiramente em
+    # d(bbox_cy)/dt. Descartar os blocos de bbox deixaria a baseline
+    # pose-only cega para o sinal mais forte de queda.
+    matrix = np.concatenate(
+        [
+            xy_flat,
+            conf,
+            kp_velocity,
+            kp_acceleration,
+            bbox_desc,
+            bbox_velocity,
+            bbox_acceleration,
+            trunk,
+        ],
+        axis=1,
+    ).astype(np.float32)
+
+    feature_names = _feature_names()
+    assert matrix.shape[1] == len(feature_names)
+    assert matrix.shape[1] == EXPECTED_D
+    return matrix, feature_names
+
+
+def _check(name: str, condition: bool) -> bool:
+    status = "PASS" if condition else "FAIL"
+    print(f"[{status}] {name}")
+    return condition
+
+
+def _selftest_bbox_constant_velocity() -> bool:
+    dt = 1.0 / TARGET_FPS
+    k = 5
+    bbox_desc = np.zeros((k, 4), dtype=np.float32)
+    bbox_desc[:, 1] = np.arange(k, dtype=np.float32) * 2.0
+
+    velocity = _first_difference(bbox_desc, dt)
+    acceleration = _second_difference(velocity, dt)
+
+    expected_v = 2.0 / dt
+    ok = (
+        bool(np.allclose(velocity[1:, 1], expected_v))
+        and bool(np.isclose(velocity[0, 1], 0.0))
+        and bool(np.allclose(acceleration[2:, 1], 0.0, atol=1e-4))
+    )
+    return _check(
+        "bbox velocidade constante: bbox_vcy constante e bbox_acy zero após a borda",
+        ok,
+    )
+
+
+def _selftest_trunk_upright_and_horizontal() -> bool:
+    dt = 1.0 / TARGET_FPS
+    xy = np.zeros((2, 17, 2), dtype=np.float32)
+    xy[0, SHOULDER_LEFT] = [0.0, -0.2]
+    xy[0, SHOULDER_RIGHT] = [0.0, -0.2]
+    xy[0, HIP_LEFT] = [0.0, 0.2]
+    xy[0, HIP_RIGHT] = [0.0, 0.2]
+
+    xy[1, SHOULDER_LEFT] = [-0.2, 0.0]
+    xy[1, SHOULDER_RIGHT] = [-0.2, 0.0]
+    xy[1, HIP_LEFT] = [0.2, 0.0]
+    xy[1, HIP_RIGHT] = [0.2, 0.0]
+
+    trunk = _trunk_orientation(xy, dt)
+    upright_ok = np.isclose(trunk[0, 0], 1.0, atol=1e-5) and np.isclose(
+        trunk[0, 1], 0.0, atol=1e-5
+    )
+    horizontal_ok = np.isclose(trunk[1, 0], 0.0, atol=1e-5) and np.isclose(
+        trunk[1, 1], 1.0, atol=1e-5
+    )
+    return _check(
+        "trunk orientation: tronco vertical e horizontal dão sin/cos esperados",
+        bool(upright_ok and horizontal_ok),
+    )
+
+
+def _selftest_trunk_wrap() -> bool:
+    dt = 1.0 / TARGET_FPS
+    k = 3
+    xy = np.zeros((k, 17, 2), dtype=np.float32)
+    angles = [np.pi - 0.01, np.pi - 0.001, -np.pi + 0.01]
+    for i, angle in enumerate(angles):
+        vector = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
+        xy[i, SHOULDER_LEFT] = -vector / 2.0
+        xy[i, SHOULDER_RIGHT] = -vector / 2.0
+        xy[i, HIP_LEFT] = vector / 2.0
+        xy[i, HIP_RIGHT] = vector / 2.0
+
+    trunk = _trunk_orientation(xy, dt)
+    dtheta_wrap = trunk[2, 2]
+    huge_wrap = (2.0 * np.pi) / dt
+
+    ok = bool(abs(dtheta_wrap) < huge_wrap / 10.0)
+    return _check(
+        "trunk_dtheta: cruzar o wrap +pi/-pi dá dtheta pequeno, não ~2*pi/dt",
+        ok,
+    )
+
+
+def _selftest_imputed_frame_zero_velocity() -> bool:
+    dt = 1.0 / TARGET_FPS
+    k = 4
+    xy = np.zeros((k, 17, 2), dtype=np.float32)
+    conf = np.full((k, 17), 0.9, dtype=np.float32)
+    bbox_desc = np.zeros((k, 4), dtype=np.float32)
+    xy[0] = 0.1
+    xy[1] = np.nan
+    xy[2] = 0.1
+    xy[3] = 0.3
+    bbox_desc[0] = 0.4
+    bbox_desc[1] = np.nan
+    bbox_desc[2] = 0.4
+    bbox_desc[3] = 0.6
+    person_found = np.array([True, False, True, True])
+
+    xy_out, conf_out, bbox_out = impute_missing(xy, conf, bbox_desc, person_found)
+    xy_flat = xy_out.reshape(k, 34)
+
+    kp_velocity = _first_difference(xy_flat, dt)
+    bbox_velocity = _first_difference(bbox_out, dt)
+
+    ok = (
+        bool(np.allclose(kp_velocity[1], 0.0))
+        and bool(np.allclose(bbox_velocity[1], 0.0))
+        and bool(np.isclose(conf_out[1, 0], 0.0))
+    )
+    return _check(
+        "quadro imputado por forward-fill: velocidade exatamente zero", ok
+    )
+
+
+def _selftest_output_shape_and_finiteness() -> bool:
+    k = 6
+    xy = np.random.default_rng(0).normal(size=(k, 17, 2)).astype(np.float32)
+    conf = np.full((k, 17), 0.9, dtype=np.float32)
+    bbox_desc = np.random.default_rng(1).normal(size=(k, 4)).astype(np.float32)
+    person_found = np.ones((k,), dtype=bool)
+
+    xy_out, conf_out, bbox_out = impute_missing(xy, conf, bbox_desc, person_found)
+    dt = 1.0 / TARGET_FPS
+    xy_flat = xy_out.reshape(k, 34)
+    kp_velocity = _first_difference(xy_flat, dt)
+    kp_acceleration = _second_difference(kp_velocity, dt)
+    bbox_velocity = _first_difference(bbox_out, dt)
+    bbox_acceleration = _second_difference(bbox_velocity, dt)
+    trunk = _trunk_orientation(xy_out, dt)
+
+    matrix = np.concatenate(
+        [
+            xy_flat,
+            conf_out,
+            kp_velocity,
+            kp_acceleration,
+            bbox_out,
+            bbox_velocity,
+            bbox_acceleration,
+            trunk,
+        ],
+        axis=1,
+    ).astype(np.float32)
+    feature_names = _feature_names()
+
+    ok = (
+        matrix.shape == (k, EXPECTED_D)
+        and matrix.dtype == np.float32
+        and len(feature_names) == EXPECTED_D
+        and bool(np.isfinite(matrix).all())
+    )
+    return _check(
+        "saída: shape [K,134] float32, 134 nomes de feature, matriz finita", ok
+    )
+
+
+def run_selftest() -> None:
+    checks = [
+        _selftest_bbox_constant_velocity(),
+        _selftest_trunk_upright_and_horizontal(),
+        _selftest_trunk_wrap(),
+        _selftest_imputed_frame_zero_velocity(),
+        _selftest_output_shape_and_finiteness(),
+    ]
+    if not all(checks):
+        print("\npose kinematics selftest FALHOU", file=sys.stderr)
+        sys.exit(1)
+    print("\npose kinematics selftest OK: todas as checagens passaram")
+
+
+_BLOCKS: list[tuple[str, int, int]] = [
+    ("kp_xy", 0, 34),
+    ("kp_conf", 34, 51),
+    ("kp_velocity", 51, 85),
+    ("kp_acceleration", 85, 119),
+    ("bbox_pos", 119, 123),
+    ("bbox_velocity", 123, 127),
+    ("bbox_acceleration", 127, 131),
+    ("trunk", 131, 134),
+]
+
+
+def run_report() -> None:
+    frames = read_frames(FRAMES_PATH)
+    video_ids = [str(video_id) for video_id in frames["video_id"].unique()]
+
+    matrices: list[np.ndarray] = []
+    for video_id in video_ids:
+        matrix, feature_names = build_pose_features(video_id)
+        matrices.append(matrix)
+
+    all_features = np.concatenate(matrices, axis=0)
+    total_rows = all_features.shape[0]
+    d = all_features.shape[1]
+
+    print(f"\nvídeos processados: {len(video_ids)}")
+    print(f"total de linhas: {total_rows} (esperado {EXPECTED_K_SUM})")
+    print(f"D: {d} (esperado {EXPECTED_D})")
+
+    print("\n=== estatísticas por bloco de features ===")
+    for name, start, end in _BLOCKS:
+        block = all_features[:, start:end]
+        print(
+            f"  {name}: min={block.min():.6f}, max={block.max():.6f}, "
+            f"mean={block.mean():.6f}"
+        )
+
+    non_finite = int(np.sum(~np.isfinite(all_features)))
+    print(f"\nvalores não finitos: {non_finite} (esperado 0)")
+
+    ok_rows = _check(f"total de linhas == {EXPECTED_K_SUM}", total_rows == EXPECTED_K_SUM)
+    ok_finite = _check("nenhum valor não finito", non_finite == 0)
+
+    if not (ok_rows and ok_finite):
+        print("\npose kinematics report FALHOU", file=sys.stderr)
+        sys.exit(1)
+    print("\npose kinematics report OK: todas as checagens passaram")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser(
+        "selftest",
+        help="Roda checagens sintéticas dos descritores cinemáticos",
+    )
+    subparsers.add_parser(
+        "report",
+        help="Roda build_pose_features sobre todos os vídeos e reporta estatísticas",
+    )
+
+    args = parser.parse_args()
+    if args.command == "selftest":
+        run_selftest()
+    elif args.command == "report":
+        run_report()
+
+
+if __name__ == "__main__":
+    main()
