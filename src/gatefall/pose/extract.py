@@ -424,11 +424,20 @@ def main() -> None:
     extract_all_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_all_parser.add_argument("--force", action="store_true")
 
+    subparsers.add_parser(
+        "report",
+        help="Relata a cobertura de pose e sua interação com o contrato de janelamento",
+    )
+
     args = parser.parse_args()
     if args.command == "extract":
         _run_extract_cli(args.video_id, args.model, args.force)
     elif args.command == "extract-all":
         run_pose_extract_all(args.model, args.force)
+    elif args.command == "report":
+        from gatefall.pose.report import run_pose_report
+
+        run_pose_report()
 
 
 if __name__ == "__main__":
