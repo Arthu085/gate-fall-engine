@@ -104,6 +104,13 @@ def decode_frames(
 
 
 def probe_frame_count(video_path: Path) -> int:
+    """Conta quadros por decodificação completa do pipe do ffmpeg.
+
+    Verifica o código de saída do processo: um ffmpeg que morre no meio do
+    arquivo devolve uma contagem parcial que parece uma contagem real, e essa
+    contagem parcial alimenta a checagem cruzada contra `n_frames_counted` do
+    manifesto — uma falha silenciosa aqui é pior que uma falha ruidosa.
+    """
     width, height = _probe_video_dimensions(video_path)
     frame_size = width * height * 3
 
@@ -118,6 +125,12 @@ def probe_frame_count(video_path: Path) -> int:
             count += 1
     finally:
         process.stdout.close()
-        process.wait()
+        return_code = process.wait()
+
+    if return_code != 0:
+        raise OSError(
+            f"{video_path}: ffmpeg terminou com código {return_code} ao "
+            "contar quadros"
+        )
 
     return count

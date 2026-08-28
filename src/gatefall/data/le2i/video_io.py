@@ -74,6 +74,7 @@ def select_le2i_report_sample(
     n_envs = cast(pd.Series, manifest["env"]).nunique()
     assert len(selected) == videos_per_env * n_envs
     assert len(set(selected)) == len(selected)
+    assert forced_by_id <= set(selected)
     return selected
 
 
@@ -83,11 +84,13 @@ def _check(name: str, condition: bool) -> bool:
     return condition
 
 
-def check_decoded_frame_count(video_id: str, n_decoded: int, n_requested: int) -> bool:
+def check_probed_count_matches_manifest(
+    video_id: str, probed_count: int, manifest_count: int
+) -> bool:
     return _check(
-        f"{video_id}: decode_frames retorna a mesma contagem solicitada "
-        f"({n_requested})",
-        n_decoded == n_requested,
+        f"{video_id}: probe_frame_count ({probed_count}) bate com "
+        f"n_frames_counted do manifesto ({manifest_count})",
+        probed_count == manifest_count,
     )
 
 
@@ -144,6 +147,10 @@ def report_le2i_frame_decode() -> None:
         max_src_index = max(src_indices)
 
         probed_count = probe_frame_count(video_path)
+        manifest_count = int(cast(int, manifest_by_video_id.loc[video_id, "n_frames_counted"]))
+        checks.append(
+            check_probed_count_matches_manifest(video_id, probed_count, manifest_count)
+        )
         checks.append(
             check_max_src_index_in_bounds(video_id, max_src_index, probed_count)
         )
@@ -160,15 +167,11 @@ def report_le2i_frame_decode() -> None:
         )
 
         try:
-            decoded_frames = decode_frames(video_path, src_indices)
+            decode_frames(video_path, src_indices)
             decoded_ok = True
         except (OSError, EOFError):
-            decoded_frames = []
             decoded_ok = False
         checks.append(check_all_src_indices_decode(video_id, decoded_ok))
-        checks.append(
-            check_decoded_frame_count(video_id, len(decoded_frames), len(src_indices))
-        )
 
     if not all(checks):
         print("\nframes report FALHOU", file=sys.stderr)

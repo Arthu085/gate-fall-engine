@@ -338,7 +338,13 @@ correspondente se qualquer um estiver ausente) e roda quatro checagens por
 vídeo da amostra de 12, todas fatais — qualquer uma falhando interrompe o
 `report` com código de saída diferente de zero:
 
-1. `decode_frames` devolve a mesma quantidade de quadros solicitada.
+1. `probe_frame_count(video_path)` bate com `n_frames_counted` do manifesto
+   para aquele `video_id` — duas contagens independentes da mesma coisa
+   (`ffprobe -count_frames` no momento do ingest versus contar blocos
+   completos lidos do pipe do `ffmpeg` agora). Uma divergência significa que
+   o decodificador descarta ou duplica quadros, o que deslocaria todo
+   `src_index` do dataset por uma constante e desalinharia silenciosamente
+   toda etapa seguinte.
 2. A resolução do quadro decodificado (`shape[:2]`) bate com `width`/`height`
    do manifesto.
 3. `max(src_index)` daquele vídeo é estritamente menor que a contagem
