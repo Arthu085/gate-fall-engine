@@ -49,21 +49,61 @@ def _feature_names() -> list[str]:
     return names
 
 
-def _first_difference(values: np.ndarray, dt: float) -> np.ndarray:
-    diff = np.zeros_like(values, dtype=np.float32)
+def _backfill_source_indices(person_found: np.ndarray) -> np.ndarray:
+    k = person_found.shape[0]
+    src = np.zeros(k, dtype=np.int64)
+    if not np.any(person_found):
+        return src
+
+    # Espelha exatamente o forward-fill de impute_missing: cada quadro ausente
+    # aponta para o último quadro observado antes dele.
+    last_valid_idx = 0
+    for i in range(k):
+        if person_found[i]:
+            last_valid_idx = i
+        src[i] = last_valid_idx
+
+    # E o back-fill do trecho inicial, quando o vídeo começa sem detecção.
+    first_valid_index = int(np.argmax(person_found))
+    if first_valid_index > 0:
+        src[:first_valid_index] = first_valid_index
+
+    return src
+
+
+def _effective_dt(person_found: np.ndarray, dt: float) -> np.ndarray:
+    src = _backfill_source_indices(person_found)
+    dt_eff = np.zeros(src.shape[0], dtype=np.float32)
+    # No quadro em que a pessoa reaparece após um gap de N quadros, o
+    # deslocamento observado se acumulou ao longo do gap inteiro, não de um
+    # único intervalo de quadro; dividir por dt fixo infla a velocidade em N
+    # vezes (e a aceleração em ~N^2). dt_eff carrega esse N implícito.
+    dt_eff[1:] = (src[1:] - src[:-1]).astype(np.float32) * dt
+    return dt_eff
+
+
+def _safe_divide(numerator: np.ndarray, dt_eff: np.ndarray) -> np.ndarray:
+    dt_col = dt_eff.reshape(-1, 1).astype(np.float32)
+    denom = np.where(dt_col != 0, dt_col, np.float32(1.0))
+    result = np.where(dt_col != 0, numerator / denom, np.float32(0.0))
+    return result.astype(np.float32)
+
+
+def _first_difference(values: np.ndarray, dt_eff: np.ndarray) -> np.ndarray:
+    numerator = np.zeros_like(values, dtype=np.float32)
     # Sem diferença de primeira ordem no primeiro quadro; a posição inicial
     # preenche a posição líder com 0.0, replicando a borda já usada na grade
-    # temporal.
-    diff[1:] = (values[1:] - values[:-1]) / dt
-    return diff
+    # temporal. dt_eff[0] é sempre 0.0, então _safe_divide já emite 0.0 aqui.
+    numerator[1:] = values[1:] - values[:-1]
+    return _safe_divide(numerator, dt_eff)
 
 
-def _second_difference(first_diff: np.ndarray, dt: float) -> np.ndarray:
-    second = np.zeros_like(first_diff, dtype=np.float32)
+def _second_difference(first_diff: np.ndarray, dt_eff: np.ndarray) -> np.ndarray:
+    numerator = np.zeros_like(first_diff, dtype=np.float32)
     # Sem diferença de segunda ordem nos dois primeiros quadros pelo mesmo
     # motivo: não há vizinho anterior suficiente para formar a diferença.
-    second[2:] = (first_diff[2:] - first_diff[1:-1]) / dt
-    return second
+    numerator[2:] = first_diff[2:] - first_diff[1:-1]
+    return _safe_divide(numerator, dt_eff)
 
 
 def _wrap_angle(angle: np.ndarray) -> np.ndarray:
@@ -100,11 +140,13 @@ def build_pose_features(video_id: str) -> tuple[np.ndarray, list[str]]:
     k = xy.shape[0]
     xy_flat = xy.reshape(k, 34)
 
-    kp_velocity = _first_difference(xy_flat, dt)
-    kp_acceleration = _second_difference(kp_velocity, dt)
+    dt_eff = _effective_dt(pose.person_found, dt)
 
-    bbox_velocity = _first_difference(bbox_desc, dt)
-    bbox_acceleration = _second_difference(bbox_velocity, dt)
+    kp_velocity = _first_difference(xy_flat, dt_eff)
+    kp_acceleration = _second_difference(kp_velocity, dt_eff)
+
+    bbox_velocity = _first_difference(bbox_desc, dt_eff)
+    bbox_acceleration = _second_difference(bbox_velocity, dt_eff)
 
     trunk = _trunk_orientation(xy, dt)
 
@@ -149,9 +191,10 @@ def _selftest_bbox_constant_velocity() -> bool:
     k = 5
     bbox_desc = np.zeros((k, 4), dtype=np.float32)
     bbox_desc[:, 1] = np.arange(k, dtype=np.float32) * 2.0
+    dt_eff = _effective_dt(np.ones((k,), dtype=bool), dt)
 
-    velocity = _first_difference(bbox_desc, dt)
-    acceleration = _second_difference(velocity, dt)
+    velocity = _first_difference(bbox_desc, dt_eff)
+    acceleration = _second_difference(velocity, dt_eff)
 
     expected_v = 2.0 / dt
     ok = (
@@ -232,9 +275,10 @@ def _selftest_imputed_frame_zero_velocity() -> bool:
 
     xy_out, conf_out, bbox_out = impute_missing(xy, conf, bbox_desc, person_found)
     xy_flat = xy_out.reshape(k, 34)
+    dt_eff = _effective_dt(person_found, dt)
 
-    kp_velocity = _first_difference(xy_flat, dt)
-    bbox_velocity = _first_difference(bbox_out, dt)
+    kp_velocity = _first_difference(xy_flat, dt_eff)
+    bbox_velocity = _first_difference(bbox_out, dt_eff)
 
     ok = (
         bool(np.allclose(kp_velocity[1], 0.0))
@@ -243,6 +287,32 @@ def _selftest_imputed_frame_zero_velocity() -> bool:
     )
     return _check(
         "quadro imputado por forward-fill: velocidade exatamente zero", ok
+    )
+
+
+def _selftest_gap_velocity_uses_gap_length() -> bool:
+    dt = 1.0 / TARGET_FPS
+    k = 4
+    bbox_desc = np.zeros((k, 4), dtype=np.float32)
+    conf = np.full((k, 17), 0.9, dtype=np.float32)
+    xy = np.zeros((k, 17, 2), dtype=np.float32)
+    bbox_desc[0, 1] = 0.0
+    bbox_desc[1] = np.nan
+    bbox_desc[2] = np.nan
+    bbox_desc[3, 1] = 0.3
+    person_found = np.array([True, False, False, True])
+
+    _, _, bbox_out = impute_missing(xy, conf, bbox_desc, person_found)
+    dt_eff = _effective_dt(person_found, dt)
+    velocity = _first_difference(bbox_out, dt_eff)
+
+    expected_v = 0.3 / (3.0 * dt)
+    ok = bool(np.isclose(velocity[3, 1], expected_v)) and not bool(
+        np.isclose(velocity[3, 1], 0.3 / dt)
+    )
+    return _check(
+        "gap de 3 quadros: velocidade na reaparição usa 0.3/(3*dt), não 0.3/dt",
+        ok,
     )
 
 
@@ -256,10 +326,11 @@ def _selftest_output_shape_and_finiteness() -> bool:
     xy_out, conf_out, bbox_out = impute_missing(xy, conf, bbox_desc, person_found)
     dt = 1.0 / TARGET_FPS
     xy_flat = xy_out.reshape(k, 34)
-    kp_velocity = _first_difference(xy_flat, dt)
-    kp_acceleration = _second_difference(kp_velocity, dt)
-    bbox_velocity = _first_difference(bbox_out, dt)
-    bbox_acceleration = _second_difference(bbox_velocity, dt)
+    dt_eff = _effective_dt(person_found, dt)
+    kp_velocity = _first_difference(xy_flat, dt_eff)
+    kp_acceleration = _second_difference(kp_velocity, dt_eff)
+    bbox_velocity = _first_difference(bbox_out, dt_eff)
+    bbox_acceleration = _second_difference(bbox_velocity, dt_eff)
     trunk = _trunk_orientation(xy_out, dt)
 
     matrix = np.concatenate(
@@ -294,6 +365,7 @@ def run_selftest() -> None:
         _selftest_trunk_upright_and_horizontal(),
         _selftest_trunk_wrap(),
         _selftest_imputed_frame_zero_velocity(),
+        _selftest_gap_velocity_uses_gap_length(),
         _selftest_output_shape_and_finiteness(),
     ]
     if not all(checks):
