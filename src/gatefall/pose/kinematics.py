@@ -7,8 +7,10 @@ nunca fique congelada em um arquivo.
 
 import argparse
 import sys
+from typing import cast
 
 import numpy as np
+import pandas as pd
 
 from gatefall.config import TARGET_FPS
 from gatefall.data.frames import read_frames
@@ -437,11 +439,19 @@ def run_selftest() -> None:
 def run_report() -> None:
     frames = read_frames(FRAMES_PATH)
     video_ids = [str(video_id) for video_id in frames["video_id"].unique()]
+    group_sizes = cast(pd.Series, frames.groupby("video_id").size())
 
     matrices: list[np.ndarray] = []
+    k_mismatches: list[str] = []
     for video_id in video_ids:
-        matrix, feature_names = build_pose_features(video_id)
+        matrix = build_pose_features(video_id)[0]
         matrices.append(matrix)
+        expected_rows = int(cast(int, group_sizes[video_id]))
+        if matrix.shape[0] != expected_rows:
+            k_mismatches.append(
+                f"{video_id} (build_pose_features={matrix.shape[0]}, "
+                f"frames.parquet={expected_rows})"
+            )
 
     all_features = np.concatenate(matrices, axis=0)
     total_rows = all_features.shape[0]
@@ -462,10 +472,21 @@ def run_report() -> None:
     non_finite = int(np.sum(~np.isfinite(all_features)))
     print(f"\nvalores não finitos: {non_finite} (esperado 0)")
 
+    print("\n=== checagem: K por vídeo (build_pose_features vs frames.parquet) ===")
+    if k_mismatches:
+        print("video_ids com divergência:")
+        for mismatch in k_mismatches:
+            print(f"  {mismatch}")
+    ok_k_per_video = _check(
+        "K de build_pose_features == contagem de quadros em frames.parquet, "
+        "para todo video_id",
+        len(k_mismatches) == 0,
+    )
+
     ok_rows = _check(f"total de linhas == {EXPECTED_K_SUM}", total_rows == EXPECTED_K_SUM)
     ok_finite = _check("nenhum valor não finito", non_finite == 0)
 
-    if not (ok_rows and ok_finite):
+    if not (ok_rows and ok_finite and ok_k_per_video):
         print("\npose kinematics report FALHOU", file=sys.stderr)
         sys.exit(1)
     print("\npose kinematics report OK: todas as checagens passaram")
