@@ -141,7 +141,7 @@ def _wrap_angle(angle: np.ndarray) -> np.ndarray:
     return (angle + np.pi) % (2.0 * np.pi) - np.pi
 
 
-def _trunk_orientation(xy: np.ndarray, dt: float) -> np.ndarray:
+def _trunk_orientation(xy: np.ndarray, dt_eff: np.ndarray) -> np.ndarray:
     shoulder_mid = (xy[:, SHOULDER_LEFT] + xy[:, SHOULDER_RIGHT]) / 2.0
     hip_mid = (xy[:, HIP_LEFT] + xy[:, HIP_RIGHT]) / 2.0
     trunk_vector = hip_mid - shoulder_mid
@@ -150,12 +150,16 @@ def _trunk_orientation(xy: np.ndarray, dt: float) -> np.ndarray:
     trunk_sin = np.sin(theta).astype(np.float32)
     trunk_cos = np.cos(theta).astype(np.float32)
 
-    dtheta = np.zeros_like(theta, dtype=np.float32)
     # sin/cos em vez do ângulo bruto: o ângulo bruto salta em 2*pi entre
     # quadros adjacentes puramente por causa do wrap +pi/-pi, e o codificador
     # temporal leria isso como uma movimentação enorme.
+    dtheta_numerator = np.zeros((theta.shape[0], 1), dtype=np.float32)
     raw_delta = theta[1:] - theta[:-1]
-    dtheta[1:] = _wrap_angle(raw_delta) / dt
+    dtheta_numerator[1:, 0] = _wrap_angle(raw_delta)
+    # Mesmo raciocínio de _effective_dt: no quadro em que a pessoa reaparece
+    # após um gap, o delta de ângulo wrapped se acumulou ao longo do gap
+    # inteiro, então usamos dt_eff (não dt fixo) via _safe_divide.
+    dtheta = _safe_divide(dtheta_numerator, dt_eff)[:, 0]
 
     return np.stack([trunk_sin, trunk_cos, dtheta], axis=1).astype(np.float32)
 
@@ -214,7 +218,7 @@ def build_pose_features(video_id: str) -> tuple[np.ndarray, list[str]]:
     bbox_velocity = _first_difference(bbox_desc, dt_eff)
     bbox_acceleration = _second_difference(bbox_velocity, dt_eff)
 
-    trunk = _trunk_orientation(xy, dt)
+    trunk = _trunk_orientation(xy, dt_eff)
 
     matrix = _assemble_matrix(
         xy_flat,
@@ -274,7 +278,8 @@ def _selftest_trunk_upright_and_horizontal() -> bool:
     xy[1, HIP_LEFT] = [0.2, 0.0]
     xy[1, HIP_RIGHT] = [0.2, 0.0]
 
-    trunk = _trunk_orientation(xy, dt)
+    dt_eff = _effective_dt(np.ones((2,), dtype=bool), dt)
+    trunk = _trunk_orientation(xy, dt_eff)
     upright_ok = np.isclose(trunk[0, 0], 1.0, atol=1e-5) and np.isclose(
         trunk[0, 1], 0.0, atol=1e-5
     )
@@ -299,13 +304,40 @@ def _selftest_trunk_wrap() -> bool:
         xy[i, HIP_LEFT] = vector / 2.0
         xy[i, HIP_RIGHT] = vector / 2.0
 
-    trunk = _trunk_orientation(xy, dt)
+    dt_eff = _effective_dt(np.ones((k,), dtype=bool), dt)
+    trunk = _trunk_orientation(xy, dt_eff)
     dtheta_wrap = trunk[2, 2]
     huge_wrap = (2.0 * np.pi) / dt
 
     ok = bool(abs(dtheta_wrap) < huge_wrap / 10.0)
     return _check(
         "trunk_dtheta: cruzar o wrap +pi/-pi dá dtheta pequeno, não ~2*pi/dt",
+        ok,
+    )
+
+
+def _selftest_trunk_gap_uses_gap_length() -> bool:
+    dt = 1.0 / TARGET_FPS
+    k = 4
+    xy = np.zeros((k, 17, 2), dtype=np.float32)
+    angles = [0.0, 0.0, 0.0, 0.3]
+    for i, angle in enumerate(angles):
+        vector = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
+        xy[i, SHOULDER_LEFT] = -vector / 2.0
+        xy[i, SHOULDER_RIGHT] = -vector / 2.0
+        xy[i, HIP_LEFT] = vector / 2.0
+        xy[i, HIP_RIGHT] = vector / 2.0
+    person_found = np.array([True, False, False, True])
+
+    dt_eff = _effective_dt(person_found, dt)
+    trunk = _trunk_orientation(xy, dt_eff)
+
+    expected_dtheta = 0.3 / (3.0 * dt)
+    ok = bool(np.isclose(trunk[3, 2], expected_dtheta)) and not bool(
+        np.isclose(trunk[3, 2], 0.3 / dt)
+    )
+    return _check(
+        "trunk_dtheta: gap de 3 quadros usa 0.3/(3*dt) na reaparição, não 0.3/dt",
         ok,
     )
 
@@ -384,7 +416,7 @@ def _selftest_output_shape_and_finiteness() -> bool:
     kp_acceleration = _second_difference(kp_velocity, dt_eff)
     bbox_velocity = _first_difference(bbox_out, dt_eff)
     bbox_acceleration = _second_difference(bbox_velocity, dt_eff)
-    trunk = _trunk_orientation(xy_out, dt)
+    trunk = _trunk_orientation(xy_out, dt_eff)
 
     matrix = _assemble_matrix(
         xy_flat,
@@ -425,6 +457,7 @@ def run_selftest() -> None:
         _selftest_bbox_constant_velocity(),
         _selftest_trunk_upright_and_horizontal(),
         _selftest_trunk_wrap(),
+        _selftest_trunk_gap_uses_gap_length(),
         _selftest_imputed_frame_zero_velocity(),
         _selftest_gap_velocity_uses_gap_length(),
         _selftest_output_shape_and_finiteness(),
