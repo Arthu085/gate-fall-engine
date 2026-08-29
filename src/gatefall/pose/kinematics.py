@@ -29,24 +29,53 @@ HIP_LEFT = 11
 HIP_RIGHT = 12
 
 
+def _block_definitions() -> list[tuple[str, list[str]]]:
+    kp_xy: list[str] = []
+    for i in range(17):
+        kp_xy.append(f"kp_x_{i}")
+        kp_xy.append(f"kp_y_{i}")
+    kp_conf = [f"kp_conf_{i}" for i in range(17)]
+    kp_velocity: list[str] = []
+    for i in range(17):
+        kp_velocity.append(f"kp_vx_{i}")
+        kp_velocity.append(f"kp_vy_{i}")
+    kp_acceleration: list[str] = []
+    for i in range(17):
+        kp_acceleration.append(f"kp_ax_{i}")
+        kp_acceleration.append(f"kp_ay_{i}")
+    bbox_pos = ["bbox_cx", "bbox_cy", "bbox_w", "bbox_h"]
+    bbox_velocity = ["bbox_vcx", "bbox_vcy", "bbox_vw", "bbox_vh"]
+    bbox_acceleration = ["bbox_acx", "bbox_acy", "bbox_aw", "bbox_ah"]
+    trunk = ["trunk_sin", "trunk_cos", "trunk_dtheta"]
+    return [
+        ("kp_xy", kp_xy),
+        ("kp_conf", kp_conf),
+        ("kp_velocity", kp_velocity),
+        ("kp_acceleration", kp_acceleration),
+        ("bbox_pos", bbox_pos),
+        ("bbox_velocity", bbox_velocity),
+        ("bbox_acceleration", bbox_acceleration),
+        ("trunk", trunk),
+    ]
+
+
 def _feature_names() -> list[str]:
     names: list[str] = []
-    for i in range(17):
-        names.append(f"kp_x_{i}")
-        names.append(f"kp_y_{i}")
-    for i in range(17):
-        names.append(f"kp_conf_{i}")
-    for i in range(17):
-        names.append(f"kp_vx_{i}")
-        names.append(f"kp_vy_{i}")
-    for i in range(17):
-        names.append(f"kp_ax_{i}")
-        names.append(f"kp_ay_{i}")
-    names.extend(["bbox_cx", "bbox_cy", "bbox_w", "bbox_h"])
-    names.extend(["bbox_vcx", "bbox_vcy", "bbox_vw", "bbox_vh"])
-    names.extend(["bbox_acx", "bbox_acy", "bbox_aw", "bbox_ah"])
-    names.extend(["trunk_sin", "trunk_cos", "trunk_dtheta"])
+    for _, block_names in _block_definitions():
+        names.extend(block_names)
     return names
+
+
+def _blocks_from_definitions() -> list[tuple[str, int, int]]:
+    blocks: list[tuple[str, int, int]] = []
+    offset = 0
+    for name, block_names in _block_definitions():
+        blocks.append((name, offset, offset + len(block_names)))
+        offset += len(block_names)
+    return blocks
+
+
+_BLOCKS: list[tuple[str, int, int]] = _blocks_from_definitions()
 
 
 def _backfill_source_indices(person_found: np.ndarray) -> np.ndarray:
@@ -129,6 +158,41 @@ def _trunk_orientation(xy: np.ndarray, dt: float) -> np.ndarray:
     return np.stack([trunk_sin, trunk_cos, dtheta], axis=1).astype(np.float32)
 
 
+def _assemble_matrix(
+    xy_flat: np.ndarray,
+    conf: np.ndarray,
+    kp_velocity: np.ndarray,
+    kp_acceleration: np.ndarray,
+    bbox_desc: np.ndarray,
+    bbox_velocity: np.ndarray,
+    bbox_acceleration: np.ndarray,
+    trunk: np.ndarray,
+) -> np.ndarray:
+    # Não emitimos deslocamento bruto como bloco separado: deslocamento é
+    # velocidade vezes uma constante (dt), logo é exatamente redundante com o
+    # bloco de velocidade acima e só acrescentaria 34 colunas colineares.
+    #
+    # Os blocos de bbox (posição/velocidade/aceleração) não são decoração
+    # opcional: normalize_keypoints centra os keypoints no centro da bbox, o
+    # que remove deliberadamente a translação global do corpo de `xy`. O
+    # movimento descendente de uma queda vive inteiramente em
+    # d(bbox_cy)/dt. Descartar os blocos de bbox deixaria a baseline
+    # pose-only cega para o sinal mais forte de queda.
+    return np.concatenate(
+        [
+            xy_flat,
+            conf,
+            kp_velocity,
+            kp_acceleration,
+            bbox_desc,
+            bbox_velocity,
+            bbox_acceleration,
+            trunk,
+        ],
+        axis=1,
+    ).astype(np.float32)
+
+
 def build_pose_features(video_id: str) -> tuple[np.ndarray, list[str]]:
     dt = 1.0 / TARGET_FPS
 
@@ -150,29 +214,16 @@ def build_pose_features(video_id: str) -> tuple[np.ndarray, list[str]]:
 
     trunk = _trunk_orientation(xy, dt)
 
-    # Não emitimos deslocamento bruto como bloco separado: deslocamento é
-    # velocidade vezes uma constante (dt), logo é exatamente redundante com o
-    # bloco de velocidade acima e só acrescentaria 34 colunas colineares.
-    #
-    # Os blocos de bbox (posição/velocidade/aceleração) não são decoração
-    # opcional: normalize_keypoints centra os keypoints no centro da bbox, o
-    # que remove deliberadamente a translação global do corpo de `xy`. O
-    # movimento descendente de uma queda vive inteiramente em
-    # d(bbox_cy)/dt. Descartar os blocos de bbox deixaria a baseline
-    # pose-only cega para o sinal mais forte de queda.
-    matrix = np.concatenate(
-        [
-            xy_flat,
-            conf,
-            kp_velocity,
-            kp_acceleration,
-            bbox_desc,
-            bbox_velocity,
-            bbox_acceleration,
-            trunk,
-        ],
-        axis=1,
-    ).astype(np.float32)
+    matrix = _assemble_matrix(
+        xy_flat,
+        conf,
+        kp_velocity,
+        kp_acceleration,
+        bbox_desc,
+        bbox_velocity,
+        bbox_acceleration,
+        trunk,
+    )
 
     feature_names = _feature_names()
     assert matrix.shape[1] == len(feature_names)
@@ -333,19 +384,16 @@ def _selftest_output_shape_and_finiteness() -> bool:
     bbox_acceleration = _second_difference(bbox_velocity, dt_eff)
     trunk = _trunk_orientation(xy_out, dt)
 
-    matrix = np.concatenate(
-        [
-            xy_flat,
-            conf_out,
-            kp_velocity,
-            kp_acceleration,
-            bbox_out,
-            bbox_velocity,
-            bbox_acceleration,
-            trunk,
-        ],
-        axis=1,
-    ).astype(np.float32)
+    matrix = _assemble_matrix(
+        xy_flat,
+        conf_out,
+        kp_velocity,
+        kp_acceleration,
+        bbox_out,
+        bbox_velocity,
+        bbox_acceleration,
+        trunk,
+    )
     feature_names = _feature_names()
 
     ok = (
@@ -359,6 +407,17 @@ def _selftest_output_shape_and_finiteness() -> bool:
     )
 
 
+def _selftest_blocks_cover_range_without_gaps_or_overlaps() -> bool:
+    blocks_by_start = sorted(_BLOCKS, key=lambda block: block[1])
+    ok = bool(blocks_by_start) and blocks_by_start[0][1] == 0
+    ok = ok and blocks_by_start[-1][2] == EXPECTED_D
+    for (_, _, end), (_, next_start, _) in zip(blocks_by_start, blocks_by_start[1:]):
+        ok = ok and end == next_start
+    return _check(
+        "_BLOCKS: fronteiras cobrem 0..134 sem lacunas nem sobreposições", ok
+    )
+
+
 def run_selftest() -> None:
     checks = [
         _selftest_bbox_constant_velocity(),
@@ -367,23 +426,12 @@ def run_selftest() -> None:
         _selftest_imputed_frame_zero_velocity(),
         _selftest_gap_velocity_uses_gap_length(),
         _selftest_output_shape_and_finiteness(),
+        _selftest_blocks_cover_range_without_gaps_or_overlaps(),
     ]
     if not all(checks):
         print("\npose kinematics selftest FALHOU", file=sys.stderr)
         sys.exit(1)
     print("\npose kinematics selftest OK: todas as checagens passaram")
-
-
-_BLOCKS: list[tuple[str, int, int]] = [
-    ("kp_xy", 0, 34),
-    ("kp_conf", 34, 51),
-    ("kp_velocity", 51, 85),
-    ("kp_acceleration", 85, 119),
-    ("bbox_pos", 119, 123),
-    ("bbox_velocity", 123, 127),
-    ("bbox_acceleration", 127, 131),
-    ("trunk", 131, 134),
-]
 
 
 def run_report() -> None:
