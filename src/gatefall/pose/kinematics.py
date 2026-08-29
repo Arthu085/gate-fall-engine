@@ -497,9 +497,16 @@ def run_report() -> None:
     print("\n=== estatísticas por bloco de features ===")
     for name, start, end in _BLOCKS:
         block = all_features[:, start:end]
+        abs_block = np.abs(block)
+        percentiles = np.percentile(abs_block, [0.1, 1, 50, 99, 99.9])
+        p99 = percentiles[3]
+        frac_exceeds_10x_p99 = float(np.mean(abs_block > 10 * p99))
         print(
             f"  {name}: min={block.min():.6f}, max={block.max():.6f}, "
-            f"mean={block.mean():.6f}"
+            f"mean={block.mean():.6f}, p0.1_abs={percentiles[0]:.6f}, "
+            f"p1_abs={percentiles[1]:.6f}, p50_abs={percentiles[2]:.6f}, "
+            f"p99_abs={percentiles[3]:.6f}, p99.9_abs={percentiles[4]:.6f}, "
+            f"frac_exceeds_10x_p99={frac_exceeds_10x_p99:.6f}"
         )
 
     non_finite = int(np.sum(~np.isfinite(all_features)))
