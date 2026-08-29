@@ -255,6 +255,47 @@ seis valores esperados são propriedades do dataset congelado — se o parquet
 mudar, queremos uma falha ruidosa, não um relatório silenciosamente
 diferente.
 
+## Dataset de janelas de pose
+
+`src/gatefall/data/le2i/pose_dataset.py:PoseWindowDataset` é a camada acima do
+índice de janela: em vez de só contar janelas, entrega, por índice, a matriz
+`[WINDOW_FRAMES, 134]` de features de pose da janela, o rótulo (`int`) e
+`(video_id, k_end)`. Nenhuma padronização (normalização, z-score etc.)
+acontece aqui — é responsabilidade de quem consumir o dataset para treino.
+
+O carregamento de features por vídeo (`build_pose_features`, de
+`gatefall.pose.kinematics`) é injetado via `feature_loader` e cacheado por
+`video_id`: cada vídeo é carregado no máximo uma vez por instância do
+dataset, sob demanda no primeiro acesso a uma janela daquele vídeo, nunca
+todos de uma vez como um array denso `[N, 24, 134]`. `LABEL_NAMES` mapeia
+índice de rótulo para nome legível, inferida comparando as contagens de
+`windows report` em `TRAIN_STRIDE` contra os números nomeados desta tarefa —
+não existe outra fonte no repositório para essa correspondência; o índice 6
+(`lying`) nunca ocorre no Le2i e é um placeholder só para manter o
+comprimento da lista igual a `NUM_CLASSES`.
+
+```bash
+uv run python -m gatefall.data.pose_dataset selftest
+```
+
+Verifica `PoseWindowDataset` contra um `feature_loader` sintético injetado —
+sem acessar o dataset real.
+
+```bash
+uv run python -m gatefall.data.pose_dataset report
+```
+
+Lê `data/labels/le2i/frames.parquet` e roda `PoseWindowDataset` sobre o
+dataset inteiro, em `TRAIN_STRIDE` e `EVAL_STRIDE`. Roda checagens fatais
+comparando a contagem real de janelas úteis por split, e por `(split,
+label)` em `TRAIN_STRIDE`, contra os números do dataset congelado — o mesmo
+raciocínio do `windows report`: se o parquet ou o janelamento mudarem,
+queremos uma falha ruidosa, não uma divergência silenciosa. Além disso
+imprime, só em `TRAIN_STRIDE`, dois diagnósticos informativos por split, sem
+checagem fatal associada: o percentual de janelas cujo `k_end` não tem
+pessoa detectada (`person_found`); e a média de quadros sem pessoa detectada
+por janela.
+
 ## Decodificação de quadros
 
 `src/gatefall/data/video_io.py` decodifica quadros de vídeo sob demanda a
