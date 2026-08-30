@@ -101,7 +101,9 @@ de considerar a gravação bem-sucedida.
 uv run python -m gatefall.features.standardize selftest
 ```
 
-Roda checagens sintéticas, sem tocar no dataset real: entrada conhecida gera
+Roda checagens sintéticas, sem tocar no dataset real: estatísticas sintéticas
+consistentes com `gatefall.pose.kinematics` são aceitas, enquanto uma cópia
+com `feature_names` ou `stride` divergentes é rejeitada; entrada conhecida gera
 média 0 / desvio 1 nas dimensões padronizadas; as 17 colunas de `kp_conf`
 saem byte a byte idênticas à entrada; a máscara de exclusão tem comprimento
 134 e cobre exatamente `kp_conf`; uma dimensão constante é guardada sem
@@ -122,7 +124,13 @@ uv run python -m gatefall.features.standardize report
 ```
 
 Carrega o JSON persistido (falha se `build` nunca rodou) e roda checagens
-fatais sobre o dataset real: a contagem de janelas de treino em
+fatais sobre o dataset real: antes de qualquer outra checagem, as estatísticas
+persistidas são comparadas com o layout de feature vivo em
+`gatefall.pose.kinematics` (`feature_names`, `feature_dim`, comprimento da
+máscara de exclusão, `stride`, `source`, `split`) — se `_BLOCKS` for
+reordenado ou estendido sem recalcular as estatísticas, essa checagem falha
+em vez de deixar o resto do relatório rodar silenciosamente desalinhado; a
+contagem de janelas de treino em
 `TRAIN_STRIDE` bate com `EXPECTED_USABLE_WINDOWS_STRIDE4["train"]`; `mean` e
 `std` têm shape `[134]` e são finitos; depois de aplicar a padronização, a
 média e o desvio por dimensão nas dimensões padronizadas (fora de `kp_conf`

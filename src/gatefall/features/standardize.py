@@ -22,6 +22,7 @@ from gatefall.features.standardization import (
     excluded_dimension_mask,
     load_stats,
     save_stats,
+    stale_stats_mismatches,
 )
 from gatefall.features.standardization_selftest import run_standardization_selftest
 from gatefall.hashing import sha256_file
@@ -67,6 +68,15 @@ def run_report() -> None:
 
     checks: list[bool] = []
     videos_loaded: dict[str, int] = {}
+
+    mismatches = stale_stats_mismatches(stats)
+    checks.append(
+        _check(
+            "estatísticas persistidas batem com gatefall.pose.kinematics (campos "
+            f"divergentes: {mismatches if mismatches else 'nenhum'})",
+            not mismatches,
+        )
+    )
 
     checks.append(
         _check(

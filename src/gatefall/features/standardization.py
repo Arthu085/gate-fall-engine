@@ -57,6 +57,30 @@ class StandardizationStats:
         return StandardizationStats(**data)
 
 
+def stale_stats_mismatches(stats: StandardizationStats) -> list[str]:
+    """Compara `stats` persistidas com a fonte da verdade viva em `kinematics.py`.
+
+    Retorna os nomes dos campos divergentes; lista vazia significa que `stats`
+    ainda descreve o layout de feature atual.
+    """
+    mismatches: list[str] = []
+    if stats.feature_names != feature_names():
+        mismatches.append("feature_names")
+    if stats.feature_dim != EXPECTED_FEATURE_DIM:
+        mismatches.append("feature_dim")
+    if len(stats.feature_names) != EXPECTED_FEATURE_DIM:
+        mismatches.append("len(feature_names)")
+    if len(stats.excluded_mask) != EXPECTED_FEATURE_DIM:
+        mismatches.append("len(excluded_mask)")
+    if stats.stride != TRAIN_STRIDE:
+        mismatches.append("stride")
+    if stats.source != SOURCE_NAME:
+        mismatches.append("source")
+    if stats.split != TRAIN_SPLIT:
+        mismatches.append("split")
+    return mismatches
+
+
 def excluded_dimension_mask(names: list[str]) -> np.ndarray:
     mask = np.zeros(len(names), dtype=bool)
     found = False

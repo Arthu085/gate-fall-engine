@@ -12,14 +12,18 @@ from pathlib import Path
 
 import numpy as np
 
+from gatefall.config import TRAIN_STRIDE
 from gatefall.features.standardization import (
     GUARD_STD_THRESHOLD,
+    SOURCE_NAME,
+    TRAIN_SPLIT,
     StandardizationStats,
     apply_standardization,
     excluded_dimension_mask,
     load_stats,
     mean_std_from_accumulators,
     save_stats,
+    stale_stats_mismatches,
 )
 from gatefall.pose.kinematics import EXPECTED_D, feature_blocks, feature_names
 
@@ -239,6 +243,46 @@ def check_streaming_matches_batch() -> bool:
     )
 
 
+def check_stale_stats_rejected() -> bool:
+    names = feature_names()
+    excluded_mask = excluded_dimension_mask(names)
+    stats = StandardizationStats(
+        source=SOURCE_NAME,
+        split=TRAIN_SPLIT,
+        target_fps=10.0,
+        window_frames=24,
+        stride=TRAIN_STRIDE,
+        window_count=1234,
+        feature_dim=EXPECTED_D,
+        feature_names=names,
+        excluded_mask=excluded_mask.tolist(),
+        mean=[0.0] * EXPECTED_D,
+        std=[1.0] * EXPECTED_D,
+        guarded_count=0,
+        guarded_mask=[False] * EXPECTED_D,
+        frames_hash="deadbeef",
+    )
+
+    fresh_ok = stale_stats_mismatches(stats) == []
+
+    stale_names = list(names)
+    stale_names[0] = f"{stale_names[0]}_stale"
+    stale_stats = StandardizationStats(**{**stats.to_dict(), "feature_names": stale_names})
+    stale_ok = stale_stats_mismatches(stale_stats) == ["feature_names"]
+
+    stale_stride_stats = StandardizationStats(
+        **{**stats.to_dict(), "stride": TRAIN_STRIDE + 1}
+    )
+    stale_stride_ok = stale_stats_mismatches(stale_stride_stats) == ["stride"]
+
+    ok = fresh_ok and stale_ok and stale_stride_ok
+    return _check(
+        "checagem de estatísticas obsoletas: aceita stats atuais e rejeita "
+        "feature_names/stride divergentes de gatefall.pose.kinematics",
+        ok,
+    )
+
+
 def run_standardization_selftest() -> None:
     checks = [
         check_known_input_mean0_std1(),
@@ -246,6 +290,7 @@ def run_standardization_selftest() -> None:
         check_mask_length_and_exclusion(),
         check_degenerate_dimension_guarded(),
         check_streaming_matches_batch(),
+        check_stale_stats_rejected(),
     ]
     with tempfile.TemporaryDirectory() as tmp_dir:
         checks.append(check_save_load_round_trip(Path(tmp_dir)))
