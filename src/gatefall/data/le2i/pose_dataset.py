@@ -6,7 +6,13 @@ from typing import Callable, cast
 import numpy as np
 import pandas as pd
 
-from gatefall.config import EVAL_STRIDE, NUM_CLASSES, TRAIN_STRIDE
+from gatefall.config import (
+    EVAL_STRIDE,
+    IGNORE_LABEL,
+    NUM_CLASSES,
+    TRAIN_STRIDE,
+    WINDOW_FRAMES,
+)
 from gatefall.data.frames import read_frames
 from gatefall.data.le2i.frames import FRAMES_PATH
 from gatefall.data.le2i.windows import EXPECTED_USABLE_WINDOWS_STRIDE1
@@ -32,6 +38,11 @@ LABEL_NAMES: list[str] = [
     "other",
 ]
 assert len(LABEL_NAMES) == NUM_CLASSES
+
+# Dimensão do vetor de features por quadro, igual à soma dos blocos de
+# `_BLOCKS` em `gatefall.pose.kinematics` (0..134, sem lacunas nem
+# sobreposições).
+EXPECTED_FEATURE_DIM = 134
 
 EXPECTED_USABLE_WINDOWS_STRIDE4: dict[str, int] = {
     "train": 5219,
@@ -112,10 +123,21 @@ def report_pose_dataset() -> None:
 
     checks: list[bool] = []
 
+    videos_loaded_stride4: dict[str, int] = {}
+
+    def counting_feature_loader(split: str) -> Callable[[str], np.ndarray]:
+        def loader(video_id: str) -> np.ndarray:
+            videos_loaded_stride4[split] = videos_loaded_stride4.get(split, 0) + 1
+            return feature_loader(video_id)
+
+        return loader
+
     print(f"\n=== janelas úteis por split, stride={TRAIN_STRIDE} ===")
     datasets_stride4: dict[str, PoseWindowDataset] = {}
     for split in splits:
-        dataset = PoseWindowDataset(frames, split, TRAIN_STRIDE, feature_loader)
+        dataset = PoseWindowDataset(
+            frames, split, TRAIN_STRIDE, counting_feature_loader(split)
+        )
         datasets_stride4[split] = dataset
         print(f"  {split}: {len(dataset)}")
 
@@ -177,6 +199,38 @@ def report_pose_dataset() -> None:
                 ok,
             )
         )
+
+    print(f"\n=== materialização de janelas, stride={TRAIN_STRIDE} ===")
+    for split in splits:
+        dataset = datasets_stride4[split]
+        all_ok = True
+        for i in range(len(dataset)):
+            window, label, (video_id, k_end) = dataset[i]
+            expected_row = dataset._windows.iloc[i]
+            expected_video_id = str(expected_row["video_id"])
+            expected_k_end = int(expected_row["k_end"])
+
+            if window.shape != (WINDOW_FRAMES, EXPECTED_FEATURE_DIM):
+                all_ok = False
+            if window.dtype != np.float32:
+                all_ok = False
+            if not np.all(np.isfinite(window)):
+                all_ok = False
+            if not (0 <= label < NUM_CLASSES) or label == IGNORE_LABEL:
+                all_ok = False
+            if video_id != expected_video_id or k_end != expected_k_end:
+                all_ok = False
+
+        checks.append(
+            _check(
+                f"stride={TRAIN_STRIDE}, split={split}: {len(dataset)} janelas "
+                f"materializadas com shape ({WINDOW_FRAMES}, {EXPECTED_FEATURE_DIM}), "
+                "float32, finitas, label valido e (video_id, k_end) consistente",
+                all_ok,
+            )
+        )
+        n_videos = videos_loaded_stride4.get(split, 0)
+        print(f"  {split}: {n_videos} videos carregados")
 
     print(f"\n=== diagnósticos de person_found, stride={TRAIN_STRIDE} ===")
     person_found_cache: dict[str, np.ndarray] = {}
