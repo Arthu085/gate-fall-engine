@@ -5,10 +5,10 @@ import numpy as np
 from gatefall.config import NUM_CLASSES
 from gatefall.data.le2i.pose_dataset import LABEL_NAMES
 
-# 5=lie_down tem suporte quase nulo (poucas dezenas de janelas em stride 4) e
-# 6=lying nunca ocorre no Le2i (ver LABEL_NAMES em gatefall.data.le2i.pose_dataset).
-# Ambas ficam fora da média macro para não distorcer a métrica com classes sem
-# sinal de treino.
+# 5=lie_down tem suporte zero no treino em stride 4 (ver
+# EXPECTED_USABLE_WINDOWS_BY_LABEL_STRIDE4 em gatefall.data.le2i.pose_dataset),
+# então seu F1 é sempre 0 e derrubaria a média macro em ~1/9; 6=lying nunca
+# ocorre no Le2i. Ambas ficam fora da média macro.
 RESTRICTED_CLASSES: list[int] = [0, 1, 2, 3, 4, 7, 8, 9]
 
 

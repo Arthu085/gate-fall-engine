@@ -41,8 +41,9 @@ def run_train(force: bool) -> None:
 
 
 def run_selftest() -> None:
-    ok = run_tcn_selftest() and run_metrics_selftest()
-    if not ok:
+    tcn_ok = run_tcn_selftest()
+    metrics_ok = run_metrics_selftest()
+    if not (tcn_ok and metrics_ok):
         sys.exit(1)
 
 

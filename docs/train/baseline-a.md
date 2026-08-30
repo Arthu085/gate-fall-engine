@@ -18,12 +18,17 @@ métricas restritas (`metrics_selftest.py`), sem treinar nem tocar no dataset
 real.
 
 ```bash
-uv run python -m gatefall.train.baseline_a train [--force]
+uv run python -m gatefall.train.baseline_a train --force
 ```
 
 Treina a arma A sobre o Le2i real e grava `config.yaml`, `metrics.json` e
-`checkpoint.pt` em `runs/baseline_a/`. Sem `--force`, uma segunda execução
-não sobrescreve um `run_dir` já existente.
+`checkpoint.pt` em `runs/baseline_a/`. `runs/baseline_a/config.yaml` já
+está versionado neste repositório, então uma execução sem `--force` apenas
+imprime a mensagem de "já existe" e retorna sem erro; `--force` sobrescreve
+o `run_dir` existente. O resultado registrado em `runs/baseline_a/` é a
+referência canônica do experimento — uma execução `--force` local serve
+para reproduzir o treino, não para substituir os números de referência
+versionados.
 
 ## Arquitetura
 
@@ -50,10 +55,10 @@ B e C):
 ## Seleção de checkpoint: sempre a última época
 
 O checkpoint salvo é sempre o peso da última época, nunca o de melhor
-`val_macro_f1_restricted`. O split `val` do Le2i cobre apenas
-`Coffee_room_01`, `Home_01` e `Home_02` — poucos vídeos e enviesados —
-então escolher checkpoint por essa métrica otimizaria para o ruído desse
-subconjunto pequeno em vez de generalização real.
+`val_macro_f1_restricted`. O split `val` do Le2i cobre 19 vídeos,
+concentrados em apenas três ambientes (`Coffee_room_01`, `Home_01` e
+`Home_02`) — então escolher checkpoint por essa métrica otimizaria para o
+ruído desse subconjunto pequeno em vez de generalização real.
 
 ## Métrica: macro-F1 restrita
 
@@ -103,6 +108,9 @@ Execução registrada em `runs/baseline_a/metrics.json`, checkpoint na
 | Teste | 0,6212 |
 
 A queda de treino para validação/teste é esperada: o split de validação é
-pequeno e enviesado (três vídeos, ver acima) e o de teste cobre ambientes
-não vistos no treino, testando a generalização real do split por vídeo
+pequeno e enviesado (19 vídeos concentrados em três ambientes, ver acima) e
+o split le2i-cs é cross-subject — treino e teste cobrem os mesmos seis
+ambientes do Le2i, mudam apenas os subjects — então a queda para teste
+reflete subjects não vistos no treino, não ambientes novos. O split é por
+vídeo/subject justamente para evitar vazamento entre treino e teste
 (`CLAUDE.md`, invariante 2).

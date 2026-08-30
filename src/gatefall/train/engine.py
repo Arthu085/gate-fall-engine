@@ -1,7 +1,6 @@
 """Loop de treino e avaliação da TCN sobre janelas de pose padronizadas."""
 
 import json
-import sys
 from pathlib import Path
 from typing import Protocol
 
@@ -46,7 +45,7 @@ def _collect_labels(source: _WindowSource) -> np.ndarray:
 
 def _class_weights(train_labels: np.ndarray, num_classes: int) -> torch.Tensor:
     counts = support(train_labels, num_classes)
-    weights = np.ones(num_classes, dtype=np.float32)
+    weights = np.zeros(num_classes, dtype=np.float32)
     for c in range(num_classes):
         if counts[c] > 0:
             weights[c] = 1.0 / counts[c]
@@ -87,11 +86,11 @@ def run_training(
     config: TrainConfig,
     run_dir: Path,
     force: bool,
-) -> dict:
+) -> dict | None:
     config_path = run_dir / "config.yaml"
     if config_path.exists() and not force:
         print(f"skip {run_dir} (já existe, use --force para sobrescrever)")
-        sys.exit(1)
+        return None
 
     save_config(config, config_path, force=True)
 
