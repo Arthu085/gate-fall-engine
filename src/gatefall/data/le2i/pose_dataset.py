@@ -203,7 +203,8 @@ def report_pose_dataset() -> None:
     print(f"\n=== materialização de janelas, stride={TRAIN_STRIDE} ===")
     for split in splits:
         dataset = datasets_stride4[split]
-        all_ok = True
+        first_bad_index: int | None = None
+        first_bad_condition: str | None = None
         for i in range(len(dataset)):
             window, label, (video_id, k_end) = dataset[i]
             expected_row = dataset._windows.iloc[i]
@@ -211,24 +212,33 @@ def report_pose_dataset() -> None:
             expected_k_end = int(expected_row["k_end"])
 
             if window.shape != (WINDOW_FRAMES, EXPECTED_FEATURE_DIM):
-                all_ok = False
+                first_bad_index, first_bad_condition = i, "shape"
+                break
             if window.dtype != np.float32:
-                all_ok = False
+                first_bad_index, first_bad_condition = i, "dtype"
+                break
             if not np.all(np.isfinite(window)):
-                all_ok = False
-            if not (0 <= label < NUM_CLASSES) or label == IGNORE_LABEL:
-                all_ok = False
+                first_bad_index, first_bad_condition = i, "finite"
+                break
+            if not (0 <= label < NUM_CLASSES):
+                first_bad_index, first_bad_condition = i, "label"
+                break
             if video_id != expected_video_id or k_end != expected_k_end:
-                all_ok = False
+                first_bad_index, first_bad_condition = i, "identity"
+                break
 
-        checks.append(
-            _check(
-                f"stride={TRAIN_STRIDE}, split={split}: {len(dataset)} janelas "
-                f"materializadas com shape ({WINDOW_FRAMES}, {EXPECTED_FEATURE_DIM}), "
-                "float32, finitas, label valido e (video_id, k_end) consistente",
-                all_ok,
-            )
+        all_ok = first_bad_index is None
+        message = (
+            f"stride={TRAIN_STRIDE}, split={split}: {len(dataset)} janelas "
+            f"materializadas com shape ({WINDOW_FRAMES}, {EXPECTED_FEATURE_DIM}), "
+            "float32, finitas, label valido e (video_id, k_end) consistente"
         )
+        if not all_ok:
+            message += (
+                f" (primeira falha no índice {first_bad_index}, "
+                f"condição={first_bad_condition})"
+            )
+        checks.append(_check(message, all_ok))
         n_videos = videos_loaded_stride4.get(split, 0)
         print(f"  {split}: {n_videos} videos carregados")
 
