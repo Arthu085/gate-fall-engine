@@ -39,3 +39,4 @@ nav:
       - Le2i: data/le2i.md
       - Manifesto e verificação: data/manifest-verification.md
       - Contrato temporal: data/temporal-contract.md
+      - Padronização de features de pose: data/pose-standardization.md
