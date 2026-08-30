@@ -70,7 +70,7 @@ def _synthetic_feature_loader(
 ) -> Callable[[str], np.ndarray]:
     def loader(video_id: str) -> np.ndarray:
         n_frames = n_frames_by_video[video_id]
-        base = np.arange(n_frames, dtype=np.float32).reshape(n_frames, 1)
+        base = (np.arange(n_frames, dtype=np.float32) + 1).reshape(n_frames, 1)
         return np.tile(base, (1, _D))
 
     return loader
@@ -93,7 +93,9 @@ def check_unpadded_window_matches_source_rows() -> bool:
     index = int(cast(int, match.index[0]))
 
     window, _label, (video_id, returned_k_end) = dataset[index]
-    expected_rows = np.arange(k_end - WINDOW_FRAMES + 1, k_end + 1, dtype=np.float32)
+    expected_rows = (
+        np.arange(k_end - WINDOW_FRAMES + 1, k_end + 1, dtype=np.float32) + 1
+    )
     ok = (
         window.shape == (WINDOW_FRAMES, _D)
         and bool(np.array_equal(window[:, 0], expected_rows))
@@ -125,11 +127,12 @@ def check_padded_window_repeats_leading_row() -> bool:
 
     window, _label, _diag = dataset[index]
     n_padding = WINDOW_FRAMES - 1 - k_end
-    padded_ok = bool(np.all(window[:n_padding, 0] == 0.0))
+    row_0 = loader("video_a")[0, 0]
+    padded_ok = bool(np.all(window[:n_padding, 0] == row_0))
     remainder_ok = bool(
         np.array_equal(
             window[n_padding:, 0],
-            np.arange(k_end + 1, dtype=np.float32),
+            np.arange(k_end + 1, dtype=np.float32) + 1,
         )
     )
     return _check(

@@ -296,15 +296,17 @@ Só em `TRAIN_STRIDE`, o relatório também materializa de fato cada janela de
 cada split, chamando `dataset[i]` para todo `i` — não só medindo `len()`.
 Para cada janela, verifica que `window.shape == (WINDOW_FRAMES, 134)`,
 `window.dtype == np.float32`, todos os valores são finitos, o rótulo está
-em `[0, NUM_CLASSES)` e é diferente de `IGNORE_LABEL`, e que o
-`(video_id, k_end)` retornado bate com a linha correspondente do índice de
-janelas — ou seja, exercita de ponta a ponta o caminho real (HDF5 de pose →
-`[K, 134]` via `build_pose_features` → fatia de janela `[WINDOW_FRAMES,
-134]`), não só a contagem. Emite uma checagem fatal por split. Em seguida
-imprime, também por split, quantos vídeos distintos o `feature_loader`
-carregou de fato — informativo, sem checagem fatal associada —, confirmando
-que o cache por vídeo (`self._feature_cache`) evita recarregar o mesmo
-vídeo mais de uma vez durante a materialização.
+em `[0, NUM_CLASSES)`, e que o `(video_id, k_end)` retornado bate com a
+linha correspondente do índice de janelas — ou seja, exercita de ponta a
+ponta o caminho real (HDF5 de pose → `[K, 134]` via `build_pose_features` →
+fatia de janela `[WINDOW_FRAMES, 134]`), não só a contagem. A checagem para
+na primeira janela que falhar, e a mensagem da checagem fatal reporta o
+índice e a condição que falhou (`shape`, `dtype`, `finite`, `label` ou
+`identity`) para facilitar o diagnóstico. Em seguida imprime, também por
+split, quantos vídeos distintos o `feature_loader` carregou de fato —
+informativo, sem checagem fatal associada —, confirmando que o cache por
+vídeo (`self._feature_cache`) evita recarregar o mesmo vídeo mais de uma
+vez durante a materialização.
 
 Além disso imprime, só em `TRAIN_STRIDE`, dois diagnósticos informativos por
 split, sem checagem fatal associada: o percentual de janelas cujo `k_end`
