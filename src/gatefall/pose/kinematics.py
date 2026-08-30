@@ -80,6 +80,14 @@ def _blocks_from_definitions() -> list[tuple[str, int, int]]:
 _BLOCKS: list[tuple[str, int, int]] = _blocks_from_definitions()
 
 
+def feature_names() -> list[str]:
+    return _feature_names()
+
+
+def feature_blocks() -> list[tuple[str, int, int]]:
+    return list(_BLOCKS)
+
+
 def _backfill_source_indices(person_found: np.ndarray) -> np.ndarray:
     k = person_found.shape[0]
     src = np.zeros(k, dtype=np.int64)
