@@ -17,6 +17,8 @@ dependencies = [
     "numpy>=2.5.2",
     "pandas>=3.0.5",
     "pyarrow>=25.0.1",
+    "pyyaml>=6.0.3",
+    "torch>=2.13.0",
     "ultralytics>=8.4.131",
 ]
 

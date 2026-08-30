@@ -1,0 +1,31 @@
+run_name: baseline_a
+arm: A
+feature_source: pose
+seed: 42
+input_dim: 134
+window_frames: 24
+train_stride: 4
+eval_stride: 1
+num_classes: 10
+kernel_size: 3
+dilations:
+- 1
+- 2
+- 4
+channels:
+- 32
+- 32
+- 32
+dropout: 0.3
+receptive_field: 29
+optimizer_name: adamw
+lr: 0.001
+weight_decay: 0.01
+grad_clip_norm: 1.0
+lr_schedule_name: cosine
+batch_size: 64
+epochs: 30
+loss_name: cross_entropy
+class_weighted: true
+standardization_stats_path: src/gatefall/features/stats/pose_le2i_cs.json
+standardization_stats_sha256: 15de9ed0c1a83828b1a4d6a24035f5ab5485f6a9bfc3293dcbf8464bbe5e2fa8

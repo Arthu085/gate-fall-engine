@@ -15,6 +15,9 @@ os dados sem duplicar a visão geral do projeto:
   correspondência de caminhos.
 - [Manifesto e verificação](data/manifest-verification.md): contrato Parquet,
   ingestão e critérios críticos e informativos de verificação.
+- [Treino — Arma A (TCN)](train/baseline-a.md): arquitetura, receita
+  congelada, métrica restrita e resultado da execução real.
 
-O repositório ainda está na preparação da camada de dados. A extração de
-features, o treino e a avaliação não estão implementados.
+O repositório já tem a arma A treinada de ponta a ponta (features de pose →
+TCN). As armas B e C, que adicionam embedding visual e descritor de máscara
+à janela, ainda não estão implementadas.
