@@ -61,6 +61,12 @@ A documentação detalhada está dividida por responsabilidade:
 - [Manifesto e verificações](docs/data/manifest-verification.md);
 - [Contrato temporal](docs/data/temporal-contract.md).
 
+## Treino
+
+A arma A (pose + TCN) já está implementada e treinada; ver
+[Treino — Arma A (TCN)](docs/train/baseline-a.md) para arquitetura, receita
+de hiperparâmetros e resultados.
+
 ## Licença
 
 O **código** deste repositório é distribuído sob a licença [MIT](LICENSE). Os

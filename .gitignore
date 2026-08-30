@@ -97,8 +97,14 @@ data/manifest.parquet
 *.pth
 checkpoints/
 
-# Saídas de execução, tracking e build da documentação
-runs/
+# Saídas de execução, tracking e build da documentação: runs/baseline_a/config.yaml
+# e runs/baseline_a/metrics.json são versionados como resultado reproduzível;
+# checkpoints (*.pt) já ficam de fora pela regra global acima.
+runs/*
+!runs/baseline_a/
+runs/baseline_a/*
+!runs/baseline_a/config.yaml
+!runs/baseline_a/metrics.json
 outputs/
 wandb/
 site/
