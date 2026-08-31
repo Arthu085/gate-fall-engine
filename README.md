@@ -67,6 +67,12 @@ A arma A (pose + TCN) já está implementada e treinada; ver
 [Treino — Arma A (TCN)](docs/train/baseline-a.md) para arquitetura, receita
 de hiperparâmetros e resultados.
 
+## Avaliação
+
+Sobre o checkpoint treinado da arma A, um protocolo de alarme por evento
+mede sensibilidade, falsos alarmes por hora e latência de detecção; ver
+[Avaliação — Arma A (protocolo de alarme)](docs/eval/baseline-a-events.md).
+
 ## Licença
 
 O **código** deste repositório é distribuído sob a licença [MIT](LICENSE). Os

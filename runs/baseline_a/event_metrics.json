@@ -1,0 +1,78 @@
+{
+  "run_name": "baseline_a",
+  "checkpoint_path": "runs/baseline_a/checkpoint.pt",
+  "alarm_protocol_path": "runs/baseline_a/alarm_protocol.yaml",
+  "splits": {
+    "val": {
+      "usable_windows": 2079,
+      "total_windows": 2080,
+      "evaluated_time_hours": 0.05775,
+      "total_video_time_hours": 0.057777777777777775,
+      "n_fall_events": 13,
+      "n_detected_events": 12,
+      "n_missed_events": 1,
+      "sensitivity": 0.9230769230769231,
+      "n_alarms_total": 13,
+      "n_false_alarms": 1,
+      "false_alarms_per_hour": 17.316017316017316,
+      "latency_seconds": {
+        "per_event": [
+          0.5,
+          0.7,
+          0.7,
+          0.6,
+          0.4,
+          0.2,
+          0.2,
+          0.4,
+          0.4,
+          0.5,
+          0.2,
+          0.4
+        ],
+        "mean": 0.4,
+        "median": 0.4
+      }
+    },
+    "test": {
+      "usable_windows": 5616,
+      "total_windows": 6168,
+      "evaluated_time_hours": 0.156,
+      "total_video_time_hours": 0.1713333333333333,
+      "n_fall_events": 22,
+      "n_detected_events": 21,
+      "n_missed_events": 1,
+      "sensitivity": 0.9545454545454546,
+      "n_alarms_total": 30,
+      "n_false_alarms": 9,
+      "false_alarms_per_hour": 57.69230769230769,
+      "latency_seconds": {
+        "per_event": [
+          0.7,
+          0.8,
+          0.2,
+          0.6,
+          0.5,
+          0.3,
+          0.4,
+          0.5,
+          0.2,
+          0.2,
+          0.3,
+          0.4,
+          0.9,
+          0.1,
+          0.0,
+          1.1,
+          0.7,
+          0.3,
+          0.1,
+          1.5,
+          0.3
+        ],
+        "mean": 0.5,
+        "median": 0.4
+      }
+    }
+  }
+}
