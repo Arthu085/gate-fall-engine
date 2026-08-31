@@ -69,7 +69,20 @@ ainda conta como detecção desse evento:
 - **Fallback** (`fallback_association_uses_fall_end=True`): se nenhum
   segmento `fallen` segue o `fall` (por exemplo, o vídeo termina em
   seguida ao impacto), `association_end_time_s` cai de volta para o fim
-  do próprio segmento `fall` mais `association_end_offset_s`.
+  do próprio segmento `fall` mais `association_end_offset_s`. Com
+  `fallback_association_uses_fall_end=False`, esse mesmo caso (fall sem
+  fallen seguinte) levanta `ValueError` em vez de aplicar o fallback —
+  não há degradação silenciosa.
+
+A extração de eventos de queda por split é conferida contra a contagem de
+segmentos `fall_label` na anotação bruta do Le2i (antes do descarte de
+janelas `IGNORE_LABEL`); uma divergência levanta `ValueError`, sinalizando
+que uma janela ignorada partiu um run `fall` real em dois eventos.
+
+A FSM de gatilho e a extração de eventos assumem `k_end` contíguo
+(`k_end == k_end_anterior + 1`); por isso `split_event_report` exige
+`protocol.eval_stride == 1` (`assert`) — o protocolo não suporta stride
+diferente de 1.
 
 Um alarme é associado ao evento cujo `trigger_time_s` cai dentro dessa
 janela; entre múltiplos matches, a associação usa o de menor

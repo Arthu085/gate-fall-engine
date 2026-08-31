@@ -17,7 +17,7 @@ from gatefall.data.le2i.frames import FRAMES_PATH
 from gatefall.data.le2i.pose_dataset import PoseWindowDataset, load_le2i_pose_window_dataset
 from gatefall.data.windowing import build_window_index
 from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, save_alarm_protocol
-from gatefall.eval.events import split_event_report
+from gatefall.eval.events import extract_label_segments, split_event_report
 from gatefall.eval.events_selftest import run_events_selftest
 from gatefall.features.standardization import (
     StandardizationStats,
@@ -97,6 +97,20 @@ def _predict_with_identity(
     return video_ids, k_ends, true_labels, pred_labels
 
 
+def _n_fall_segments_in_annotation(frames: pd.DataFrame, split: str) -> int:
+    split_frames = cast(
+        pd.DataFrame, frames[frames["split"] == split]
+    ).sort_values(["video_id", "frame_index"])
+    total_segments = 0
+    for _video_id, group in split_frames.groupby("video_id", sort=False):
+        frame_indices = group["frame_index"].to_numpy()
+        labels = group["label"].to_numpy()
+        total_segments += len(
+            extract_label_segments(frame_indices, labels, BASELINE_A_ALARM_PROTOCOL.fall_label)
+        )
+    return total_segments
+
+
 def run_evaluate(force: bool) -> None:
     if EVENT_METRICS_PATH.exists() and not force:
         print(f"skip {EVENT_METRICS_PATH} (já existe, use --force para sobrescrever)")
@@ -128,7 +142,7 @@ def run_evaluate(force: bool) -> None:
                 drop_ignored=False,
             )
         )
-        splits[split] = split_event_report(
+        split_report = split_event_report(
             video_ids,
             k_ends,
             true_labels,
@@ -137,6 +151,19 @@ def run_evaluate(force: bool) -> None:
             usable_windows,
             total_windows,
         )
+
+        n_fall_segments_annotation = _n_fall_segments_in_annotation(frames, split)
+        if split_report["n_fall_events"] != n_fall_segments_annotation:
+            raise ValueError(
+                f"split={split!r}: n_fall_events extraído das janelas usáveis "
+                f"({split_report['n_fall_events']}) diverge da contagem de "
+                "segmentos fall na anotação bruta "
+                f"({n_fall_segments_annotation}) — possível janela IGNORE_LABEL "
+                "descartada dentro de um run fall, dividindo um evento real em "
+                "dois"
+            )
+
+        splits[split] = split_report
 
     report = {
         "run_name": config.run_name,

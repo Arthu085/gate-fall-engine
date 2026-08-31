@@ -96,11 +96,18 @@ def fall_events_for_video(
                 following_fallen.end_k / protocol.target_fps + protocol.association_end_offset_s
             )
             has_following_fallen = True
-        else:
+        elif protocol.fallback_association_uses_fall_end:
             association_end_time_s = (
                 fall.end_k / protocol.target_fps + protocol.association_end_offset_s
             )
             has_following_fallen = False
+        else:
+            raise ValueError(
+                f"video_id={video_id!r}: segmento fall em start_k={fall.start_k} "
+                "não tem um segmento fallen seguinte e "
+                "protocol.fallback_association_uses_fall_end é False — não há "
+                "fallback de associação permitido para este evento"
+            )
 
         events.append(
             FallEvent(
@@ -156,7 +163,7 @@ def detect_alarms_for_video(
 
 
 def associate_events_and_alarms(
-    events: list[FallEvent], alarms: list[Alarm]
+    events: list[FallEvent], alarms: list[Alarm], protocol: AlarmProtocol
 ) -> tuple[list[EventOutcome], list[Alarm]]:
     matched_alarm_ids: set[int] = set()
     outcomes: list[EventOutcome] = []
@@ -175,7 +182,8 @@ def associate_events_and_alarms(
             for alarm_id, _alarm in matches:
                 matched_alarm_ids.add(alarm_id)
             latency_s = round(
-                earliest_alarm.trigger_time_s - event.start_time_s, ndigits=1
+                earliest_alarm.trigger_time_s - event.start_time_s,
+                ndigits=protocol.latency_decimal_places,
             )
             outcomes.append(EventOutcome(event=event, detected=True, latency_s=latency_s))
         else:
@@ -196,6 +204,12 @@ def split_event_report(
     usable_windows: int,
     total_windows: int,
 ) -> dict:
+    assert protocol.eval_stride == 1, (
+        f"protocol.eval_stride ({protocol.eval_stride}) != 1 — a contiguidade "
+        "de k_end usada por extract_label_segments/detect_alarms_for_video "
+        "(k_end == prev_k + 1) só é válida em stride 1"
+    )
+
     grouped: dict[str, list[int]] = {}
     for index, video_id in enumerate(video_ids):
         grouped.setdefault(video_id, []).append(index)
@@ -212,7 +226,7 @@ def split_event_report(
         all_events.extend(fall_events_for_video(video_id, video_k_ends, video_true, protocol))
         all_alarms.extend(detect_alarms_for_video(video_id, video_k_ends, video_pred, protocol))
 
-    outcomes, false_alarms = associate_events_and_alarms(all_events, all_alarms)
+    outcomes, false_alarms = associate_events_and_alarms(all_events, all_alarms, protocol)
 
     n_fall_events = len(all_events)
     n_detected_events = sum(1 for outcome in outcomes if outcome.detected)
