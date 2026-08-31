@@ -240,6 +240,7 @@ def split_event_report(
     protocol: AlarmProtocol,
     usable_windows: int,
     total_windows: int,
+    labeled_windows: int,
 ) -> dict:
     assert protocol.eval_stride == 1, (
         f"protocol.eval_stride ({protocol.eval_stride}) != 1 — a contiguidade "
@@ -253,6 +254,7 @@ def split_event_report(
 
     all_events: list[FallEvent] = []
     all_alarms: list[Alarm] = []
+    true_label_by_video_k: dict[tuple[str, int], int] = {}
 
     for video_id, indices in grouped.items():
         order = sorted(indices, key=lambda i: k_ends[i])
@@ -263,6 +265,9 @@ def split_event_report(
         all_events.extend(fall_events_for_video(video_id, video_k_ends, video_true, protocol))
         all_alarms.extend(detect_alarms_for_video(video_id, video_k_ends, video_pred, protocol))
 
+        for k_end, true_label in zip(video_k_ends.tolist(), video_true.tolist()):
+            true_label_by_video_k[(video_id, k_end)] = true_label
+
     outcomes, false_alarms = associate_events_and_alarms(all_events, all_alarms, protocol)
     n_pre_fall_false_alarms = count_pre_fall_false_alarms(all_events, false_alarms, protocol)
 
@@ -270,15 +275,21 @@ def split_event_report(
     n_detected_events = sum(1 for outcome in outcomes if outcome.detected)
     n_missed_events = n_fall_events - n_detected_events
 
-    evaluated_time_hours = usable_windows / protocol.target_fps / 3600
     total_video_time_hours = total_windows / protocol.target_fps / 3600
+    labeled_time_hours = labeled_windows / protocol.target_fps / 3600
 
     n_false_alarms = len(false_alarms)
+    n_false_alarms_labeled = sum(
+        1
+        for alarm in false_alarms
+        if true_label_by_video_k.get((alarm.video_id, alarm.trigger_k), IGNORE_LABEL)
+        != IGNORE_LABEL
+    )
     false_alarms_per_hour = (
         n_false_alarms / total_video_time_hours if total_video_time_hours > 0 else 0.0
     )
-    false_alarms_per_hour_evaluated_time = (
-        n_false_alarms / evaluated_time_hours if evaluated_time_hours > 0 else 0.0
+    false_alarms_per_hour_labeled_time = (
+        n_false_alarms_labeled / labeled_time_hours if labeled_time_hours > 0 else 0.0
     )
 
     window_binary_sensitivity, window_binary_specificity = window_level_binary_metrics(
@@ -307,8 +318,9 @@ def split_event_report(
     return {
         "usable_windows": usable_windows,
         "total_windows": total_windows,
-        "evaluated_time_hours": float(evaluated_time_hours),
+        "labeled_windows": labeled_windows,
         "total_video_time_hours": float(total_video_time_hours),
+        "labeled_time_hours": float(labeled_time_hours),
         "n_fall_events": n_fall_events,
         "n_detected_events": n_detected_events,
         "n_missed_events": n_missed_events,
@@ -317,7 +329,7 @@ def split_event_report(
         "n_false_alarms": n_false_alarms,
         "n_pre_fall_false_alarms": n_pre_fall_false_alarms,
         "false_alarms_per_hour": float(false_alarms_per_hour),
-        "false_alarms_per_hour_evaluated_time": float(false_alarms_per_hour_evaluated_time),
+        "false_alarms_per_hour_labeled_time": float(false_alarms_per_hour_labeled_time),
         "window_binary_sensitivity": window_binary_sensitivity,
         "window_binary_specificity": window_binary_specificity,
         "latency_seconds": latency_seconds,

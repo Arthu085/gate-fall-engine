@@ -106,14 +106,25 @@ rótulos verdadeiros e não é afetada por essa mudança.
 
 `false_alarms_per_hour` usa como denominador **`total_video_time_hours`**
 (`total_windows / target_fps / 3600`), isto é, o tempo total de vídeo do
-split, incluindo janelas antes ignoradas. Um segundo campo,
-`false_alarms_per_hour_evaluated_time`, preserva o cálculo anterior sobre
-`evaluated_time_hours` (`usable_windows / target_fps / 3600`) como valor
-secundário para comparação. Como a inferência agora roda sobre a grade
-completa (ver acima), `usable_windows == total_windows` e os dois valores
-coincidem na prática nesta execução — a distinção existe para não acoplar
-o denominador principal a uma futura mudança que volte a descartar
-janelas.
+split, incluindo janelas antes ignoradas.
+
+Um segundo campo, `false_alarms_per_hour_labeled_time`, usa como
+denominador `labeled_time_hours` (`labeled_windows / target_fps / 3600`),
+isto é, apenas o tempo coberto por janelas com rótulo verdadeiro
+não-`IGNORE_LABEL` (`labeled_windows` vem de `build_window_index(...,
+stride=EVAL_STRIDE, drop_ignored=True)` em `baseline_a_events.py`, contando
+no stride 1 do protocolo, não no stride de treino). Seu numerador não é
+`n_false_alarms` inteiro, mas apenas os falsos alarmes cuja janela de
+gatilho (`trigger_k`) carrega um rótulo verdadeiro não-`IGNORE_LABEL` —
+um falso alarme disparado dentro de um trecho sem rótulo confiável é
+contado no numerador de `false_alarms_per_hour` (que cobre toda a grade),
+mas excluído do numerador de `false_alarms_per_hour_labeled_time`. Por
+isso os dois valores podem divergir de forma não trivial quando parte dos
+falsos alarmes cai em trechos `IGNORE_LABEL`: no split de teste da
+execução real (ver tabela abaixo), 2 dos 10 falsos alarmes disparam em
+janelas `IGNORE_LABEL` e são excluídos apenas do numerador da taxa
+secundária, o que basta para separar as duas taxas mesmo com denominadores
+próximos.
 
 ## Schema de `alarm_protocol.yaml`
 
@@ -138,10 +149,17 @@ execução. `splits.val` e `splits.test` trazem, cada um:
 
 - `usable_windows` / `total_windows`: janelas usadas pelo modelo vs.
   total de janelas do split. Com `drop_ignored=False` na inferência (ver
-  acima), os dois valores coincidem.
-- `evaluated_time_hours` / `total_video_time_hours`: os dois tempos por
-  trás de `false_alarms_per_hour` e `false_alarms_per_hour_evaluated_time`
-  (ver acima).
+  acima), os dois valores coincidem — ambos representam a grade completa,
+  incluindo janelas `IGNORE_LABEL`.
+- `labeled_windows`: quantidade de janelas do split (no stride 1 do
+  protocolo) cujo rótulo verdadeiro não é `IGNORE_LABEL`, obtida via
+  `build_window_index(..., drop_ignored=True)`. Distinto de
+  `usable_windows`/`total_windows`: estes contam a grade completa rodada
+  pelo modelo, enquanto `labeled_windows` conta só o subconjunto com
+  rótulo confiável — por isso `labeled_windows <= total_windows`.
+- `total_video_time_hours` / `labeled_time_hours`: os tempos por trás de
+  `false_alarms_per_hour` e `false_alarms_per_hour_labeled_time`,
+  respectivamente (ver acima).
 - `n_fall_events`, `n_detected_events`, `n_missed_events`, `sensitivity`
   (`n_detected_events / n_fall_events`, nível de evento).
 - `n_alarms_total`, `n_false_alarms`, `n_pre_fall_false_alarms`
@@ -149,9 +167,11 @@ execução. `splits.val` e `splits.test` trazem, cada um:
   em `[event.start_time_s - pre_fall_diagnostic_window_s,
   event.start_time_s)` de algum evento `fall` real — ver
   `pre_fall_alarms_count_as_false_alarms` acima).
-- `false_alarms_per_hour` (denominador `total_video_time_hours`, principal)
-  e `false_alarms_per_hour_evaluated_time` (denominador
-  `evaluated_time_hours`, secundário).
+- `false_alarms_per_hour` (denominador `total_video_time_hours`, numerador
+  `n_false_alarms` inteiro; principal) e
+  `false_alarms_per_hour_labeled_time` (denominador `labeled_time_hours`,
+  numerador restrito aos falsos alarmes cuja janela de gatilho tem rótulo
+  verdadeiro não-`IGNORE_LABEL`; secundário — ver acima).
 - `window_binary_sensitivity` / `window_binary_specificity`: métricas
   binárias em **nível de janela** (`{fall, fallen}` vs. resto),
   calculadas sobre todas as janelas do split exceto as com rótulo
@@ -168,14 +188,14 @@ Execução registrada em `runs/baseline_a/event_metrics.json`, sobre o
 checkpoint da última época treinado em [Treino — Arma A
 (TCN)](../train/baseline-a.md):
 
-| Split | Eventos | Detectados | Sensibilidade (evento) | Falsos alarmes/h | Falsos alarmes pré-queda | Sensibilidade (janela) | Especificidade (janela) | Latência média |
-| ----- | ------- | ---------- | ----------------------- | ------------------ | ------------------------- | ------------------------ | -------------------------- | --------------- |
-| Validação | 13 | 12 | 92,3% | 17,3 | 0 | 91,6% | 97,3% | 0,4 s |
-| Teste | 22 | 21 | 95,5% | 58,4 | 1 | 90,0% | 97,1% | 0,5 s |
+| Split | Eventos | Detectados | Sensibilidade (evento) | Falsos alarmes/h (total) | Falsos alarmes/h (tempo rotulado) | Falsos alarmes pré-queda | Sensibilidade (janela) | Especificidade (janela) | Latência média |
+| ----- | ------- | ---------- | ----------------------- | ------------------ | ------------------------- | ------------------------- | ------------------------ | -------------------------- | --------------- |
+| Validação | 13 | 12 | 92,3% | 17,3 | 17,3 | 0 | 91,6% | 97,3% | 0,4 s |
+| Teste | 22 | 21 | 95,5% | 58,4 | 51,3 | 1 | 90,0% | 97,1% | 0,5 s |
 
 A taxa de falsos alarmes por hora é maior no teste que na validação
-(58,4 vs. 17,3), consistente com a queda de macro-F1 do treino para o
-teste já documentada em [Treino — Arma A
+(58,4 vs. 17,3 no denominador de tempo total), consistente com a queda de
+macro-F1 do treino para o teste já documentada em [Treino — Arma A
 (TCN)](../train/baseline-a.md#resultado-da-execução-real): o split de
 teste é cross-subject, então mais confusões entre classes próximas de
 `fall`/`fallen` viram alarmes espúrios sobre subjects não vistos. Os
@@ -183,3 +203,14 @@ contadores de evento (13/12 na validação, 22/21 no teste) não mudaram
 com a inclusão das janelas antes ignoradas na inferência — apenas o
 denominador de falsos alarmes por hora e a contagem de falsos alarmes em
 si mudaram.
+
+No split de teste, `false_alarms_per_hour_labeled_time` (51,3) fica
+sensivelmente abaixo de `false_alarms_per_hour` (58,4): apesar de
+`labeled_time_hours` (0,156 h) já ser menor que `total_video_time_hours`
+(0,171 h), 2 dos 10 falsos alarmes do split disparam dentro de trechos
+`IGNORE_LABEL` e são excluídos do numerador da taxa secundária (ver
+"Denominador de falsos alarmes por hora" acima) — por isso a taxa
+secundária não sobe proporcionalmente à redução do denominador. Na
+validação os dois valores praticamente coincidem (17,3 vs. 17,3), pois
+apenas 1 janela do split é `IGNORE_LABEL` e o único falso alarme não cai
+nela.

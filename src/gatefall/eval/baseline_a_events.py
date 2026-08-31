@@ -146,6 +146,13 @@ def run_evaluate(force: bool) -> None:
             f"split={split!r}: usable_windows ({usable_windows}) != total_windows "
             f"({total_windows}) apesar de drop_ignored=False"
         )
+        labeled_windows = len(
+            build_window_index(
+                cast(pd.DataFrame, frames[frames["split"] == split]),
+                stride=EVAL_STRIDE,
+                drop_ignored=True,
+            )
+        )
         split_report = split_event_report(
             video_ids,
             k_ends,
@@ -154,6 +161,7 @@ def run_evaluate(force: bool) -> None:
             BASELINE_A_ALARM_PROTOCOL,
             usable_windows,
             total_windows,
+            labeled_windows,
         )
 
         n_fall_segments_annotation = _n_fall_segments_in_annotation(frames, split)

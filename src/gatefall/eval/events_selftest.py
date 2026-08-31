@@ -4,12 +4,14 @@ import sys
 
 import numpy as np
 
+from gatefall.config import IGNORE_LABEL
 from gatefall.eval.alarm_protocol import AlarmProtocol
 from gatefall.eval.events import (
     associate_events_and_alarms,
     count_pre_fall_false_alarms,
     detect_alarms_for_video,
     fall_events_for_video,
+    split_event_report,
     window_level_binary_metrics,
 )
 
@@ -287,6 +289,60 @@ def check_window_level_binary_metrics() -> bool:
     )
 
 
+def check_split_event_report_labeled_time_rates() -> bool:
+    # 61 janelas de um único vídeo, sem nenhum segmento fall/fallen (todo
+    # true_label é IGNORE_LABEL ou 0), então todo alarme vira false_alarm.
+    # k=[0..4]: IGNORE_LABEL, com run positivo em k=[2,3,4] -> dispara em
+    # k=4 (t=0.4s), dentro de um trecho não rotulado.
+    # k=[5..54]: IGNORE_LABEL, sem positivos.
+    # k=[55..60]: true_label=0 (rotulado), com run positivo em k=[58,59,60]
+    # -> dispara em k=60 (t=6.0s, >=5s do 1o alarme, refratário não suprime),
+    # dentro de um trecho rotulado.
+    n = 61
+    k_ends = list(range(n))
+    true_labels = [IGNORE_LABEL] * 55 + [0] * 6
+    pred_labels = [0] * n
+    pred_labels[2] = 1
+    pred_labels[3] = 1
+    pred_labels[4] = 1
+    pred_labels[58] = 1
+    pred_labels[59] = 1
+    pred_labels[60] = 1
+    video_ids = ["video_j"] * n
+
+    labeled_windows = sum(1 for label in true_labels if label != IGNORE_LABEL)
+    total_windows = n
+    usable_windows = n
+
+    report = split_event_report(
+        video_ids,
+        k_ends,
+        true_labels,
+        pred_labels,
+        _PROTOCOL,
+        usable_windows,
+        total_windows,
+        labeled_windows,
+    )
+
+    labeled_time_hours = labeled_windows / _PROTOCOL.target_fps / 3600
+    ok = (
+        report["n_false_alarms"] == 2
+        and report["labeled_windows"] == labeled_windows
+        and abs(report["labeled_time_hours"] - labeled_time_hours) < 1e-12
+        and report["false_alarms_per_hour"] != report["false_alarms_per_hour_labeled_time"]
+    )
+    return _check(
+        "split_event_report: false_alarms_per_hour (denominador de tempo "
+        "total) e false_alarms_per_hour_labeled_time (denominador de tempo "
+        "rotulado, contando só false alarms em janelas rotuladas) divergem "
+        "quando há um false alarm em trecho IGNORE_LABEL e outro em trecho "
+        "rotulado; labeled_windows/labeled_time_hours aparecem com os "
+        "valores passados",
+        ok,
+    )
+
+
 def run_events_selftest() -> bool:
     checks = [
         check_no_trigger_below_threshold(),
@@ -299,6 +355,7 @@ def run_events_selftest() -> bool:
         check_k_end_discontinuity_breaks_run(),
         check_pre_fall_false_alarm_counter(),
         check_window_level_binary_metrics(),
+        check_split_event_report_labeled_time_rates(),
     ]
     ok = all(checks)
     if not ok:
