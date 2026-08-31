@@ -7,8 +7,10 @@ import numpy as np
 from gatefall.eval.alarm_protocol import AlarmProtocol
 from gatefall.eval.events import (
     associate_events_and_alarms,
+    count_pre_fall_false_alarms,
     detect_alarms_for_video,
     fall_events_for_video,
+    window_level_binary_metrics,
 )
 
 _PROTOCOL = AlarmProtocol(
@@ -22,6 +24,8 @@ _PROTOCOL = AlarmProtocol(
     eval_stride=1,
     target_fps=10.0,
     latency_decimal_places=1,
+    pre_fall_diagnostic_window_s=1.0,
+    pre_fall_alarms_count_as_false_alarms=True,
 )
 
 
@@ -154,6 +158,8 @@ def check_fallback_association_path() -> bool:
         eval_stride=_PROTOCOL.eval_stride,
         target_fps=_PROTOCOL.target_fps,
         latency_decimal_places=_PROTOCOL.latency_decimal_places,
+        pre_fall_diagnostic_window_s=_PROTOCOL.pre_fall_diagnostic_window_s,
+        pre_fall_alarms_count_as_false_alarms=_PROTOCOL.pre_fall_alarms_count_as_false_alarms,
     )
     raised = False
     try:
@@ -218,6 +224,69 @@ def check_k_end_discontinuity_breaks_run() -> bool:
     )
 
 
+def check_pre_fall_false_alarm_counter() -> bool:
+    # fall em k=[5,6] (start_time_s=0.5s), sem fallen seguinte -> fallback:
+    # association_end_time_s = fall.end_k/fps + offset = 6/10 + 2.0 = 2.6s.
+    # Alarme 1 dispara em run k=[1,2,3], t=0.3s: dentro da janela de
+    # diagnóstico pré-queda [0.5-1.0, 0.5) = [-0.5, 0.5), e antes do
+    # start_time_s -> false_alarm, contado por count_pre_fall_false_alarms.
+    # Alarme 2 dispara em run k=[58,59,60], t=6.0s: refratário >=5s desde o
+    # alarme 1 (5.7s), fora da janela de diagnóstico e fora da janela de
+    # associação -> false_alarm, mas NÃO contado (fora de [-0.5, 0.5)).
+    n = 61
+    k_ends = np.arange(n, dtype=np.int64)
+    true_labels = np.zeros(n, dtype=np.int64)
+    true_labels[5:7] = 1
+    preds = np.zeros(n, dtype=np.int64)
+    preds[1:4] = 1
+    preds[58:61] = 1
+
+    events = fall_events_for_video("video_i", k_ends, true_labels, _PROTOCOL)
+    alarms = detect_alarms_for_video("video_i", k_ends, preds, _PROTOCOL)
+    outcomes, false_alarms = associate_events_and_alarms(events, alarms, _PROTOCOL)
+
+    setup_ok = (
+        len(events) == 1
+        and len(alarms) == 2
+        and len(outcomes) == 1
+        and not outcomes[0].detected
+        and len(false_alarms) == 2
+    )
+
+    n_counted = count_pre_fall_false_alarms(events, false_alarms, _PROTOCOL)
+
+    return _check(
+        "count_pre_fall_false_alarms conta só o alarme dentro da janela de "
+        "diagnóstico pré-queda, não o alarme distante fora dela",
+        setup_ok and n_counted == 1,
+    )
+
+
+def check_window_level_binary_metrics() -> bool:
+    # 7 janelas: uma com true_label=IGNORE_LABEL (excluída), e entre as
+    # demais 6: 2 TP, 1 FN, 2 TN, 1 FP (calculado à mão contra
+    # positive_labels=[1, 2]).
+    true_labels = np.array([1, -1, 0, 2, 0, 1, 0], dtype=np.int64)
+    pred_labels = np.array([1, 0, 0, 0, 1, 2, 0], dtype=np.int64)
+
+    sensitivity, specificity = window_level_binary_metrics(
+        true_labels, pred_labels, _PROTOCOL, ignore_label=-1
+    )
+
+    expected_sensitivity = 2 / 3
+    expected_specificity = 2 / 3
+
+    ok = (
+        abs(sensitivity - expected_sensitivity) < 1e-9
+        and abs(specificity - expected_specificity) < 1e-9
+    )
+    return _check(
+        "window_level_binary_metrics exclui janelas IGNORE_LABEL e calcula "
+        "sensitivity/specificity exatas sobre tp/fn/tn/fp calculados à mão",
+        ok,
+    )
+
+
 def run_events_selftest() -> bool:
     checks = [
         check_no_trigger_below_threshold(),
@@ -228,6 +297,8 @@ def run_events_selftest() -> bool:
         check_fallback_association_path(),
         check_alarm_before_event_start_is_false_alarm(),
         check_k_end_discontinuity_breaks_run(),
+        check_pre_fall_false_alarm_counter(),
+        check_window_level_binary_metrics(),
     ]
     ok = all(checks)
     if not ok:

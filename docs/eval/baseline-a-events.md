@@ -90,23 +90,46 @@ janela; entre múltiplos matches, a associação usa o de menor
 associado é uma perda (`missed`); um alarme sem nenhum evento associado é
 um falso alarme.
 
+### Inferência sobre a grade completa de janelas
+
+`evaluate` carrega `val`/`test` com `drop_ignored=False`
+(`load_le2i_pose_window_dataset` / `PoseWindowDataset`), rodando o modelo
+sobre **todas** as janelas do split, incluindo as antes descartadas por
+`IGNORE_LABEL`. `run_evaluate` afirma (`assert`) que `usable_windows ==
+total_windows` nesse modo, já que nada é descartado. Isso significa que um
+alarme disparado dentro de um trecho sem rótulo confiável (`IGNORE_LABEL`)
+ainda conta como falso alarme — não há mais um "buraco" na cobertura
+temporal da avaliação. A extração de eventos de queda continua vindo dos
+rótulos verdadeiros e não é afetada por essa mudança.
+
 ### Denominador de falsos alarmes por hora
 
-`false_alarms_per_hour` usa como denominador `evaluated_time_hours`
-(`usable_windows / target_fps / 3600`), isto é, o tempo efetivamente
-avaliado — apenas as janelas utilizáveis pelo `PoseWindowDataset`, não o
-tempo total de vídeo do split (`total_video_time_hours`, calculado sobre
-`total_windows` incluindo janelas ignoradas). Os dois valores aparecem em
-`event_metrics.json` para permitir a comparação.
+`false_alarms_per_hour` usa como denominador **`total_video_time_hours`**
+(`total_windows / target_fps / 3600`), isto é, o tempo total de vídeo do
+split, incluindo janelas antes ignoradas. Um segundo campo,
+`false_alarms_per_hour_evaluated_time`, preserva o cálculo anterior sobre
+`evaluated_time_hours` (`usable_windows / target_fps / 3600`) como valor
+secundário para comparação. Como a inferência agora roda sobre a grade
+completa (ver acima), `usable_windows == total_windows` e os dois valores
+coincidem na prática nesta execução — a distinção existe para não acoplar
+o denominador principal a uma futura mudança que volte a descartar
+janelas.
 
 ## Schema de `alarm_protocol.yaml`
 
 Serialização direta dos campos de `AlarmProtocol`: `fall_label`,
 `fallen_label`, `positive_labels`, `trigger_consecutive`,
 `refractory_period_s`, `association_end_offset_s`,
-`fallback_association_uses_fall_end`, `eval_stride`, `target_fps` e
+`fallback_association_uses_fall_end`, `eval_stride`, `target_fps`,
 `latency_decimal_places` (casas decimais usadas para arredondar latências
-individuais e agregadas).
+individuais e agregadas), `pre_fall_diagnostic_window_s` (1,0 s) e
+`pre_fall_alarms_count_as_false_alarms` (`true`) — os dois últimos
+documentam explicitamente a regra usada por `n_pre_fall_false_alarms`
+abaixo: um alarme disparado até `pre_fall_diagnostic_window_s` segundos
+antes do início de um evento `fall` real segue contando como falso alarme
+no protocolo (`pre_fall_alarms_count_as_false_alarms=True`), mas é
+reportado à parte como diagnóstico, pois pode indicar um gatilho precoce
+legítimo em vez de um falso positivo genuíno.
 
 ## Schema de `event_metrics.json`
 
@@ -114,12 +137,27 @@ individuais e agregadas).
 execução. `splits.val` e `splits.test` trazem, cada um:
 
 - `usable_windows` / `total_windows`: janelas usadas pelo modelo vs.
-  total de janelas do split (incluindo ignoradas).
+  total de janelas do split. Com `drop_ignored=False` na inferência (ver
+  acima), os dois valores coincidem.
 - `evaluated_time_hours` / `total_video_time_hours`: os dois tempos por
-  trás do denominador de `false_alarms_per_hour` (ver acima).
+  trás de `false_alarms_per_hour` e `false_alarms_per_hour_evaluated_time`
+  (ver acima).
 - `n_fall_events`, `n_detected_events`, `n_missed_events`, `sensitivity`
-  (`n_detected_events / n_fall_events`).
-- `n_alarms_total`, `n_false_alarms`, `false_alarms_per_hour`.
+  (`n_detected_events / n_fall_events`, nível de evento).
+- `n_alarms_total`, `n_false_alarms`, `n_pre_fall_false_alarms`
+  (subconjunto diagnóstico de `n_false_alarms` cujo `trigger_time_s` cai
+  em `[event.start_time_s - pre_fall_diagnostic_window_s,
+  event.start_time_s)` de algum evento `fall` real — ver
+  `pre_fall_alarms_count_as_false_alarms` acima).
+- `false_alarms_per_hour` (denominador `total_video_time_hours`, principal)
+  e `false_alarms_per_hour_evaluated_time` (denominador
+  `evaluated_time_hours`, secundário).
+- `window_binary_sensitivity` / `window_binary_specificity`: métricas
+  binárias em **nível de janela** (`{fall, fallen}` vs. resto),
+  calculadas sobre todas as janelas do split exceto as com rótulo
+  `IGNORE_LABEL` (`window_level_binary_metrics`). Distintas do
+  `sensitivity` acima, que é em nível de evento — o prefixo
+  `window_binary_` marca essa diferença de unidade.
 - `latency_seconds`: `per_event` (latência de cada evento detectado, em
   segundos, arredondada a `latency_decimal_places`), mais `mean` e
   `median` (`null` se nenhum evento foi detectado).
@@ -130,14 +168,18 @@ Execução registrada em `runs/baseline_a/event_metrics.json`, sobre o
 checkpoint da última época treinado em [Treino — Arma A
 (TCN)](../train/baseline-a.md):
 
-| Split | Eventos | Detectados | Sensibilidade | Falsos alarmes/h | Latência média |
-| ----- | ------- | ---------- | -------------- | ------------------ | --------------- |
-| Validação | 13 | 12 | 92,3% | 17,3 | 0,4 s |
-| Teste | 22 | 21 | 95,5% | 57,7 | 0,5 s |
+| Split | Eventos | Detectados | Sensibilidade (evento) | Falsos alarmes/h | Falsos alarmes pré-queda | Sensibilidade (janela) | Especificidade (janela) | Latência média |
+| ----- | ------- | ---------- | ----------------------- | ------------------ | ------------------------- | ------------------------ | -------------------------- | --------------- |
+| Validação | 13 | 12 | 92,3% | 17,3 | 0 | 91,6% | 97,3% | 0,4 s |
+| Teste | 22 | 21 | 95,5% | 58,4 | 1 | 90,0% | 97,1% | 0,5 s |
 
 A taxa de falsos alarmes por hora é maior no teste que na validação
-(57,7 vs. 17,3), consistente com a queda de macro-F1 do treino para o
+(58,4 vs. 17,3), consistente com a queda de macro-F1 do treino para o
 teste já documentada em [Treino — Arma A
 (TCN)](../train/baseline-a.md#resultado-da-execução-real): o split de
 teste é cross-subject, então mais confusões entre classes próximas de
-`fall`/`fallen` viram alarmes espúrios sobre subjects não vistos.
+`fall`/`fallen` viram alarmes espúrios sobre subjects não vistos. Os
+contadores de evento (13/12 na validação, 22/21 no teste) não mudaram
+com a inclusão das janelas antes ignoradas na inferência — apenas o
+denominador de falsos alarmes por hora e a contagem de falsos alarmes em
+si mudaram.

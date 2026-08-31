@@ -10,3 +10,5 @@ fallback_association_uses_fall_end: true
 eval_stride: 1
 target_fps: 10.0
 latency_decimal_places: 1
+pre_fall_diagnostic_window_s: 1.0
+pre_fall_alarms_count_as_false_alarms: true

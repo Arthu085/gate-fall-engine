@@ -130,7 +130,7 @@ def run_evaluate(force: bool) -> None:
 
     splits: dict[str, dict] = {}
     for split in ("val", "test"):
-        source = load_le2i_pose_window_dataset(split, EVAL_STRIDE)
+        source = load_le2i_pose_window_dataset(split, EVAL_STRIDE, drop_ignored=False)
         video_ids, k_ends, true_labels, pred_labels = _predict_with_identity(
             model, source, stats, device, batch_size=config.batch_size
         )
@@ -141,6 +141,10 @@ def run_evaluate(force: bool) -> None:
                 stride=EVAL_STRIDE,
                 drop_ignored=False,
             )
+        )
+        assert usable_windows == total_windows, (
+            f"split={split!r}: usable_windows ({usable_windows}) != total_windows "
+            f"({total_windows}) apesar de drop_ignored=False"
         )
         split_report = split_event_report(
             video_ids,

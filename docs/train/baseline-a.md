@@ -52,6 +52,13 @@ B e C):
 - `CrossEntropyLoss` ponderada por frequência inversa das classes.
 - Clipping de gradiente por norma, limite 1.0.
 
+As 30 épocas são um orçamento fixo pré-registrado, definido antes de rodar
+o treino, não um resultado de monitorar `val_macro_f1_restricted` e parar
+quando ela parecesse boa. A ausência de early stopping é intencional: fixar
+o orçamento de antemão evita escolher a época com base em uma métrica de
+validação pequena e enviesada (ver "Seleção de checkpoint" abaixo), o que
+inflaria artificialmente o desempenho reportado.
+
 ## Seleção de checkpoint: sempre a última época
 
 O checkpoint salvo é sempre o peso da última época, nunca o de melhor
@@ -114,3 +121,15 @@ ambientes do Le2i, mudam apenas os subjects — então a queda para teste
 reflete subjects não vistos no treino, não ambientes novos. O split é por
 vídeo/subject justamente para evitar vazamento entre treino e teste
 (`CLAUDE.md`, invariante 2).
+
+## Limitações
+
+Nesta execução de seed único, `val_macro_f1_restricted` não é monotônica
+ao longo do treino: pelo histórico em `runs/baseline_a/metrics.json`, ela
+atinge um pico de 0,6807 na época 15 e termina em 0,6558 na época 30 (o
+checkpoint salvo, ver "Seleção de checkpoint" acima). Como o orçamento de
+30 épocas é fixo e pré-registrado (ver "Receita de treino congelada"), o
+checkpoint final não é o de melhor macro-F1 de validação observada — a
+diferença entre pico e final é um lembrete de que essa métrica de
+validação é ruidosa (19 vídeos, três ambientes) e não deve ser lida como
+uma curva estável.

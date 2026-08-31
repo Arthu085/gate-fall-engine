@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from gatefall.config import IGNORE_LABEL
 from gatefall.eval.alarm_protocol import AlarmProtocol
 
 
@@ -195,6 +196,42 @@ def associate_events_and_alarms(
     return outcomes, false_alarms
 
 
+def window_level_binary_metrics(
+    true_labels: np.ndarray, pred_labels: np.ndarray, protocol: AlarmProtocol, ignore_label: int
+) -> tuple[float, float]:
+    mask = true_labels != ignore_label
+    true_masked = true_labels[mask]
+    pred_masked = pred_labels[mask]
+
+    positive_labels = frozenset(protocol.positive_labels)
+    true_positive_mask = np.isin(true_masked, list(positive_labels))
+    pred_positive_mask = np.isin(pred_masked, list(positive_labels))
+
+    tp = int(np.sum(true_positive_mask & pred_positive_mask))
+    fn = int(np.sum(true_positive_mask & ~pred_positive_mask))
+    tn = int(np.sum(~true_positive_mask & ~pred_positive_mask))
+    fp = int(np.sum(~true_positive_mask & pred_positive_mask))
+
+    sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    return float(sensitivity), float(specificity)
+
+
+def count_pre_fall_false_alarms(
+    events: list[FallEvent], false_alarms: list[Alarm], protocol: AlarmProtocol
+) -> int:
+    count = 0
+    for alarm in false_alarms:
+        for event in events:
+            if event.video_id != alarm.video_id:
+                continue
+            window_start = event.start_time_s - protocol.pre_fall_diagnostic_window_s
+            if window_start <= alarm.trigger_time_s < event.start_time_s:
+                count += 1
+                break
+    return count
+
+
 def split_event_report(
     video_ids: list[str],
     k_ends: list[int],
@@ -227,6 +264,7 @@ def split_event_report(
         all_alarms.extend(detect_alarms_for_video(video_id, video_k_ends, video_pred, protocol))
 
     outcomes, false_alarms = associate_events_and_alarms(all_events, all_alarms, protocol)
+    n_pre_fall_false_alarms = count_pre_fall_false_alarms(all_events, false_alarms, protocol)
 
     n_fall_events = len(all_events)
     n_detected_events = sum(1 for outcome in outcomes if outcome.detected)
@@ -237,7 +275,17 @@ def split_event_report(
 
     n_false_alarms = len(false_alarms)
     false_alarms_per_hour = (
+        n_false_alarms / total_video_time_hours if total_video_time_hours > 0 else 0.0
+    )
+    false_alarms_per_hour_evaluated_time = (
         n_false_alarms / evaluated_time_hours if evaluated_time_hours > 0 else 0.0
+    )
+
+    window_binary_sensitivity, window_binary_specificity = window_level_binary_metrics(
+        np.array(true_labels, dtype=np.int64),
+        np.array(pred_labels, dtype=np.int64),
+        protocol,
+        IGNORE_LABEL,
     )
 
     per_event_latency = [
@@ -267,6 +315,10 @@ def split_event_report(
         "sensitivity": float(n_detected_events / n_fall_events) if n_fall_events else 0.0,
         "n_alarms_total": len(all_alarms),
         "n_false_alarms": n_false_alarms,
+        "n_pre_fall_false_alarms": n_pre_fall_false_alarms,
         "false_alarms_per_hour": float(false_alarms_per_hour),
+        "false_alarms_per_hour_evaluated_time": float(false_alarms_per_hour_evaluated_time),
+        "window_binary_sensitivity": window_binary_sensitivity,
+        "window_binary_specificity": window_binary_specificity,
         "latency_seconds": latency_seconds,
     }

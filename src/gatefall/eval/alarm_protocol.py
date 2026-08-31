@@ -21,6 +21,8 @@ class AlarmProtocol:
     eval_stride: int
     target_fps: float
     latency_decimal_places: int
+    pre_fall_diagnostic_window_s: float
+    pre_fall_alarms_count_as_false_alarms: bool
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -41,6 +43,8 @@ BASELINE_A_ALARM_PROTOCOL = AlarmProtocol(
     eval_stride=EVAL_STRIDE,
     target_fps=TARGET_FPS,
     latency_decimal_places=1,
+    pre_fall_diagnostic_window_s=1.0,
+    pre_fall_alarms_count_as_false_alarms=True,
 )
 
 

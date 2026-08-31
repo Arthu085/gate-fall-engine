@@ -4,9 +4,9 @@
   "alarm_protocol_path": "runs/baseline_a/alarm_protocol.yaml",
   "splits": {
     "val": {
-      "usable_windows": 2079,
+      "usable_windows": 2080,
       "total_windows": 2080,
-      "evaluated_time_hours": 0.05775,
+      "evaluated_time_hours": 0.057777777777777775,
       "total_video_time_hours": 0.057777777777777775,
       "n_fall_events": 13,
       "n_detected_events": 12,
@@ -14,7 +14,11 @@
       "sensitivity": 0.9230769230769231,
       "n_alarms_total": 13,
       "n_false_alarms": 1,
-      "false_alarms_per_hour": 17.316017316017316,
+      "n_pre_fall_false_alarms": 0,
+      "false_alarms_per_hour": 17.30769230769231,
+      "false_alarms_per_hour_evaluated_time": 17.30769230769231,
+      "window_binary_sensitivity": 0.915948275862069,
+      "window_binary_specificity": 0.973374613003096,
       "latency_seconds": {
         "per_event": [
           0.5,
@@ -35,17 +39,21 @@
       }
     },
     "test": {
-      "usable_windows": 5616,
+      "usable_windows": 6168,
       "total_windows": 6168,
-      "evaluated_time_hours": 0.156,
+      "evaluated_time_hours": 0.1713333333333333,
       "total_video_time_hours": 0.1713333333333333,
       "n_fall_events": 22,
       "n_detected_events": 21,
       "n_missed_events": 1,
       "sensitivity": 0.9545454545454546,
-      "n_alarms_total": 30,
-      "n_false_alarms": 9,
-      "false_alarms_per_hour": 57.69230769230769,
+      "n_alarms_total": 31,
+      "n_false_alarms": 10,
+      "n_pre_fall_false_alarms": 1,
+      "false_alarms_per_hour": 58.36575875486382,
+      "false_alarms_per_hour_evaluated_time": 58.36575875486382,
+      "window_binary_sensitivity": 0.8996655518394648,
+      "window_binary_specificity": 0.9705446069082433,
       "latency_seconds": {
         "per_event": [
           0.7,
