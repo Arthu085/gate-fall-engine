@@ -42,3 +42,5 @@ nav:
       - Padronização de features de pose: data/pose-standardization.md
   - Treino:
       - Arma A (TCN): train/baseline-a.md
+  - Avaliação:
+      - Arma A (protocolo de alarme): eval/baseline-a-events.md

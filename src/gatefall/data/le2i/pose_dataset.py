@@ -76,10 +76,11 @@ class PoseWindowDataset:
         split: str,
         stride: int,
         feature_loader: Callable[[str], np.ndarray],
+        drop_ignored: bool = True,
     ) -> None:
         self._feature_loader = feature_loader
         split_frames = cast(pd.DataFrame, frames[frames["split"] == split])
-        self._windows = build_window_index(split_frames, stride=stride, drop_ignored=True)
+        self._windows = build_window_index(split_frames, stride=stride, drop_ignored=drop_ignored)
         self._feature_cache: dict[str, np.ndarray] = {}
 
     def _features_for_video(self, video_id: str) -> np.ndarray:
@@ -104,13 +105,16 @@ class PoseWindowDataset:
         return window, label, (video_id, k_end)
 
 
-def load_le2i_pose_window_dataset(split: str, stride: int) -> PoseWindowDataset:
+def load_le2i_pose_window_dataset(
+    split: str, stride: int, drop_ignored: bool = True
+) -> PoseWindowDataset:
     frames = read_frames(FRAMES_PATH)
     return PoseWindowDataset(
         frames,
         split,
         stride,
         lambda video_id: build_pose_features(video_id)[0],
+        drop_ignored,
     )
 
 

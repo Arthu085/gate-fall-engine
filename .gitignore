@@ -105,6 +105,8 @@ runs/*
 runs/baseline_a/*
 !runs/baseline_a/config.yaml
 !runs/baseline_a/metrics.json
+!runs/baseline_a/alarm_protocol.yaml
+!runs/baseline_a/event_metrics.json
 outputs/
 wandb/
 site/
