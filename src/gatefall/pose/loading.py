@@ -1,4 +1,4 @@
-"""Carregamento e imputação de pose (YOLO-Pose) a partir dos .h5 do Le2i.
+"""Carregamento e imputação de pose (YOLO-Pose) a partir de arquivos HDF5.
 
 Política de imputação: forward-fill a partir do último quadro válido,
 back-fill do trecho inicial quando o vídeo começa sem detecção, e
@@ -15,15 +15,13 @@ que forward/back-fill preserva a pose sem introduzir esse salto.
 
 import argparse
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 import h5py
 import numpy as np
-
-from gatefall.pose.extract import POSE_ROOT, _output_path
-
 
 @dataclass(frozen=True)
 class PoseArrays:
@@ -35,8 +33,13 @@ class PoseArrays:
     height: int
 
 
-def load_pose(video_id: str) -> PoseArrays:
-    path = _output_path(video_id)
+def pose_path(video_id: str, *, pose_root: Path) -> Path:
+    env, _, video_name = video_id.partition("/")
+    return pose_root / env / f"{video_name}.h5"
+
+
+def load_pose(video_id: str, *, pose_root: Path) -> PoseArrays:
+    path = pose_path(video_id, pose_root=pose_root)
     if not path.exists():
         raise FileNotFoundError(f"arquivo de pose não encontrado: {path}")
     with h5py.File(path, "r") as h5_file:
@@ -354,6 +357,89 @@ def _selftest_bbox_descriptors_imputation() -> bool:
     )
 
 
+def _write_synthetic_pose(pose_root: Path, video_id: str, k: int = 3) -> Path:
+    env, _, video_name = video_id.partition("/")
+    path = pose_root / env / f"{video_name}.h5"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    keypoints = np.zeros((k, 17, 3), dtype=np.float32)
+    keypoints[:, :, 0] = np.linspace(12.0, 28.0, 17, dtype=np.float32)
+    keypoints[:, :, 1] = np.linspace(24.0, 56.0, 17, dtype=np.float32)
+    keypoints[:, :, 2] = 0.9
+    bbox = np.tile(
+        np.array([[10.0, 20.0, 30.0, 60.0]], dtype=np.float32), (k, 1)
+    )
+    person_found = np.ones((k,), dtype=np.bool_)
+
+    with h5py.File(path, "w") as h5_file:
+        h5_file.create_dataset("keypoints", data=keypoints)
+        h5_file.create_dataset("bbox", data=bbox)
+        h5_file.create_dataset("person_found", data=person_found)
+        h5_file.attrs["K"] = k
+        h5_file.attrs["width"] = 100
+        h5_file.attrs["height"] = 200
+    return path
+
+
+def _selftest_load_pose_uses_injected_root() -> bool:
+    video_id = "synthetic_env/injected_video"
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        pose_root = Path(temporary_dir) / "alternate_pose_root"
+        _write_synthetic_pose(pose_root, video_id)
+        load_with_root = cast(Callable[..., PoseArrays], load_pose)
+        try:
+            pose = load_with_root(video_id, pose_root=pose_root)
+        except TypeError:
+            return _check("load_pose: usa pose_root injetado", False)
+
+    ok = (
+        pose.k == 3
+        and pose.keypoints.shape == (3, 17, 3)
+        and bool(np.all(pose.person_found))
+    )
+    return _check("load_pose: usa pose_root injetado", ok)
+
+
+def _selftest_load_pose_error_names_injected_path() -> bool:
+    video_id = "synthetic_env/missing_video"
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        pose_root = Path(temporary_dir) / "alternate_pose_root"
+        expected_path = pose_root / "synthetic_env" / "missing_video.h5"
+        load_with_root = cast(Callable[..., PoseArrays], load_pose)
+        try:
+            load_with_root(video_id, pose_root=pose_root)
+        except FileNotFoundError as error:
+            ok = str(expected_path) in str(error)
+        except TypeError:
+            ok = False
+        else:
+            ok = False
+    return _check("load_pose: erro aponta o caminho da raiz injetada", ok)
+
+
+def _selftest_build_pose_features_uses_injected_root() -> bool:
+    from gatefall.pose.kinematics import EXPECTED_D, build_pose_features
+
+    video_id = "synthetic_env/injected_features"
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        pose_root = Path(temporary_dir) / "alternate_pose_root"
+        _write_synthetic_pose(pose_root, video_id)
+        build_with_root = cast(
+            Callable[..., tuple[np.ndarray, list[str]]], build_pose_features
+        )
+        try:
+            matrix, names = build_with_root(video_id, pose_root=pose_root)
+        except TypeError:
+            return _check("build_pose_features: propaga pose_root injetado", False)
+
+    ok = (
+        matrix.shape == (3, EXPECTED_D)
+        and len(names) == EXPECTED_D
+        and bool(np.isfinite(matrix).all())
+    )
+    return _check("build_pose_features: propaga pose_root injetado", ok)
+
+
 def run_selftest() -> None:
     checks = [
         _selftest_normalization(),
@@ -364,6 +450,9 @@ def run_selftest() -> None:
         _selftest_shapes_and_dtypes(),
         _selftest_bbox_descriptors(),
         _selftest_bbox_descriptors_imputation(),
+        _selftest_load_pose_uses_injected_root(),
+        _selftest_load_pose_error_names_injected_path(),
+        _selftest_build_pose_features_uses_injected_root(),
     ]
     if not all(checks):
         print("\npose loading selftest FALHOU", file=sys.stderr)

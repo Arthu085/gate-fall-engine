@@ -29,9 +29,8 @@ class Le2iDatasetAdapter:
     manifest_path: Path = Path("data/processed/le2i/manifest.parquet")
     frames_path: Path = Path("data/processed/le2i/frames.parquet")
     pose_root: Path = Path("data/features/le2i/pose")
-    stats_path: Path = Path("src/gatefall/features/stats/pose_le2i_cs.json")
+    pose_stats_path: Path = Path("src/gatefall/features/stats/pose_le2i_cs.json")
     label_names: tuple[str, ...] = LE2I_LABEL_NAMES
-    feature_dim: int = 134
 
     def load_manifest(self) -> pd.DataFrame:
         if not self.manifest_path.exists():

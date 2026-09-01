@@ -13,7 +13,8 @@ timestep deve mudar.
 
 ## Instalação e reprodução
 
-Requer Python 3.12, [uv](https://docs.astral.sh/uv/) e FFmpeg/ffprobe.
+Requer Linux ou WSL, Python 3.12, [uv](https://docs.astral.sh/uv/) e
+FFmpeg/ffprobe.
 
 ```bash
 git clone https://github.com/Arthu085/gate-fall-engine.git

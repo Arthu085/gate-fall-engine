@@ -28,12 +28,14 @@ local. Destinos dentro de `runs/reference/` são rejeitados, inclusive quando o
 comando é chamado fora da raiz do repositório.
 
 Um run completo exige `config.yaml`, `metrics.json` e `checkpoint.pt` válidos e
-coerentes. O treino usa lock e journal, escreve em um diretório temporário,
-registra hashes de configuração e checkpoint nas métricas, valida o conjunto e
-só então o promove atomicamente. Sem `--force`, um run completo é preservado e
-um run parcial ou inconsistente falha informando o artefato inválido ou ausente.
-`--force` autoriza substituir somente o run local e recupera journals
-interrompidos; não torna a referência gravável.
+coerentes. O treino escreve os três artefatos em um diretório de staging irmão
+do destino, registra hashes de configuração e checkpoint nas métricas, valida
+o conjunto e só então o publica com `os.replace`. Sem `--force`, um run completo
+é preservado e um run parcial ou inconsistente falha informando o artefato
+inválido ou ausente. Com `--force`, o run local anterior é movido para um
+backup irmão; se a promoção do staging falhar, o backup é restaurado. Depois de
+uma promoção bem-sucedida, o backup é removido. Esse lifecycle do treino não
+usa lock nem journal e `--force` não torna a referência gravável.
 
 ## Arquitetura
 

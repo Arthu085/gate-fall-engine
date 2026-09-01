@@ -17,11 +17,18 @@ avaliação
 ```
 
 `gatefall.datasets.base.DatasetAdapter` expõe apenas identificador, caminhos
-canônicos, nomes de classes, dimensão de feature, manifesto, grade, resolução
-de vídeo e raízes de features/estatísticas. O primeiro adapter,
+canônicos, nomes de classes, manifesto, grade, resolução de vídeo e os caminhos
+específicos da fonte de pose (`pose_root` e `pose_stats_path`). O primeiro adapter,
 `gatefall.datasets.le2i.Le2iDatasetAdapter`, pode delegar a implementações em
 `gatefall.data.le2i`; as camadas de pose, features genéricas, treino e
 avaliação não importam esses módulos diretamente.
+
+O adapter resolve onde ficam os HDF5 de pose e o JSON de padronização para cada
+dataset; as camadas consumidoras propagam esses caminhos explicitamente. A
+dimensão 134 não pertence ao contrato de dataset: ela é parte do schema da
+fonte de pose, definido por `gatefall.pose.kinematics.POSE_FEATURE_DIM` junto
+dos nomes e blocos de features. Assim, adicionar uma fonte com outro layout não
+exige atribuir uma dimensão genérica ao dataset.
 
 `gatefall.data.pose_dataset.PoseWindowDataset` recebe uma tabela temporal e um
 loader de features. Assim, preserva janelamento, padding e identidade

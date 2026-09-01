@@ -73,13 +73,17 @@ a [referência](../reference/commands.md) para pré-requisitos e efeitos.
 `runs/local/le2i/baseline_a/`, ignorado pelo Git.
 
 O treino publica um run somente quando configuração, checkpoint e métricas são
-válidos e coerentes. Lock, journal, diretório temporário, hashes do config e do
-checkpoint e promoção atômica impedem que um run parcial pareça completo. Sem
-`--force`, artefatos ausentes, inválidos ou inconsistentes produzem erro
-preciso; um run completo e válido é preservado. A avaliação aplica o mesmo
-princípio ao par protocolo/métricas e mantém o par anterior se a nova
-publicação falhar. `--force` autoriza substituir saídas locais, nunca as
-referências.
+válidos e coerentes. Ele prepara e valida os artefatos em um diretório de
+staging irmão e promove o diretório com `os.replace`; com `--force`, mantém um
+backup do run anterior e o restaura se a promoção falhar. O treino não usa lock
+nem journal, portanto execuções concorrentes para o mesmo destino não são um
+modo suportado. Sem `--force`, artefatos ausentes, inválidos ou inconsistentes
+produzem erro preciso; um run completo e válido é preservado.
+
+A avaliação tem lifecycle próprio para publicar conjuntamente protocolo e
+métricas: usa lock exclusivo, journal, arquivos de staging e backups para
+recuperar uma promoção interrompida e manter o par anterior consistente.
+`--force` autoriza substituir saídas locais, nunca as referências.
 
 ## Validação de desenvolvimento e CI
 

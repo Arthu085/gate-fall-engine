@@ -27,11 +27,13 @@ roda o protocolo sobre `val` e `test` e publica `alarm_protocol.yaml` e
 `event_metrics.json` no mesmo diretório. Destinos em `runs/reference/` são
 rejeitados.
 
-A avaliação usa lock, temporários, hashes do config, checkpoint, métricas de
-treino e protocolo e uma promoção conjunta. Sem `--force`, preserva um par de
-saídas válido; saídas parciais ou inconsistentes falham de forma explícita.
-Com `--force`, substitui o par local somente depois de validar os dois novos
-arquivos e restaura o par anterior se a promoção falhar.
+A avaliação usa lock exclusivo entre processos implementado com
+`fcntl.flock`, journal, temporários, hashes do config, checkpoint, métricas de
+treino e protocolo e uma promoção conjunta. Por depender de `fcntl`, esse
+lifecycle requer um runtime POSIX, como Linux ou WSL. Sem `--force`, preserva
+um par de saídas válido; saídas parciais ou inconsistentes falham de forma
+explícita. Com `--force`, substitui o par local somente depois de validar os
+dois novos arquivos e restaura o par anterior se a promoção falhar.
 
 ## Protocolo de alarme
 

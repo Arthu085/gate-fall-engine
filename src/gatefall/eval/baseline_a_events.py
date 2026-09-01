@@ -482,8 +482,8 @@ def _run_evaluate_locked(
         print(f"recovery de avaliação concluído: {recovery}")
     expected_config = replace(
         BASELINE_A_CONFIG,
-        standardization_stats_path=str(adapter.stats_path),
-        standardization_stats_sha256=sha256_file(adapter.stats_path),
+        standardization_stats_path=str(adapter.pose_stats_path),
+        standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
     )
     try:
         config = validate_training_run(run_dir, expected_config=expected_config)
@@ -531,7 +531,7 @@ def _run_evaluate_locked(
             + ", ".join(missing_outputs)
             + "; use --force para reconstruir"
         )
-    stats = load_stats(adapter.stats_path)
+    stats = load_stats(adapter.pose_stats_path)
     validate_stats_layout(stats)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = _load_model(config, checkpoint_path, device)
@@ -544,7 +544,9 @@ def _run_evaluate_locked(
             frames,
             split,
             EVAL_STRIDE,
-            lambda video_id: build_pose_features(video_id)[0],
+            lambda video_id: build_pose_features(
+                video_id, pose_root=adapter.pose_root
+            )[0],
             drop_ignored=False,
         )
         video_ids, k_ends, true_labels, pred_labels = _predict_with_identity(

@@ -10,7 +10,7 @@ from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.datasets import get_dataset
 from gatefall.features.standardization import load_stats, validate_stats_layout
 from gatefall.hashing import sha256_file
-from gatefall.pose.kinematics import build_pose_features
+from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
 from gatefall.runs import validate_local_run_dir
 from gatefall.train.config import BASELINE_A_CONFIG
 from gatefall.train.engine import run_training
@@ -23,22 +23,24 @@ RUN_DIR = Path("runs/local/le2i/baseline_a")
 def run_train(force: bool, dataset_name: str = "le2i", run_dir: Path = RUN_DIR) -> None:
     validate_local_run_dir(run_dir)
     adapter = get_dataset(dataset_name)
-    stats = load_stats(adapter.stats_path)
+    stats = load_stats(adapter.pose_stats_path)
     validate_stats_layout(stats)
     config = replace(
         BASELINE_A_CONFIG,
-        standardization_stats_path=str(adapter.stats_path),
-        standardization_stats_sha256=sha256_file(adapter.stats_path),
+        standardization_stats_path=str(adapter.pose_stats_path),
+        standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
     )
     frames = adapter.load_frames()
-    loader = lambda video_id: build_pose_features(video_id)[0]
+    loader = lambda video_id: build_pose_features(
+        video_id, pose_root=adapter.pose_root
+    )[0]
 
     train_source = PoseWindowDataset(frames, "train", TRAIN_STRIDE, loader)
     val_source = PoseWindowDataset(frames, "val", EVAL_STRIDE, loader)
     test_source = PoseWindowDataset(frames, "test", EVAL_STRIDE, loader)
 
     run_training(
-        input_dim=adapter.feature_dim,
+        input_dim=POSE_FEATURE_DIM,
         train_source=train_source,
         val_source=val_source,
         test_source=test_source,

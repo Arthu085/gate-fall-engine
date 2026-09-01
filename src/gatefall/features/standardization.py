@@ -16,7 +16,7 @@ import numpy as np
 
 from gatefall.config import TARGET_FPS, TRAIN_STRIDE, WINDOW_FRAMES
 from gatefall.hashing import sha256_file
-from gatefall.pose.kinematics import EXPECTED_D, feature_blocks, feature_names
+from gatefall.pose.kinematics import POSE_FEATURE_DIM, feature_blocks, feature_names
 
 SOURCE_NAME = "pose"
 TRAIN_SPLIT = "train"
@@ -66,11 +66,11 @@ def stale_stats_mismatches(stats: StandardizationStats) -> list[str]:
     mismatches: list[str] = []
     if stats.feature_names != feature_names():
         mismatches.append("feature_names")
-    if stats.feature_dim != EXPECTED_D:
+    if stats.feature_dim != POSE_FEATURE_DIM:
         mismatches.append("feature_dim")
-    if len(stats.feature_names) != EXPECTED_D:
+    if len(stats.feature_names) != POSE_FEATURE_DIM:
         mismatches.append("len(feature_names)")
-    if len(stats.excluded_mask) != EXPECTED_D:
+    if len(stats.excluded_mask) != POSE_FEATURE_DIM:
         mismatches.append("len(excluded_mask)")
     if stats.stride != TRAIN_STRIDE:
         mismatches.append("stride")
@@ -89,7 +89,7 @@ def validate_stats_layout(stats: StandardizationStats) -> None:
         "guarded_mask": len(stats.guarded_mask),
     }
     mismatches.extend(
-        name for name, length in vector_fields.items() if length != EXPECTED_D
+        name for name, length in vector_fields.items() if length != POSE_FEATURE_DIM
     )
     if mismatches:
         unique = list(dict.fromkeys(mismatches))
@@ -115,7 +115,7 @@ def excluded_dimension_mask(names: list[str]) -> np.ndarray:
 def _accumulate_train_statistics(
     dataset: WindowSource,
 ) -> tuple[int, np.ndarray, np.ndarray]:
-    feature_dim = EXPECTED_D
+    feature_dim = POSE_FEATURE_DIM
     count = 0
     sum_ = np.zeros(feature_dim, dtype=np.float64)
     sumsq = np.zeros(feature_dim, dtype=np.float64)
@@ -143,9 +143,9 @@ def compute_train_stats(
     dataset: WindowSource, frames_path: Path, stride: int = TRAIN_STRIDE
 ) -> StandardizationStats:
     names = feature_names()
-    if len(names) != EXPECTED_D:
+    if len(names) != POSE_FEATURE_DIM:
         raise RuntimeError(
-            f"layout de features inválido: {len(names)} nomes para {EXPECTED_D} dimensões"
+            f"layout de features inválido: {len(names)} nomes para {POSE_FEATURE_DIM} dimensões"
         )
     window_count = len(dataset)
 
@@ -173,7 +173,7 @@ def compute_train_stats(
         window_frames=WINDOW_FRAMES,
         stride=stride,
         window_count=window_count,
-        feature_dim=EXPECTED_D,
+        feature_dim=POSE_FEATURE_DIM,
         feature_names=names,
         excluded_mask=excluded_mask.tolist(),
         mean=mean.tolist(),

@@ -12,13 +12,12 @@ import torch
 from ultralytics import YOLO
 
 from gatefall.data.video_io import decode_frames
-from gatefall.datasets import get_dataset
+from gatefall.datasets import DatasetAdapter, get_dataset
 from gatefall.pose.selection import select_person_index
 
 DEFAULT_VIDEO_ID = "coffee_room_01/video_1"
 DEFAULT_MODEL = "yolo26n-pose.pt"
 WEIGHTS_DIR = Path("data/scratch/weights")
-_DATASET = get_dataset("le2i")
 
 
 def _resolve_model_path(model_name: str) -> str:
@@ -28,23 +27,23 @@ def _resolve_model_path(model_name: str) -> str:
     return str(WEIGHTS_DIR / model_name)
 
 
-def _select_src_indices(video_id: str) -> list[int]:
-    if not _DATASET.frames_path.exists():
+def _select_src_indices(video_id: str, *, adapter: DatasetAdapter) -> list[int]:
+    if not adapter.frames_path.exists():
         print(
-            f"\npose smoke test FALHOU: {_DATASET.frames_path} não existe — rode "
+            f"\npose smoke test FALHOU: {adapter.frames_path} não existe — rode "
             "`uv run python -m gatefall.data.timegrid build` primeiro",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    frames = _DATASET.load_frames()
+    frames = adapter.load_frames()
     video_frames = cast(
         pd.DataFrame, frames[frames["video_id"] == video_id]
     ).sort_values("frame_index")
     if video_frames.empty:
         print(
             f"\npose smoke test FALHOU: video_id '{video_id}' não encontrado "
-            f"em {_DATASET.frames_path}",
+            f"em {adapter.frames_path}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -58,11 +57,13 @@ def _to_bgr(frame_rgb: np.ndarray) -> np.ndarray:
     return frame_rgb[:, :, ::-1]
 
 
-def run_pose_smoke_test(video_id: str, model_name: str) -> None:
-    src_indices = _select_src_indices(video_id)
+def run_pose_smoke_test(
+    video_id: str, model_name: str, *, adapter: DatasetAdapter
+) -> None:
+    src_indices = _select_src_indices(video_id, adapter=adapter)
     k_expected = len(src_indices)
 
-    video_paths = _DATASET.video_paths()
+    video_paths = adapter.video_paths()
     if video_id not in video_paths:
         print(
             f"\npose smoke test FALHOU: video_id '{video_id}' não encontrado "
@@ -178,7 +179,9 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command == "report":
-        run_pose_smoke_test(args.video_id, args.model)
+        run_pose_smoke_test(
+            args.video_id, args.model, adapter=get_dataset(args.dataset)
+        )
 
 
 if __name__ == "__main__":

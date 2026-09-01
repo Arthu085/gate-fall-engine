@@ -8,10 +8,12 @@ temporal](temporal-contract.md#dataset-de-janelas-de-pose), e
 `PoseWindowDataset` — a fatia de janela que ele devolve continua crua; quem
 consome o dataset para treino aplica `apply_standardization` depois.
 
-A CLI recebe o dataset pelo adapter e injeta a grade e o loader de features;
-o núcleo genérico não conhece caminhos do Le2i. A mesma instância da fonte de
-janelas de treino é reutilizada para acumulação e diagnósticos, evitando
-carregar/construir o dataset duas vezes.
+A CLI recebe o dataset pelo adapter, usa `pose_root` para carregar os HDF5 e
+`pose_stats_path` para localizar o JSON, e injeta a grade e o loader de
+features; o núcleo genérico não conhece caminhos do Le2i. A dimensão 134 vem
+do schema de pose em `gatefall.pose.kinematics.POSE_FEATURE_DIM`, não do
+adapter. A mesma instância da fonte de janelas de treino é reutilizada para
+acumulação e diagnósticos, evitando carregar/construir o dataset duas vezes.
 
 ## Só no split de treino
 

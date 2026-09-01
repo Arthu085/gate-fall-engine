@@ -48,6 +48,7 @@ class PoseWindowDataset:
 def main() -> None:
     from gatefall.data.le2i.pose_dataset import report_pose_dataset
     from gatefall.data.le2i.pose_dataset_selftest import run_pose_dataset_selftest
+    from gatefall.datasets import get_dataset
 
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -62,8 +63,9 @@ def main() -> None:
     selftest_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     args = parser.parse_args()
+    adapter = get_dataset(args.dataset)
     if args.command == "report":
-        report_pose_dataset()
+        report_pose_dataset(adapter=adapter)
     elif args.command == "selftest":
         run_pose_dataset_selftest()
 

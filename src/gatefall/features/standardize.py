@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -21,7 +22,7 @@ from gatefall.features.standardization import (
 )
 from gatefall.features.standardization_selftest import run_standardization_selftest
 from gatefall.hashing import sha256_file
-from gatefall.pose.kinematics import EXPECTED_D, build_pose_features, feature_blocks
+from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features, feature_blocks
 
 EXPECTED_USABLE_WINDOWS_STRIDE4 = {"train": 5219, "val": 527, "test": 1412}
 
@@ -41,25 +42,27 @@ def run_build(force: bool, dataset_name: str = "le2i") -> None:
         adapter.load_frames(),
         TRAIN_SPLIT,
         TRAIN_STRIDE,
-        lambda video_id: build_pose_features(video_id)[0],
+        lambda video_id: build_pose_features(
+            video_id, pose_root=adapter.pose_root
+        )[0],
     )
     stats = compute_train_stats(source, adapter.frames_path, stride=TRAIN_STRIDE)
-    save_stats(stats, adapter.stats_path, force=force)
+    save_stats(stats, adapter.pose_stats_path, force=force)
 
 
 def _counting_pose_loader(
-    counters: dict[str, int], split: str
+    counters: dict[str, int], split: str, pose_root: Path
 ) -> Callable[[str], np.ndarray]:
     def loader(video_id: str) -> np.ndarray:
         counters[split] = counters.get(split, 0) + 1
-        return build_pose_features(video_id)[0]
+        return build_pose_features(video_id, pose_root=pose_root)[0]
 
     return loader
 
 
 def run_report(dataset_name: str = "le2i") -> None:
     adapter = get_dataset(dataset_name)
-    stats_path = adapter.stats_path
+    stats_path = adapter.pose_stats_path
     frames_path = adapter.frames_path
     if not stats_path.exists():
         print(
@@ -98,15 +101,20 @@ def run_report(dataset_name: str = "le2i") -> None:
     checks.append(
         _check(
             "mean e std têm shape [134] e são finitos",
-            mean.shape == (EXPECTED_D,)
-            and std.shape == (EXPECTED_D,)
+            mean.shape == (POSE_FEATURE_DIM,)
+            and std.shape == (POSE_FEATURE_DIM,)
             and bool(np.isfinite(mean).all())
             and bool(np.isfinite(std).all()),
         )
     )
 
     train_dataset = PoseWindowDataset(
-        frames, TRAIN_SPLIT, TRAIN_STRIDE, _counting_pose_loader(videos_loaded, TRAIN_SPLIT)
+        frames,
+        TRAIN_SPLIT,
+        TRAIN_STRIDE,
+        _counting_pose_loader(
+            videos_loaded, TRAIN_SPLIT, adapter.pose_root
+        ),
     )
 
     checks.append(
@@ -159,7 +167,10 @@ def run_report(dataset_name: str = "le2i") -> None:
     eval_non_finite: dict[str, int] = {}
     for split in EVAL_SPLITS:
         dataset = PoseWindowDataset(
-            frames, split, EVAL_STRIDE, _counting_pose_loader(videos_loaded, split)
+            frames,
+            split,
+            EVAL_STRIDE,
+            _counting_pose_loader(videos_loaded, split, adapter.pose_root),
         )
         non_finite = 0
         for i in range(len(dataset)):

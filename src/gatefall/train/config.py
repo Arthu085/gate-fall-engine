@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from gatefall.config import EVAL_STRIDE, NUM_CLASSES, TRAIN_STRIDE, WINDOW_FRAMES
-from gatefall.pose.kinematics import EXPECTED_D
+from gatefall.pose.kinematics import POSE_FEATURE_DIM
 from gatefall.train.tcn import receptive_field
 
 
@@ -55,7 +55,7 @@ BASELINE_A_CONFIG = TrainConfig(
     arm="A",
     feature_source="pose",
     seed=42,
-    input_dim=EXPECTED_D,
+    input_dim=POSE_FEATURE_DIM,
     window_frames=WINDOW_FRAMES,
     train_stride=TRAIN_STRIDE,
     eval_stride=EVAL_STRIDE,
