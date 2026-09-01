@@ -9,8 +9,8 @@ O **GateFall** investiga a detecção de quedas humanas em vídeo RGB monocular 
 O projeto é organizado em três braços experimentais:
 
 - **Braço A — YOLO-Pose + TCN:** implementado.
-- **Braço B — DINOv3:** planejado.
-- **Braço C — SAM 3:** planejado.
+- **Braço B — YOLO-Pose + DINOv3 + TCN:** planejado.
+- **Braço C — YOLO-Pose + SAM 3 + TCN:** planejado.
 
 A arquitetura foi projetada para manter o pipeline temporal e o classificador consistentes entre os braços. A principal diferença entre eles é o **vetor de features produzido para cada timestep**.
 
