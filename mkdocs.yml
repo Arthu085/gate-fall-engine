@@ -50,3 +50,4 @@ nav:
       - Braço A (TCN): train/baseline-a.md
   - Avaliação:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
+      - Diagnóstico qualitativo (render): eval/qualitative-render.md
