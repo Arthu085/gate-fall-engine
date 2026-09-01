@@ -1,4 +1,4 @@
-"""Descritores cinemáticos derivados da pose (YOLO-Pose) do Le2i.
+"""Descritores cinemáticos derivados de pose (YOLO-Pose).
 
 Nada aqui é gravado em disco: são features derivadas, computadas em tempo de
 carregamento por design, para que uma escolha de suavização ou janelamento
@@ -7,14 +7,14 @@ nunca fique congelada em um arquivo.
 
 import argparse
 import sys
+from pathlib import Path
 from typing import cast
 
 import numpy as np
 import pandas as pd
 
 from gatefall.config import TARGET_FPS
-from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
+from gatefall.datasets import DatasetAdapter, get_dataset
 from gatefall.pose.loading import (
     bbox_descriptors,
     impute_missing,
@@ -23,7 +23,8 @@ from gatefall.pose.loading import (
 )
 
 EXPECTED_K_SUM = 30494
-EXPECTED_D = 134
+POSE_FEATURE_DIM = 134
+EXPECTED_D = POSE_FEATURE_DIM
 
 SHOULDER_LEFT = 5
 SHOULDER_RIGHT = 6
@@ -207,10 +208,12 @@ def _assemble_matrix(
     ).astype(np.float32)
 
 
-def build_pose_features(video_id: str) -> tuple[np.ndarray, list[str]]:
+def build_pose_features(
+    video_id: str, *, pose_root: Path
+) -> tuple[np.ndarray, list[str]]:
     dt = 1.0 / TARGET_FPS
 
-    pose = load_pose(video_id)
+    pose = load_pose(video_id, pose_root=pose_root)
     xy, conf = normalize_keypoints(pose.keypoints, pose.bbox, pose.person_found)
     bbox_desc = bbox_descriptors(pose.bbox, pose.person_found, pose.width, pose.height)
     xy, conf, bbox_desc = impute_missing(xy, conf, bbox_desc, pose.person_found)
@@ -240,8 +243,14 @@ def build_pose_features(video_id: str) -> tuple[np.ndarray, list[str]]:
     )
 
     feature_names = _feature_names()
-    assert matrix.shape[1] == len(feature_names)
-    assert matrix.shape[1] == EXPECTED_D
+    if (
+        matrix.shape[1] != len(feature_names)
+        or matrix.shape[1] != POSE_FEATURE_DIM
+    ):
+        raise RuntimeError(
+            f"layout de features inválido: matrix={matrix.shape[1]}, "
+            f"names={len(feature_names)}, esperado={POSE_FEATURE_DIM}"
+        )
     return matrix, feature_names
 
 
@@ -477,15 +486,15 @@ def run_selftest() -> None:
     print("\npose kinematics selftest OK: todas as checagens passaram")
 
 
-def run_report() -> None:
-    frames = read_frames(FRAMES_PATH)
+def run_report(*, adapter: DatasetAdapter) -> None:
+    frames = adapter.load_frames()
     video_ids = [str(video_id) for video_id in frames["video_id"].unique()]
     group_sizes = cast(pd.Series, frames.groupby("video_id").size())
 
     matrices: list[np.ndarray] = []
     k_mismatches: list[str] = []
     for video_id in video_ids:
-        matrix = build_pose_features(video_id)[0]
+        matrix = build_pose_features(video_id, pose_root=adapter.pose_root)[0]
         matrices.append(matrix)
         expected_rows = int(cast(int, group_sizes[video_id]))
         if matrix.shape[0] != expected_rows:
@@ -543,20 +552,22 @@ def run_report() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser(
+    selftest_parser = subparsers.add_parser(
         "selftest",
         help="Roda checagens sintéticas dos descritores cinemáticos",
     )
-    subparsers.add_parser(
+    selftest_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser = subparsers.add_parser(
         "report",
         help="Roda build_pose_features sobre todos os vídeos e reporta estatísticas",
     )
+    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     args = parser.parse_args()
     if args.command == "selftest":
         run_selftest()
     elif args.command == "report":
-        run_report()
+        run_report(adapter=get_dataset(args.dataset))
 
 
 if __name__ == "__main__":

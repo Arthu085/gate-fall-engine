@@ -13,11 +13,11 @@ from gatefall.config import (
     TRAIN_STRIDE,
     WINDOW_FRAMES,
 )
-from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
+from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.le2i.windows import EXPECTED_USABLE_WINDOWS_STRIDE1
 from gatefall.data.windowing import build_window_index, window_frame_indices
-from gatefall.pose.kinematics import build_pose_features
+from gatefall.datasets import DatasetAdapter
+from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
 from gatefall.pose.loading import load_pose
 
 # Convenção de nomes de label inferida rodando `windows report` em stride 4 e
@@ -37,12 +37,15 @@ LABEL_NAMES: list[str] = [
     "standing",
     "other",
 ]
-assert len(LABEL_NAMES) == NUM_CLASSES
+if len(LABEL_NAMES) != NUM_CLASSES:
+    raise RuntimeError(
+        f"LABEL_NAMES tem {len(LABEL_NAMES)} itens, esperado NUM_CLASSES={NUM_CLASSES}"
+    )
 
 # Dimensão do vetor de features por quadro, igual à soma dos blocos de
 # `_BLOCKS` em `gatefall.pose.kinematics` (0..134, sem lacunas nem
 # sobreposições).
-EXPECTED_FEATURE_DIM = 134
+EXPECTED_FEATURE_DIM = POSE_FEATURE_DIM
 
 EXPECTED_USABLE_WINDOWS_STRIDE4: dict[str, int] = {
     "train": 5219,
@@ -69,61 +72,31 @@ def _check(name: str, condition: bool) -> bool:
     return condition
 
 
-class PoseWindowDataset:
-    def __init__(
-        self,
-        frames: pd.DataFrame,
-        split: str,
-        stride: int,
-        feature_loader: Callable[[str], np.ndarray],
-        drop_ignored: bool = True,
-    ) -> None:
-        self._feature_loader = feature_loader
-        split_frames = cast(pd.DataFrame, frames[frames["split"] == split])
-        self._windows = build_window_index(split_frames, stride=stride, drop_ignored=drop_ignored)
-        self._feature_cache: dict[str, np.ndarray] = {}
-
-    def _features_for_video(self, video_id: str) -> np.ndarray:
-        if video_id not in self._feature_cache:
-            self._feature_cache[video_id] = self._feature_loader(video_id)
-        return self._feature_cache[video_id]
-
-    def __len__(self) -> int:
-        return len(self._windows)
-
-    def __getitem__(self, index: int) -> tuple[np.ndarray, int, tuple[str, int]]:
-        row = self._windows.iloc[index]
-        video_id = str(row["video_id"])
-        k_end = int(row["k_end"])
-        n_frames = int(row["n_frames"])
-        label = int(row["label"])
-
-        matrix = self._features_for_video(video_id)
-        frame_indices = window_frame_indices(k_end, n_frames)
-        window = matrix[frame_indices].astype(np.float32)
-
-        return window, label, (video_id, k_end)
-
-
 def load_le2i_pose_window_dataset(
-    split: str, stride: int, drop_ignored: bool = True
+    split: str,
+    stride: int,
+    drop_ignored: bool = True,
+    *,
+    adapter: DatasetAdapter,
 ) -> PoseWindowDataset:
-    frames = read_frames(FRAMES_PATH)
+    frames = adapter.load_frames()
     return PoseWindowDataset(
         frames,
         split,
         stride,
-        lambda video_id: build_pose_features(video_id)[0],
+        lambda video_id: build_pose_features(
+            video_id, pose_root=adapter.pose_root
+        )[0],
         drop_ignored,
     )
 
 
-def report_pose_dataset() -> None:
-    frames = read_frames(FRAMES_PATH)
+def report_pose_dataset(*, adapter: DatasetAdapter) -> None:
+    frames = adapter.load_frames()
     splits = sorted(cast(list[str], frames["split"].unique().tolist()))
 
     def feature_loader(video_id: str) -> np.ndarray:
-        return build_pose_features(video_id)[0]
+        return build_pose_features(video_id, pose_root=adapter.pose_root)[0]
 
     checks: list[bool] = []
 
@@ -251,7 +224,9 @@ def report_pose_dataset() -> None:
 
     def person_found_for_video(video_id: str) -> np.ndarray:
         if video_id not in person_found_cache:
-            person_found_cache[video_id] = load_pose(video_id).person_found
+            person_found_cache[video_id] = load_pose(
+                video_id, pose_root=adapter.pose_root
+            ).person_found
         return person_found_cache[video_id]
 
     for split in splits:

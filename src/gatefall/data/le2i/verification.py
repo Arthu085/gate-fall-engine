@@ -14,6 +14,7 @@ from gatefall.data.le2i.path_matching import (
     index_annotation_paths,
 )
 from gatefall.data.manifest import read_manifest
+from gatefall.datasets.le2i import LE2I_DATASET
 from gatefall.hashing import sha256_file
 
 
@@ -208,7 +209,14 @@ def report_sha256_integrity(manifest: pd.DataFrame) -> bool:
     print("\n=== integridade: sha256 dos vídeos no manifesto ===")
     is_valid = True
     for _, row in manifest.iterrows():
-        absolute_path = Path(str(row["absolute_path"]))
+        try:
+            absolute_path = LE2I_DATASET.resolve_video_path(
+                str(row["relative_path"])
+            )
+        except ValueError as exc:
+            is_valid = False
+            print(f"{row['video_id']}: relative_path inválido ({exc})")
+            continue
         if not absolute_path.exists():
             is_valid = False
             print(f"{row['video_id']}: arquivo ausente ({absolute_path})")

@@ -33,6 +33,12 @@ markdown_extensions:
 
 nav:
   - Início: index.md
+  - Arquitetura:
+      - Visão geral: architecture/overview.md
+      - Tecnologias: architecture/technology-stack.md
+  - Execução:
+      - Pipeline do braço A: runbooks/pipeline-a.md
+      - Referência de comandos: reference/commands.md
   - Dados:
       - Organização: data/organization.md
       - OmniFall: data/omnifall.md
@@ -41,6 +47,6 @@ nav:
       - Contrato temporal: data/temporal-contract.md
       - Padronização de features de pose: data/pose-standardization.md
   - Treino:
-      - Arma A (TCN): train/baseline-a.md
+      - Braço A (TCN): train/baseline-a.md
   - Avaliação:
-      - Arma A (protocolo de alarme): eval/baseline-a-events.md
+      - Braço A (protocolo de alarme): eval/baseline-a-events.md

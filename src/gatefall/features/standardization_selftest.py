@@ -24,6 +24,7 @@ from gatefall.features.standardization import (
     mean_std_from_accumulators,
     save_stats,
     stale_stats_mismatches,
+    validate_stats_layout,
 )
 from gatefall.pose.kinematics import EXPECTED_D, feature_blocks, feature_names
 
@@ -283,6 +284,41 @@ def check_stale_stats_rejected() -> bool:
     )
 
 
+def check_stale_feature_layout_fails_explicitly() -> bool:
+    names = feature_names()
+    stale_dim = EXPECTED_D - 1
+    stats = StandardizationStats(
+        source=SOURCE_NAME,
+        split=TRAIN_SPLIT,
+        target_fps=10.0,
+        window_frames=24,
+        stride=TRAIN_STRIDE,
+        window_count=1234,
+        feature_dim=stale_dim,
+        feature_names=names[:stale_dim],
+        excluded_mask=[False] * stale_dim,
+        mean=[0.0] * stale_dim,
+        std=[1.0] * stale_dim,
+        guarded_count=0,
+        guarded_mask=[False] * stale_dim,
+        frames_hash="deadbeef",
+    )
+
+    try:
+        validate_stats_layout(stats)
+    except ValueError as exc:
+        message = str(exc)
+        ok = "feature_dim" in message and "feature_names" in message
+    except IndexError:
+        ok = False
+    else:
+        ok = False
+    return _check(
+        "layout obsoleto: falha explicitamente antes de construir/indexar máscaras",
+        ok,
+    )
+
+
 def run_standardization_selftest() -> None:
     checks = [
         check_known_input_mean0_std1(),
@@ -291,6 +327,7 @@ def run_standardization_selftest() -> None:
         check_degenerate_dimension_guarded(),
         check_streaming_matches_batch(),
         check_stale_stats_rejected(),
+        check_stale_feature_layout_fails_explicitly(),
     ]
     with tempfile.TemporaryDirectory() as tmp_dir:
         checks.append(check_save_load_round_trip(Path(tmp_dir)))

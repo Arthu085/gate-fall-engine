@@ -8,6 +8,13 @@ temporal](temporal-contract.md#dataset-de-janelas-de-pose), e
 `PoseWindowDataset` — a fatia de janela que ele devolve continua crua; quem
 consome o dataset para treino aplica `apply_standardization` depois.
 
+A CLI recebe o dataset pelo adapter, usa `pose_root` para carregar os HDF5 e
+`pose_stats_path` para localizar o JSON, e injeta a grade e o loader de
+features; o núcleo genérico não conhece caminhos do Le2i. A dimensão 134 vem
+do schema de pose em `gatefall.pose.kinematics.POSE_FEATURE_DIM`, não do
+adapter. A mesma instância da fonte de janelas de treino é reutilizada para
+acumulação e diagnósticos, evitando carregar/construir o dataset duas vezes.
+
 ## Só no split de treino
 
 Média e desvio-padrão são calculados exclusivamente sobre janelas do split
@@ -34,14 +41,14 @@ Isso é intencional: a estatística de padronização espelha a mesma
 distribuição de entradas que o encoder temporal vai realmente consumir no
 treino, não uma distribuição uniforme por quadro da grade.
 
-## Congelada por fonte de feature, não por arma
+## Congelada por fonte de feature, não por braço
 
 O arquivo de estatísticas é identificado por fonte de feature (`pose`), não
-por arma A/B/C. As três armas do experimento (ver `CLAUDE.md`) usam janela,
+por braço A/B/C. Os três braços do experimento usam janela,
 split, seed, encoder temporal e número de épocas idênticos — só o vetor de
 feature por passo muda. Enquanto o vetor de 134 dimensões da fonte `pose`
-for o mesmo em todas as armas que o consomem, a padronização é recalculada
-uma vez e reutilizada, nunca recomputada por arma.
+for o mesmo em todos os braços que o consomem, a padronização é recalculada
+uma vez e reutilizada, nunca recomputada por braço.
 
 ## `kp_conf` fica de fora
 
@@ -72,7 +79,7 @@ dimensão é guardada.
 
 `src/gatefall/features/stats/pose_le2i_cs.json` fica versionado no Git, e
 não em `data/`, que é git-ignored. As estatísticas de padronização são parte
-da receita congelada compartilhada pelas três armas do experimento (ver
+da receita congelada compartilhada pelos três braços do experimento (ver
 "Congelada por fonte de feature" acima) — precisam ser reproduzíveis
 byte a byte entre execuções e entre máquinas sem depender de recomputar o
 dataset real, do mesmo jeito que o código de `kinematics.py` está
@@ -87,7 +94,7 @@ Cada arquivo persiste: fonte (`pose`), split (`train`), `TARGET_FPS`,
 feature, nomes de feature na ordem do vetor, a máscara booleana de exclusão
 de `kp_conf` (comprimento 134), `mean` e `std` por dimensão, a contagem e a
 máscara de dimensões guardadas, e o hash SHA-256 de
-`data/labels/le2i/frames.parquet` no momento em que as estatísticas foram
+`data/processed/le2i/frames.parquet` no momento em que as estatísticas foram
 calculadas — usado por `report` para detectar se o parquet mudou depois do
 último `build`.
 
@@ -98,7 +105,7 @@ de considerar a gravação bem-sucedida.
 ## Como executar
 
 ```bash
-uv run python -m gatefall.features.standardize selftest
+uv run python -m gatefall.features.standardize selftest [--dataset le2i]
 ```
 
 Roda checagens sintéticas, sem tocar no dataset real: estatísticas sintéticas
@@ -112,7 +119,7 @@ acumulação em streaming bate com o cálculo em lote sobre os mesmos dados
 sintéticos.
 
 ```bash
-uv run python -m gatefall.features.standardize build [--force]
+uv run python -m gatefall.features.standardize build [--dataset le2i] [--force]
 ```
 
 Calcula as estatísticas sobre o `train` real do Le2i e grava em
@@ -120,7 +127,7 @@ Calcula as estatísticas sobre o `train` real do Le2i e grava em
 `--force`, uma segunda execução não sobrescreve o arquivo existente.
 
 ```bash
-uv run python -m gatefall.features.standardize report
+uv run python -m gatefall.features.standardize report [--dataset le2i]
 ```
 
 Carrega o JSON persistido (falha se `build` nunca rodou) e roda checagens
@@ -129,7 +136,8 @@ persistidas são comparadas com o layout de feature vivo em
 `gatefall.pose.kinematics` (`feature_names`, `feature_dim`, comprimento da
 máscara de exclusão, `stride`, `source`, `split`) — se `_BLOCKS` for
 reordenado ou estendido sem recalcular as estatísticas, essa checagem falha
-em vez de deixar o resto do relatório rodar silenciosamente desalinhado; a
+antes de construir ou indexar máscaras dependentes da dimensão, evitando que
+um layout obsoleto esconda o erro original com `IndexError`; a
 contagem de janelas de treino em
 `TRAIN_STRIDE` bate com `EXPECTED_USABLE_WINDOWS_STRIDE4["train"]`; `mean` e
 `std` têm shape `[134]` e são finitos; depois de aplicar a padronização, a

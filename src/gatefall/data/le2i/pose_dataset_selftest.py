@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from gatefall.config import IGNORE_LABEL, WINDOW_FRAMES
-from gatefall.data.le2i.pose_dataset import PoseWindowDataset
+from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
 
 _D = 3

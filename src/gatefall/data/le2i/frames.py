@@ -10,9 +10,10 @@ from gatefall.data.frames import apply_frame_schema, read_frames, write_frames
 from gatefall.data.le2i.annotations import load_annotation_splits
 from gatefall.data.le2i.timeline import build_grid_frames
 from gatefall.data.le2i.verification import load_le2i_manifest
+from gatefall.datasets.le2i import LE2I_DATASET
 from gatefall.hashing import sha256_dataframe
 
-FRAMES_PATH = Path("data/labels/le2i/frames.parquet")
+FRAMES_PATH = LE2I_DATASET.frames_path
 
 
 def build_le2i_frames_table(
@@ -27,7 +28,10 @@ def build_le2i_frames_table(
     return apply_frame_schema(ordered)
 
 
-def build_le2i_timegrid() -> None:
+def build_le2i_timegrid(force: bool = False) -> None:
+    if FRAMES_PATH.exists() and not force:
+        print(f"skip {FRAMES_PATH} (já existe, use --force para sobrescrever)")
+        return
     manifest = load_le2i_manifest()
     splits = load_annotation_splits()
     grid_frames, per_video, _skipped_segments = build_grid_frames(manifest, splits)

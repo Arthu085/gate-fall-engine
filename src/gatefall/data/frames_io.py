@@ -10,12 +10,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser(
+    report_parser = subparsers.add_parser(
         "report", help="Relata a decodificação de quadros de uma amostra do Le2i"
     )
-    subparsers.add_parser(
+    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    selftest_parser = subparsers.add_parser(
         "selftest", help="Verifica a decodificação de vídeo contra entradas sintéticas"
     )
+    selftest_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     args = parser.parse_args()
     if args.command == "report":

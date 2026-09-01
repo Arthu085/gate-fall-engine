@@ -15,15 +15,12 @@ import ultralytics
 from ultralytics import YOLO
 
 from gatefall.config import TARGET_FPS
-from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
-from gatefall.data.le2i.verification import load_le2i_manifest
-from gatefall.data.le2i.video_io import load_le2i_video_paths
 from gatefall.data.video_io import decode_frames
+from gatefall.datasets import DatasetAdapter, get_dataset
+from gatefall.pose.loading import pose_path
 from gatefall.pose.selection import select_person_index
 from gatefall.pose.smoke import DEFAULT_MODEL
 
-POSE_ROOT = Path("data/features/le2i/pose")
 TRACKER_NAME = "bytetrack.yaml"
 WEIGHTS_DIR = Path("data/scratch/weights")
 
@@ -60,26 +57,21 @@ def _to_bgr(frame_rgb: np.ndarray) -> np.ndarray:
     return frame_rgb[:, :, ::-1]
 
 
-def _output_path(video_id: str) -> Path:
-    env, _, video_name = video_id.partition("/")
-    return POSE_ROOT / env / f"{video_name}.h5"
-
-
-def _select_src_indices(video_id: str) -> list[int]:
-    if not FRAMES_PATH.exists():
+def _select_src_indices(video_id: str, *, adapter: DatasetAdapter) -> list[int]:
+    if not adapter.frames_path.exists():
         raise PoseExtractError(
-            f"\npose extract FALHOU: {FRAMES_PATH} não existe — rode "
+            f"\npose extract FALHOU: {adapter.frames_path} não existe — rode "
             "`uv run python -m gatefall.data.timegrid build` primeiro"
         )
 
-    frames = read_frames(FRAMES_PATH)
+    frames = adapter.load_frames()
     video_frames = cast(
         pd.DataFrame, frames[frames["video_id"] == video_id]
     ).sort_values("frame_index")
     if video_frames.empty:
         raise PoseExtractError(
             f"\npose extract FALHOU: video_id '{video_id}' não encontrado "
-            f"em {FRAMES_PATH}"
+            f"em {adapter.frames_path}"
         )
 
     return [int(x) for x in video_frames["src_index"]]
@@ -101,18 +93,23 @@ def _reset_tracker_state(model: YOLO) -> None:
 
 
 def run_pose_extract(
-    video_id: str, model_name: str, force: bool, *, model: YOLO | None = None
+    video_id: str,
+    model_name: str,
+    force: bool,
+    *,
+    adapter: DatasetAdapter,
+    model: YOLO | None = None,
 ) -> PoseExtractResult:
-    output_path = _output_path(video_id)
+    output_path = pose_path(video_id, pose_root=adapter.pose_root)
     if output_path.exists() and not force:
         raise PoseExtractSkipped(
             f"skip {output_path} (já existe, use --force para sobrescrever)"
         )
 
-    src_indices = _select_src_indices(video_id)
+    src_indices = _select_src_indices(video_id, adapter=adapter)
     k = len(src_indices)
 
-    manifest = load_le2i_manifest()
+    manifest = adapter.load_manifest()
     manifest_row = cast(
         pd.DataFrame, manifest[manifest["video_id"] == video_id]
     )
@@ -123,7 +120,7 @@ def run_pose_extract(
         )
     manifest_row = manifest_row.iloc[0]
 
-    video_paths = load_le2i_video_paths()
+    video_paths = adapter.video_paths()
     if video_id not in video_paths:
         raise PoseExtractError(
             f"\npose extract FALHOU: video_id '{video_id}' não encontrado "
@@ -131,7 +128,10 @@ def run_pose_extract(
         )
 
     frames_rgb = decode_frames(video_paths[video_id], src_indices)
-    assert len(frames_rgb) == k
+    if len(frames_rgb) != k:
+        raise PoseExtractError(
+            f"decodificação de {video_id} retornou {len(frames_rgb)} quadros; esperado {k}"
+        )
 
     keypoints = np.zeros((k, N_KEYPOINTS, 3), dtype=np.float32)
     bbox = np.zeros((k, 4), dtype=np.float32)
@@ -162,7 +162,10 @@ def run_pose_extract(
         if selected_idx is None:
             continue
 
-        assert result.boxes is not None and result.keypoints is not None
+        if result.boxes is None or result.keypoints is None:
+            raise PoseExtractError(
+                "detecção selecionada sem boxes/keypoints compatíveis"
+            )
         person_found[frame_index] = True
 
         box_xyxy = cast(torch.Tensor, result.boxes.xyxy).cpu().numpy()
@@ -276,8 +279,10 @@ def _verify_written_file(
                 )
 
 
-def _read_existing_stats(video_id: str) -> PoseExtractResult:
-    output_path = _output_path(video_id)
+def _read_existing_stats(
+    video_id: str, *, pose_root: Path
+) -> PoseExtractResult:
+    output_path = pose_path(video_id, pose_root=pose_root)
     with h5py.File(output_path, "r") as h5_file:
         person_found = cast(h5py.Dataset, h5_file["person_found"])
         return PoseExtractResult(
@@ -289,9 +294,15 @@ def _read_existing_stats(video_id: str) -> PoseExtractResult:
         )
 
 
-def _run_extract_cli(video_id: str, model_name: str, force: bool) -> None:
+def _run_extract_cli(
+    video_id: str,
+    model_name: str,
+    force: bool,
+    *,
+    adapter: DatasetAdapter,
+) -> None:
     try:
-        run_pose_extract(video_id, model_name, force)
+        run_pose_extract(video_id, model_name, force, adapter=adapter)
     except PoseExtractSkipped as exc:
         print(str(exc))
         sys.exit(0)
@@ -351,16 +362,18 @@ def _print_summary(
             print(f"  {video_id}: {message}", file=sys.stderr)
 
 
-def run_pose_extract_all(model_name: str, force: bool) -> None:
-    if not FRAMES_PATH.exists():
+def run_pose_extract_all(
+    model_name: str, force: bool, *, adapter: DatasetAdapter
+) -> None:
+    if not adapter.frames_path.exists():
         print(
-            f"\npose extract-all FALHOU: {FRAMES_PATH} não existe — rode "
+            f"\npose extract-all FALHOU: {adapter.frames_path} não existe — rode "
             "`uv run python -m gatefall.data.timegrid build` primeiro",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    frames = read_frames(FRAMES_PATH)
+    frames = adapter.load_frames()
     per_video = cast(
         pd.DataFrame,
         frames.groupby("video_id").agg(
@@ -379,10 +392,14 @@ def run_pose_extract_all(model_name: str, force: bool) -> None:
         video_id = str(video_id)
         _reset_tracker_state(model)
         try:
-            result = run_pose_extract(video_id, model_name, force, model=model)
+            result = run_pose_extract(
+                video_id, model_name, force, adapter=adapter, model=model
+            )
         except PoseExtractSkipped:
             skipped += 1
-            existing = _read_existing_stats(video_id)
+            existing = _read_existing_stats(
+                video_id, pose_root=adapter.pose_root
+            )
             stats.append(existing)
             pct = (
                 100.0 * existing.n_found / existing.k if existing.k > 0 else 0.0
@@ -416,6 +433,7 @@ def main() -> None:
     extract_parser.add_argument("--video-id", required=True)
     extract_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_parser.add_argument("--force", action="store_true")
+    extract_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     extract_all_parser = subparsers.add_parser(
         "extract-all",
@@ -423,21 +441,26 @@ def main() -> None:
     )
     extract_all_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_all_parser.add_argument("--force", action="store_true")
+    extract_all_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
-    subparsers.add_parser(
+    report_parser = subparsers.add_parser(
         "report",
         help="Relata a cobertura de pose e sua interação com o contrato de janelamento",
     )
+    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     args = parser.parse_args()
+    adapter = get_dataset(args.dataset)
     if args.command == "extract":
-        _run_extract_cli(args.video_id, args.model, args.force)
+        _run_extract_cli(
+            args.video_id, args.model, args.force, adapter=adapter
+        )
     elif args.command == "extract-all":
-        run_pose_extract_all(args.model, args.force)
+        run_pose_extract_all(args.model, args.force, adapter=adapter)
     elif args.command == "report":
         from gatefall.pose.report import run_pose_report
 
-        run_pose_report()
+        run_pose_report(adapter=adapter)
 
 
 if __name__ == "__main__":

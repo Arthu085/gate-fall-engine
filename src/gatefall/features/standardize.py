@@ -2,20 +2,15 @@
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
 
 from gatefall.config import EVAL_STRIDE, TRAIN_STRIDE
-from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
-from gatefall.data.le2i.pose_dataset import (
-    EXPECTED_FEATURE_DIM,
-    EXPECTED_USABLE_WINDOWS_STRIDE4,
-    PoseWindowDataset,
-)
+from gatefall.data.pose_dataset import PoseWindowDataset
+from gatefall.datasets import get_dataset
 from gatefall.features.standardization import (
-    STATS_PATH,
     TRAIN_SPLIT,
     apply_standardization,
     compute_train_stats,
@@ -23,10 +18,13 @@ from gatefall.features.standardization import (
     load_stats,
     save_stats,
     stale_stats_mismatches,
+    validate_stats_layout,
 )
 from gatefall.features.standardization_selftest import run_standardization_selftest
 from gatefall.hashing import sha256_file
-from gatefall.pose.kinematics import build_pose_features, feature_blocks
+from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features, feature_blocks
+
+EXPECTED_USABLE_WINDOWS_STRIDE4 = {"train": 5219, "val": 527, "test": 1412}
 
 EVAL_SPLITS = ["val", "test"]
 EXPECTED_VIDEOS_LOADED = {"train": 133, "val": 19, "test": 38}
@@ -38,31 +36,44 @@ def _check(name: str, condition: bool) -> bool:
     return condition
 
 
-def run_build(force: bool) -> None:
-    stats = compute_train_stats(stride=TRAIN_STRIDE)
-    save_stats(stats, STATS_PATH, force=force)
+def run_build(force: bool, dataset_name: str = "le2i") -> None:
+    adapter = get_dataset(dataset_name)
+    source = PoseWindowDataset(
+        adapter.load_frames(),
+        TRAIN_SPLIT,
+        TRAIN_STRIDE,
+        lambda video_id: build_pose_features(
+            video_id, pose_root=adapter.pose_root
+        )[0],
+    )
+    stats = compute_train_stats(source, adapter.frames_path, stride=TRAIN_STRIDE)
+    save_stats(stats, adapter.pose_stats_path, force=force)
 
 
 def _counting_pose_loader(
-    counters: dict[str, int], split: str
+    counters: dict[str, int], split: str, pose_root: Path
 ) -> Callable[[str], np.ndarray]:
     def loader(video_id: str) -> np.ndarray:
         counters[split] = counters.get(split, 0) + 1
-        return build_pose_features(video_id)[0]
+        return build_pose_features(video_id, pose_root=pose_root)[0]
 
     return loader
 
 
-def run_report() -> None:
-    if not STATS_PATH.exists():
+def run_report(dataset_name: str = "le2i") -> None:
+    adapter = get_dataset(dataset_name)
+    stats_path = adapter.pose_stats_path
+    frames_path = adapter.frames_path
+    if not stats_path.exists():
         print(
-            f"{STATS_PATH} não existe; rode `build` antes de `report`",
+            f"{stats_path} não existe; rode `build` antes de `report`",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    stats = load_stats(STATS_PATH)
-    frames = read_frames(FRAMES_PATH)
+    stats = load_stats(stats_path)
+    validate_stats_layout(stats)
+    frames = adapter.load_frames()
     names = stats.feature_names
     excluded_mask = excluded_dimension_mask(names)
 
@@ -80,8 +91,8 @@ def run_report() -> None:
 
     checks.append(
         _check(
-            f"hash persistido de {FRAMES_PATH} bate com o arquivo atual",
-            stats.frames_hash == sha256_file(FRAMES_PATH),
+            f"hash persistido de {frames_path} bate com o arquivo atual",
+            stats.frames_hash == sha256_file(frames_path),
         )
     )
 
@@ -90,15 +101,20 @@ def run_report() -> None:
     checks.append(
         _check(
             "mean e std têm shape [134] e são finitos",
-            mean.shape == (EXPECTED_FEATURE_DIM,)
-            and std.shape == (EXPECTED_FEATURE_DIM,)
+            mean.shape == (POSE_FEATURE_DIM,)
+            and std.shape == (POSE_FEATURE_DIM,)
             and bool(np.isfinite(mean).all())
             and bool(np.isfinite(std).all()),
         )
     )
 
     train_dataset = PoseWindowDataset(
-        frames, TRAIN_SPLIT, TRAIN_STRIDE, _counting_pose_loader(videos_loaded, TRAIN_SPLIT)
+        frames,
+        TRAIN_SPLIT,
+        TRAIN_STRIDE,
+        _counting_pose_loader(
+            videos_loaded, TRAIN_SPLIT, adapter.pose_root
+        ),
     )
 
     checks.append(
@@ -151,7 +167,10 @@ def run_report() -> None:
     eval_non_finite: dict[str, int] = {}
     for split in EVAL_SPLITS:
         dataset = PoseWindowDataset(
-            frames, split, EVAL_STRIDE, _counting_pose_loader(videos_loaded, split)
+            frames,
+            split,
+            EVAL_STRIDE,
+            _counting_pose_loader(videos_loaded, split, adapter.pose_root),
         )
         non_finite = 0
         for i in range(len(dataset)):
@@ -196,7 +215,7 @@ def run_report() -> None:
     print("\nstandardize report OK: todas as checagens passaram")
 
 
-def main() -> None:
+def build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -206,21 +225,27 @@ def main() -> None:
     build_parser.add_argument(
         "--force", action="store_true", help="Sobrescreve o arquivo já existente"
     )
-    subparsers.add_parser(
+    build_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    selftest_parser = subparsers.add_parser(
         "selftest", help="Roda checagens sintéticas da padronização"
     )
-    subparsers.add_parser(
+    selftest_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser = subparsers.add_parser(
         "report",
         help="Roda a padronização sobre o dataset real do Le2i e reporta estatísticas",
     )
+    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    return parser
 
-    args = parser.parse_args()
+
+def main() -> None:
+    args = build_cli_parser().parse_args()
     if args.command == "build":
-        run_build(force=args.force)
+        run_build(force=args.force, dataset_name=args.dataset)
     elif args.command == "selftest":
         run_standardization_selftest()
     elif args.command == "report":
-        run_report()
+        run_report(dataset_name=args.dataset)
 
 
 if __name__ == "__main__":

@@ -117,7 +117,10 @@ class TCNClassifier(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: [B, WINDOW_FRAMES, input_dim] -> [B, input_dim, T] para Conv1d.
-        assert x.shape[1] == WINDOW_FRAMES
+        if x.shape[1] != WINDOW_FRAMES:
+            raise ValueError(
+                f"janela com {x.shape[1]} quadros; esperado {WINDOW_FRAMES}"
+            )
         x = x.permute(0, 2, 1)
         encoded = self.encoder(x)
         last_timestep = encoded[:, :, -1]

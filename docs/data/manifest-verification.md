@@ -1,8 +1,8 @@
 # Manifesto e verificação
 
-`data/manifest.parquet` contém uma linha por vídeo e relaciona o arquivo local à
-anotação do OmniFall, aos metadados medidos e ao estado das futuras etapas de
-features. O manifesto é gerado localmente e não é versionado.
+`data/processed/le2i/manifest.parquet` contém uma linha por vídeo e relaciona o arquivo local à
+anotação do OmniFall, aos metadados medidos e ao estado das etapas de features.
+O manifesto é gerado localmente e não é versionado.
 
 ## Construção
 
@@ -23,16 +23,19 @@ A ingestão:
 5. aplica o schema e a ordem de colunas definidos pelo projeto;
 6. ordena as linhas por `video_id` e grava o Parquet.
 
-Se `data/manifest.parquet` já existir, o comando o preserva e termina sem erro.
+Se `data/processed/le2i/manifest.parquet` já existir, o comando o preserva e termina sem erro.
 Para reconstruí-lo:
 
 ```bash
 uv run python -m gatefall.data.ingest ingest --force
 ```
 
-A gravação usa primeiro `data/manifest.parquet.tmp` e só então substitui o
+A gravação usa primeiro `data/processed/le2i/manifest.parquet.tmp` e só então substitui o
 destino. Assim, uma falha antes da substituição não publica um manifesto
 parcial.
+
+O caminho legado `data/manifest.parquet` não é mais consumido. Ele pode ser
+regenerado no destino novo sem alterar ou reextrair os HDF5 de pose.
 
 ## Schema
 
@@ -41,7 +44,7 @@ As colunas são persistidas nesta ordem:
 | Colunas | Tipo | Conteúdo |
 | --- | --- | --- |
 | `video_id`, `dataset` | `string` | Chave normalizada e nome do dataset |
-| `relative_path`, `absolute_path` | `string` | Caminhos relativo e absoluto do vídeo |
+| `relative_path`, `absolute_path` | `string` | Identidade portátil relativa e caminho absoluto informativo |
 | `env` | `string` | Ambiente obtido do path anotado |
 | `subject`, `cam` | `int64` | Identificadores publicados na anotação |
 | `split` | `string` | `train`, `val` ou `test` |
@@ -55,8 +58,12 @@ As colunas são persistidas nesta ordem:
 | `sha256` | `string` | Hash do arquivo de vídeo |
 | `pose_status`, `dino_status`, `sam_status` | `string` | Estado de cada branch de features |
 
-Na ingestão atual, os três status começam como `pending`; isso não indica que a
-extração de features tenha sido implementada.
+Na ingestão, os três status começam como `pending`. A extração de pose do braço
+A está implementada; DINOv3 e SAM 3 continuam planejados para os braços B e C.
+
+Camadas posteriores resolvem `relative_path` contra `data/raw/le2i/`; não
+dependem de `absolute_path`, que é específico da máquina. Caminhos relativos
+absolutos, com `..` ou que escapem da raiz são rejeitados.
 
 O FPS nunca é assumido como constante. A resolução prefere
 `avg_frame_rate` quando o valor é válido e maior que zero; caso contrário, usa

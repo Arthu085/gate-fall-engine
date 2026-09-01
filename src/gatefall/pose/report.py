@@ -1,6 +1,7 @@
 """Relatório de cobertura de pose e sua interação com o contrato de janelamento."""
 
 import sys
+from pathlib import Path
 from typing import cast
 
 import h5py
@@ -8,14 +9,12 @@ import numpy as np
 import pandas as pd
 
 from gatefall.config import IGNORE_LABEL, TRAIN_STRIDE, WINDOW_FRAMES
-from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
 from gatefall.data.windowing import build_window_index, window_frame_indices
-from gatefall.pose.extract import POSE_ROOT, _output_path
+from gatefall.datasets import DatasetAdapter
+from gatefall.pose.loading import pose_path
 
 EXPECTED_PERSON_FOUND_SUM = 27561
 EXPECTED_K_SUM = 30494
-
 MISSING_COUNT_BIN_EDGES: list[tuple[str, int, int]] = [
     ("0", 0, 0),
     ("1-2", 1, 2),
@@ -32,26 +31,26 @@ def _check(name: str, condition: bool) -> bool:
     return condition
 
 
-def load_le2i_frames_for_report() -> pd.DataFrame:
-    if not FRAMES_PATH.exists():
+def load_le2i_frames_for_report(adapter: DatasetAdapter) -> pd.DataFrame:
+    if not adapter.frames_path.exists():
         print(
-            f"\npose report FALHOU: {FRAMES_PATH} não existe — rode "
+            f"\npose report FALHOU: {adapter.frames_path} não existe — rode "
             "`uv run python -m gatefall.data.timegrid build` primeiro",
             file=sys.stderr,
         )
         sys.exit(1)
-    return read_frames(FRAMES_PATH)
+    return adapter.load_frames()
 
 
 def load_pose_coverage(
-    frames: pd.DataFrame,
+    frames: pd.DataFrame, *, pose_root: Path
 ) -> tuple[dict[str, np.ndarray], dict[str, int], list[str]]:
     person_found_by_video: dict[str, np.ndarray] = {}
     k_by_video: dict[str, int] = {}
     missing_h5: list[str] = []
     for video_id in frames["video_id"].unique():
         video_id = str(video_id)
-        path = _output_path(video_id)
+        path = pose_path(video_id, pose_root=pose_root)
         if not path.exists():
             missing_h5.append(video_id)
             continue
@@ -64,9 +63,13 @@ def load_pose_coverage(
 
 
 def check_k_matches_frame_counts(
-    frames: pd.DataFrame, k_by_video: dict[str, int], missing_h5: list[str]
+    frames: pd.DataFrame,
+    k_by_video: dict[str, int],
+    missing_h5: list[str],
+    *,
+    pose_root: Path,
 ) -> bool:
-    print(f"\n=== checagem: K do .h5 (em {POSE_ROOT}) vs contagem de quadros em frames.parquet ===")
+    print(f"\n=== checagem: K do .h5 (em {pose_root}) vs contagem de quadros em frames.parquet ===")
     group_sizes = cast(pd.Series, frames.groupby("video_id").size())
     mismatches: list[str] = []
     for video_id, n_frames in group_sizes.items():
@@ -234,10 +237,12 @@ def report_frame_level_by_env(usable_frames: pd.DataFrame) -> None:
         )
 
 
-def run_pose_report() -> None:
-    frames = load_le2i_frames_for_report()
+def run_pose_report(*, adapter: DatasetAdapter) -> None:
+    frames = load_le2i_frames_for_report(adapter)
 
-    person_found_by_video, k_by_video, missing_h5 = load_pose_coverage(frames)
+    person_found_by_video, k_by_video, missing_h5 = load_pose_coverage(
+        frames, pose_root=adapter.pose_root
+    )
 
     usable_frames, excluded_video_ids = build_frames_with_person_found(
         frames, person_found_by_video, k_by_video
@@ -267,7 +272,9 @@ def run_pose_report() -> None:
 
     print("\n=== checagens críticas ===")
     checks = [
-        check_k_matches_frame_counts(frames, k_by_video, missing_h5),
+        check_k_matches_frame_counts(
+            frames, k_by_video, missing_h5, pose_root=adapter.pose_root
+        ),
         check_global_person_found_sums(person_found_by_video, k_by_video),
     ]
     if not all(checks):

@@ -6,37 +6,49 @@ from dataclasses import replace
 from pathlib import Path
 
 from gatefall.config import EVAL_STRIDE, TRAIN_STRIDE
-from gatefall.data.le2i.pose_dataset import (
-    EXPECTED_FEATURE_DIM,
-    load_le2i_pose_window_dataset,
-)
-from gatefall.features.standardization import STATS_PATH, load_stats
+from gatefall.data.pose_dataset import PoseWindowDataset
+from gatefall.datasets import get_dataset
+from gatefall.features.standardization import load_stats, validate_stats_layout
 from gatefall.hashing import sha256_file
+from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
+from gatefall.runs import validate_local_run_dir
 from gatefall.train.config import BASELINE_A_CONFIG
 from gatefall.train.engine import run_training
 from gatefall.train.metrics_selftest import run_metrics_selftest
 from gatefall.train.tcn_selftest import run_tcn_selftest
 
-RUN_DIR = Path("runs/baseline_a")
+RUN_DIR = Path("runs/local/le2i/baseline_a")
 
 
-def run_train(force: bool) -> None:
-    stats = load_stats(STATS_PATH)
-    config = replace(BASELINE_A_CONFIG, standardization_stats_sha256=sha256_file(STATS_PATH))
+def run_train(force: bool, dataset_name: str = "le2i", run_dir: Path = RUN_DIR) -> None:
+    validate_local_run_dir(run_dir)
+    adapter = get_dataset(dataset_name)
+    stats = load_stats(adapter.pose_stats_path)
+    validate_stats_layout(stats)
+    config = replace(
+        BASELINE_A_CONFIG,
+        standardization_stats_path=str(adapter.pose_stats_path),
+        standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
+    )
+    frames = adapter.load_frames()
+    loader = lambda video_id: build_pose_features(
+        video_id, pose_root=adapter.pose_root
+    )[0]
 
-    train_source = load_le2i_pose_window_dataset("train", TRAIN_STRIDE)
-    val_source = load_le2i_pose_window_dataset("val", EVAL_STRIDE)
-    test_source = load_le2i_pose_window_dataset("test", EVAL_STRIDE)
+    train_source = PoseWindowDataset(frames, "train", TRAIN_STRIDE, loader)
+    val_source = PoseWindowDataset(frames, "val", EVAL_STRIDE, loader)
+    test_source = PoseWindowDataset(frames, "test", EVAL_STRIDE, loader)
 
     run_training(
-        input_dim=EXPECTED_FEATURE_DIM,
+        input_dim=POSE_FEATURE_DIM,
         train_source=train_source,
         val_source=val_source,
         test_source=test_source,
         stats=stats,
         config=config,
-        run_dir=RUN_DIR,
+        run_dir=run_dir,
         force=force,
+        label_names=adapter.label_names,
     )
 
 
@@ -57,11 +69,13 @@ def main() -> None:
     train_parser.add_argument(
         "--force", action="store_true", help="Sobrescreve o run_dir já existente"
     )
+    train_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    train_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas da TCN e das métricas")
 
     args = parser.parse_args()
     if args.command == "train":
-        run_train(force=args.force)
+        run_train(force=args.force, dataset_name=args.dataset, run_dir=args.run_dir)
     elif args.command == "selftest":
         run_selftest()
 

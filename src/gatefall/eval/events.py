@@ -242,11 +242,12 @@ def split_event_report(
     total_windows: int,
     labeled_windows: int,
 ) -> dict:
-    assert protocol.eval_stride == 1, (
-        f"protocol.eval_stride ({protocol.eval_stride}) != 1 — a contiguidade "
-        "de k_end usada por extract_label_segments/detect_alarms_for_video "
-        "(k_end == prev_k + 1) só é válida em stride 1"
-    )
+    if protocol.eval_stride != 1:
+        raise ValueError(
+            f"protocol.eval_stride ({protocol.eval_stride}) != 1 — a contiguidade "
+            "de k_end usada por extract_label_segments/detect_alarms_for_video "
+            "(k_end == prev_k + 1) só é válida em stride 1"
+        )
 
     grouped: dict[str, list[int]] = {}
     for index, video_id in enumerate(video_ids):
