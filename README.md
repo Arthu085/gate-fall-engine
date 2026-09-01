@@ -12,7 +12,7 @@ O projeto é organizado em três braços experimentais:
 - **Braço B — YOLO-Pose + DINOv3 + TCN:** planejado.
 - **Braço C — YOLO-Pose + SAM 3 + TCN:** planejado.
 
-A arquitetura foi projetada para manter o pipeline temporal e o classificador consistentes entre os braços. A principal diferença entre eles é o **vetor de features produzido para cada timestep**.
+Os três braços compartilham a mesma base de dados, protocolo temporal e estrutura de avaliação. A principal diferença entre eles é o **vetor de features produzido para cada timestep**.
 
 ---
 
@@ -114,28 +114,110 @@ uv run python --version
 
 ## Preparação dos dados
 
+A preparação dos dados constitui a base compartilhada pelos três braços experimentais do GateFall.
+
+Ela é responsável por organizar e validar os datasets, construir a grade temporal utilizada pelo projeto e produzir os artefatos comuns que serão consumidos posteriormente pelos pipelines dos braços A, B e C.
+
 Os datasets utilizados pelo GateFall possuem licenças próprias e não são distribuídos diretamente pelo repositório.
 
-Para reproduzir o **braço A**, prepare o dataset **Le2i Fall Detection Dataset** conforme as instruções completas da documentação:
+Atualmente, o dataset utilizado nos experimentos é o **Le2i Fall Detection Dataset**.
 
-- [Organização e preparação dos dados](docs/data/organization.md)
+A documentação completa da preparação dos dados descreve:
+
+- organização dos diretórios;
+- obtenção e posicionamento dos dados brutos;
+- ingestão do dataset;
+- validação de manifesto e vídeos;
+- geração da grade temporal;
+- convenções de splits e labels;
+- localização dos artefatos processados;
+- migração dos caminhos legados;
+- comandos de verificação e diagnóstico.
+
+Consulte:
+
+- [Instalação do Dataset Le2i](docs/data/le2i.md) — **etapa obrigatória antes de executar as pipelines**. Siga as instruções desta página para obter e posicionar corretamente o dataset.
+- [Organização e preparação dos dados](docs/data/organization.md) — descreve a estrutura dos dados e os artefatos processados utilizados pelo projeto.
+- [Referência de comandos de dados](docs/reference/commands.md) — reúne os comandos disponíveis para executar ou inspecionar manualmente cada etapa.
+
+> Após a instalação do dataset Le2i, as pipelines executam automaticamente as etapas de preparação e processamento necessárias para seus respectivos experimentos.
+
+A preparação deve ser concluída antes da execução dos experimentos que dependem desses artefatos.
 
 ---
 
-## Executando o pipeline
+## Pipelines experimentais
 
-Após instalar as dependências e preparar os dados, execute o pipeline completo do braço A a partir da raiz do repositório:
+Após a preparação dos dados, cada braço experimental possui seu próprio pipeline de extração de features, treinamento e avaliação.
+
+Os braços compartilham o mesmo protocolo temporal e a mesma base experimental, mas utilizam representações distintas por timestep.
+
+### Braço A — YOLO-Pose + TCN
+
+O braço A utiliza features cinemáticas derivadas das poses estimadas pelo YOLO-Pose e um classificador temporal TCN.
+
+Para executar o pipeline completo:
 
 ```bash
 uv run python -m gatefall.pipeline run --dataset le2i --arm A
 ```
 
-O comando executa automaticamente as etapas de preparação, validação, processamento, extração de features, treinamento e avaliação.
+O pipeline executa e valida as etapas necessárias para reproduzir o braço A, incluindo geração dos artefatos compartilhados quando necessário, extração de pose e features cinemáticas, padronização, treinamento do TCN e avaliação.
 
-Para detalhes sobre pré-requisitos, etapas executadas, artefatos gerados, `--dry-run`, `--force` e diagnóstico de falhas, consulte:
+Documentação:
 
 - [Runbook completo do pipeline A](docs/runbooks/pipeline-a.md)
+- [Treino do braço A](docs/train/baseline-a.md)
+- [Avaliação por eventos do braço A](docs/eval/baseline-a-events.md)
 - [Referência de comandos](docs/reference/commands.md)
+
+### Braço B — YOLO-Pose + DINOv3 + TCN
+
+O braço B combinará as informações de pose utilizadas pelo baseline com features visuais extraídas pelo **DINOv3**, mantendo o protocolo temporal e o classificador TCN compatíveis com o braço A.
+
+O pipeline do braço B ainda está em desenvolvimento.
+
+Quando implementado, esta seção concentrará:
+
+- comando principal de execução;
+- requisitos específicos do DINOv3;
+- preparação e armazenamento das features visuais;
+- composição do vetor de features por timestep;
+- treinamento;
+- avaliação;
+- artefatos produzidos;
+- runbook específico do braço B.
+
+Documentação prevista:
+
+- Runbook do pipeline B
+- Extração de features DINOv3
+- Treino do braço B
+- Avaliação do braço B
+
+### Braço C — YOLO-Pose + SAM 3 + TCN
+
+O braço C utilizará informações de pose combinadas com representações derivadas do **SAM 3**, preservando o mesmo protocolo temporal e estrutura de classificação utilizados nos demais braços.
+
+O pipeline do braço C ainda está em desenvolvimento.
+
+Quando implementado, esta seção concentrará:
+
+- comando principal de execução;
+- requisitos específicos do SAM 3;
+- geração e armazenamento das representações utilizadas;
+- composição do vetor de features por timestep;
+- treinamento;
+- avaliação;
+- artefatos produzidos;
+- runbook específico do braço C.
+
+Documentação prevista:
+
+- Runbook do pipeline C
+- Extração de features SAM 3
+- Treino do braço C
+- Avaliação do braço C
 
 ---
 
@@ -143,7 +225,7 @@ Para detalhes sobre pré-requisitos, etapas executadas, artefatos gerados, `--dr
 
 O projeto possui selftests sintéticos que podem ser executados sem o dataset real.
 
-Para validar o orquestrador do pipeline:
+Para validar o orquestrador dos pipelines:
 
 ```bash
 uv run python -m gatefall.pipeline selftest
@@ -162,15 +244,31 @@ A CI do projeto também executa os selftests sintéticos, Pyright e a validaçã
 
 ## Documentação
 
-A documentação detalhada do projeto está disponível em:
+A documentação detalhada está organizada por responsabilidade.
 
-- [Arquitetura](docs/architecture/overview.md)
+### Arquitetura
+
+- [Visão geral da arquitetura](docs/architecture/overview.md)
 - [Tecnologias](docs/architecture/technology-stack.md)
+
+### Dados
+
 - [Organização e preparação dos dados](docs/data/organization.md)
 - [Referência de comandos](docs/reference/commands.md)
+
+### Braço A
+
 - [Runbook completo do pipeline A](docs/runbooks/pipeline-a.md)
 - [Treino do braço A](docs/train/baseline-a.md)
 - [Avaliação por eventos](docs/eval/baseline-a-events.md)
+
+### Braço B
+
+Documentação específica será adicionada durante a implementação do braço B.
+
+### Braço C
+
+Documentação específica será adicionada durante a implementação do braço C.
 
 Para abrir a documentação localmente:
 
