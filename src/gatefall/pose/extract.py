@@ -15,15 +15,13 @@ import ultralytics
 from ultralytics import YOLO
 
 from gatefall.config import TARGET_FPS
-from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
-from gatefall.data.le2i.verification import load_le2i_manifest
-from gatefall.data.le2i.video_io import load_le2i_video_paths
 from gatefall.data.video_io import decode_frames
+from gatefall.datasets import get_dataset
 from gatefall.pose.selection import select_person_index
 from gatefall.pose.smoke import DEFAULT_MODEL
 
-POSE_ROOT = Path("data/features/le2i/pose")
+_DATASET = get_dataset("le2i")
+POSE_ROOT = _DATASET.pose_root
 TRACKER_NAME = "bytetrack.yaml"
 WEIGHTS_DIR = Path("data/scratch/weights")
 
@@ -66,20 +64,20 @@ def _output_path(video_id: str) -> Path:
 
 
 def _select_src_indices(video_id: str) -> list[int]:
-    if not FRAMES_PATH.exists():
+    if not _DATASET.frames_path.exists():
         raise PoseExtractError(
-            f"\npose extract FALHOU: {FRAMES_PATH} não existe — rode "
+            f"\npose extract FALHOU: {_DATASET.frames_path} não existe — rode "
             "`uv run python -m gatefall.data.timegrid build` primeiro"
         )
 
-    frames = read_frames(FRAMES_PATH)
+    frames = _DATASET.load_frames()
     video_frames = cast(
         pd.DataFrame, frames[frames["video_id"] == video_id]
     ).sort_values("frame_index")
     if video_frames.empty:
         raise PoseExtractError(
             f"\npose extract FALHOU: video_id '{video_id}' não encontrado "
-            f"em {FRAMES_PATH}"
+            f"em {_DATASET.frames_path}"
         )
 
     return [int(x) for x in video_frames["src_index"]]
@@ -112,7 +110,7 @@ def run_pose_extract(
     src_indices = _select_src_indices(video_id)
     k = len(src_indices)
 
-    manifest = load_le2i_manifest()
+    manifest = _DATASET.load_manifest()
     manifest_row = cast(
         pd.DataFrame, manifest[manifest["video_id"] == video_id]
     )
@@ -123,7 +121,7 @@ def run_pose_extract(
         )
     manifest_row = manifest_row.iloc[0]
 
-    video_paths = load_le2i_video_paths()
+    video_paths = _DATASET.video_paths()
     if video_id not in video_paths:
         raise PoseExtractError(
             f"\npose extract FALHOU: video_id '{video_id}' não encontrado "
@@ -131,7 +129,10 @@ def run_pose_extract(
         )
 
     frames_rgb = decode_frames(video_paths[video_id], src_indices)
-    assert len(frames_rgb) == k
+    if len(frames_rgb) != k:
+        raise PoseExtractError(
+            f"decodificação de {video_id} retornou {len(frames_rgb)} quadros; esperado {k}"
+        )
 
     keypoints = np.zeros((k, N_KEYPOINTS, 3), dtype=np.float32)
     bbox = np.zeros((k, 4), dtype=np.float32)
@@ -162,7 +163,10 @@ def run_pose_extract(
         if selected_idx is None:
             continue
 
-        assert result.boxes is not None and result.keypoints is not None
+        if result.boxes is None or result.keypoints is None:
+            raise PoseExtractError(
+                "detecção selecionada sem boxes/keypoints compatíveis"
+            )
         person_found[frame_index] = True
 
         box_xyxy = cast(torch.Tensor, result.boxes.xyxy).cpu().numpy()
@@ -352,15 +356,15 @@ def _print_summary(
 
 
 def run_pose_extract_all(model_name: str, force: bool) -> None:
-    if not FRAMES_PATH.exists():
+    if not _DATASET.frames_path.exists():
         print(
-            f"\npose extract-all FALHOU: {FRAMES_PATH} não existe — rode "
+            f"\npose extract-all FALHOU: {_DATASET.frames_path} não existe — rode "
             "`uv run python -m gatefall.data.timegrid build` primeiro",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    frames = read_frames(FRAMES_PATH)
+    frames = _DATASET.load_frames()
     per_video = cast(
         pd.DataFrame,
         frames.groupby("video_id").agg(
@@ -416,6 +420,7 @@ def main() -> None:
     extract_parser.add_argument("--video-id", required=True)
     extract_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_parser.add_argument("--force", action="store_true")
+    extract_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     extract_all_parser = subparsers.add_parser(
         "extract-all",
@@ -423,11 +428,13 @@ def main() -> None:
     )
     extract_all_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_all_parser.add_argument("--force", action="store_true")
+    extract_all_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
-    subparsers.add_parser(
+    report_parser = subparsers.add_parser(
         "report",
         help="Relata a cobertura de pose e sua interação com o contrato de janelamento",
     )
+    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     args = parser.parse_args()
     if args.command == "extract":

@@ -1,14 +1,13 @@
 # Contrato temporal
 
 Esta etapa define a grade de reamostragem temporal do Le2i e o rótulo por
-quadro dessa grade. É a base sobre a qual o janelamento (etapa futura, ainda
-não implementada) vai operar.
+quadro dessa grade. É a base sobre a qual o janelamento implementado opera.
 
 A etapa é somente CPU e tabular. Os comandos `report` e `selftest` não gravam
 nada em disco — apenas imprimem no stdout, para inspeção manual sobre o
 manifesto e as anotações já construídos. A única exceção é o comando `build`
 (ver "Como executar" abaixo), que persiste a grade em
-`data/labels/le2i/frames.parquet`.
+`data/processed/le2i/frames.parquet`.
 
 ## Grade de reamostragem
 
@@ -57,7 +56,7 @@ a lacuna não é suavizada nem estendida a partir dos segmentos vizinhos.
 
 `IGNORE_LABEL = -1` marca timestamps da grade não cobertos por nenhum
 segmento anotado. Isso é uma consequência direta da auditoria de cobertura já
-documentada em [Manifesto e verificação](manifest-verification.md#auditoria-de-cobertura):
+documentada em [Manifesto e verificação](manifest-verification.md):
 cerca de 6,72% da duração medida do Le2i não está coberta por nenhum
 segmento, concentrada majoritariamente no `leading_gap_s` — o prefixo de sala
 vazia antes da primeira anotação, mais presente em `Lecture_room` e `Office`.
@@ -105,7 +104,7 @@ deixou de ser puramente descritivo.
 uv run python -m gatefall.data.timegrid build
 ```
 
-Grava a grade em `data/labels/le2i/frames.parquet`, uma linha por ponto de
+Grava a grade em `data/processed/le2i/frames.parquet`, uma linha por ponto de
 grade, nesta ordem de colunas: `video_id`, `split`, `env`, `subject`,
 `frame_index`, `time_s`, `src_index`, `label`, `gap_position`. `subject` não
 existe no DataFrame de grade por quadro produzido por `build_grid_frames` — é
@@ -121,8 +120,8 @@ com os quadros em que o YOLO-Pose não retorna nenhuma detecção.
 O índice de janela não é persistido. Ele depende do stride escolhido, que
 difere entre treino e avaliação — persistir um índice de janela criaria dois
 artefatos (este parquet, mais o esquema de janelamento futuro) que
-precisariam ser mantidos em concordância. A etapa de janelamento (ainda não
-implementada) recomputa as fronteiras de janela sob demanda a partir de
+precisariam ser mantidos em concordância. A etapa de janelamento recomputa as
+fronteiras de janela sob demanda a partir de
 `frame_index` e do stride escolhido.
 
 A tabela é ordenada de forma determinística por `(video_id, frame_index)`
@@ -136,8 +135,8 @@ split e um hash de conteúdo (`sha256` sobre `pandas.util.hash_pandas_object`,
 não sobre os bytes do arquivo — parquet não garante bytes estáveis entre
 gravações).
 
-`data/labels/` já está no `.gitignore` (`data/labels/*`), então
-`frames.parquet` é um artefato derivado e não versionado — nunca deve ser
+`data/processed/` está no `.gitignore`, então `frames.parquet` é um artefato
+derivado e não versionado — nunca deve ser
 commitado, já que é derivado das anotações do OmniFall, licenciadas sob CC
 BY-NC-SA.
 
@@ -221,7 +220,7 @@ zero se algum caso falhar.
 uv run python -m gatefall.data.windows report
 ```
 
-Diferente de `selftest`, lê `data/labels/le2i/frames.parquet` (não reconstrói
+Diferente de `selftest`, lê `data/processed/le2i/frames.parquet` (não reconstrói
 a grade a partir do manifesto e das anotações do OmniFall) e relata as
 contagens reais de janela sobre o dataset inteiro — o tamanho real do
 problema de aprendizado, não uma estimativa. Termina com erro claro e código
@@ -257,7 +256,7 @@ diferente.
 
 ## Dataset de janelas de pose
 
-`src/gatefall/data/le2i/pose_dataset.py:PoseWindowDataset` é a camada acima do
+`src/gatefall/data/pose_dataset.py:PoseWindowDataset` é a camada genérica acima do
 índice de janela: em vez de só contar janelas, entrega, por índice, a matriz
 `[WINDOW_FRAMES, 134]` de features de pose da janela, o rótulo (`int`) e
 `(video_id, k_end)`. Nenhuma padronização (normalização, z-score etc.)
@@ -285,7 +284,7 @@ sem acessar o dataset real.
 uv run python -m gatefall.data.pose_dataset report
 ```
 
-Lê `data/labels/le2i/frames.parquet` e roda `PoseWindowDataset` sobre o
+Lê `data/processed/le2i/frames.parquet` e roda `PoseWindowDataset` sobre o
 dataset inteiro, em `TRAIN_STRIDE` e `EVAL_STRIDE`. Roda checagens fatais
 comparando a contagem real de janelas úteis por split, e por `(split,
 label)` em `TRAIN_STRIDE`, contra os números do dataset congelado — o mesmo
@@ -379,7 +378,7 @@ do manifesto: o vídeo mais longo e o mais curto por `n_frames_counted`
 (cobrindo os extremos de duração), e o primeiro (por `video_id`, ordem
 alfabética) vídeo em `Home_01`/`Home_02` com resolução 320x180 (a resolução
 minoritária, ver
-[Manifesto e verificação](manifest-verification.md#relatórios-informativos)).
+[Manifesto e verificação](manifest-verification.md)).
 Para cada ambiente, as posições forçadas que caem naquele ambiente entram
 primeiro; o restante das duas vagas é preenchido pelos vídeos daquele
 ambiente ainda não escolhidos, também em ordem alfabética de `video_id`.
@@ -390,7 +389,7 @@ ambiente ainda não escolhidos, também em ordem alfabética de `video_id`.
 uv run python -m gatefall.data.frames_io report
 ```
 
-Lê `data/manifest.parquet` e `data/labels/le2i/frames.parquet` (falha com
+Lê `data/processed/le2i/manifest.parquet` e `data/processed/le2i/frames.parquet` (falha com
 código de saída diferente de zero e mensagem indicando o comando de build
 correspondente se qualquer um estiver ausente) e roda quatro checagens por
 vídeo da amostra de 12, todas fatais — qualquer uma falhando interrompe o

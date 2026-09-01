@@ -8,13 +8,13 @@ import numpy as np
 import pandas as pd
 
 from gatefall.config import IGNORE_LABEL, TRAIN_STRIDE, WINDOW_FRAMES
-from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
 from gatefall.data.windowing import build_window_index, window_frame_indices
+from gatefall.datasets import get_dataset
 from gatefall.pose.extract import POSE_ROOT, _output_path
 
 EXPECTED_PERSON_FOUND_SUM = 27561
 EXPECTED_K_SUM = 30494
+_DATASET = get_dataset("le2i")
 
 MISSING_COUNT_BIN_EDGES: list[tuple[str, int, int]] = [
     ("0", 0, 0),
@@ -33,14 +33,14 @@ def _check(name: str, condition: bool) -> bool:
 
 
 def load_le2i_frames_for_report() -> pd.DataFrame:
-    if not FRAMES_PATH.exists():
+    if not _DATASET.frames_path.exists():
         print(
-            f"\npose report FALHOU: {FRAMES_PATH} não existe — rode "
+            f"\npose report FALHOU: {_DATASET.frames_path} não existe — rode "
             "`uv run python -m gatefall.data.timegrid build` primeiro",
             file=sys.stderr,
         )
         sys.exit(1)
-    return read_frames(FRAMES_PATH)
+    return _DATASET.load_frames()
 
 
 def load_pose_coverage(

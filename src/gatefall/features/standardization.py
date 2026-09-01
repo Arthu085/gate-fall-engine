@@ -10,22 +10,16 @@ import json
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 
 from gatefall.config import TARGET_FPS, TRAIN_STRIDE, WINDOW_FRAMES
-from gatefall.data.le2i.frames import FRAMES_PATH
-from gatefall.data.le2i.pose_dataset import (
-    EXPECTED_FEATURE_DIM,
-    load_le2i_pose_window_dataset,
-)
 from gatefall.hashing import sha256_file
-from gatefall.pose.kinematics import feature_blocks, feature_names
+from gatefall.pose.kinematics import EXPECTED_D, feature_blocks, feature_names
 
 SOURCE_NAME = "pose"
 TRAIN_SPLIT = "train"
-
-STATS_PATH = Path("src/gatefall/features/stats/pose_le2i_cs.json")
 
 KP_CONF_BLOCK_NAME = "kp_conf"
 
@@ -57,6 +51,12 @@ class StandardizationStats:
         return StandardizationStats(**data)
 
 
+class WindowSource(Protocol):
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> tuple[np.ndarray, int, object]: ...
+
+
 def stale_stats_mismatches(stats: StandardizationStats) -> list[str]:
     """Compara `stats` persistidas com a fonte da verdade viva em `kinematics.py`.
 
@@ -66,11 +66,11 @@ def stale_stats_mismatches(stats: StandardizationStats) -> list[str]:
     mismatches: list[str] = []
     if stats.feature_names != feature_names():
         mismatches.append("feature_names")
-    if stats.feature_dim != EXPECTED_FEATURE_DIM:
+    if stats.feature_dim != EXPECTED_D:
         mismatches.append("feature_dim")
-    if len(stats.feature_names) != EXPECTED_FEATURE_DIM:
+    if len(stats.feature_names) != EXPECTED_D:
         mismatches.append("len(feature_names)")
-    if len(stats.excluded_mask) != EXPECTED_FEATURE_DIM:
+    if len(stats.excluded_mask) != EXPECTED_D:
         mismatches.append("len(excluded_mask)")
     if stats.stride != TRAIN_STRIDE:
         mismatches.append("stride")
@@ -79,6 +79,24 @@ def stale_stats_mismatches(stats: StandardizationStats) -> list[str]:
     if stats.split != TRAIN_SPLIT:
         mismatches.append("split")
     return mismatches
+
+
+def validate_stats_layout(stats: StandardizationStats) -> None:
+    mismatches = stale_stats_mismatches(stats)
+    vector_fields = {
+        "mean": len(stats.mean),
+        "std": len(stats.std),
+        "guarded_mask": len(stats.guarded_mask),
+    }
+    mismatches.extend(
+        name for name, length in vector_fields.items() if length != EXPECTED_D
+    )
+    if mismatches:
+        unique = list(dict.fromkeys(mismatches))
+        raise ValueError(
+            "layout das estatísticas incompatível com as features atuais: "
+            + ", ".join(unique)
+        )
 
 
 def excluded_dimension_mask(names: list[str]) -> np.ndarray:
@@ -95,10 +113,9 @@ def excluded_dimension_mask(names: list[str]) -> np.ndarray:
 
 
 def _accumulate_train_statistics(
-    stride: int,
+    dataset: WindowSource,
 ) -> tuple[int, np.ndarray, np.ndarray]:
-    dataset = load_le2i_pose_window_dataset(TRAIN_SPLIT, stride)
-    feature_dim = EXPECTED_FEATURE_DIM
+    feature_dim = EXPECTED_D
     count = 0
     sum_ = np.zeros(feature_dim, dtype=np.float64)
     sumsq = np.zeros(feature_dim, dtype=np.float64)
@@ -122,14 +139,17 @@ def mean_std_from_accumulators(
     return mean, std
 
 
-def compute_train_stats(stride: int = TRAIN_STRIDE) -> StandardizationStats:
+def compute_train_stats(
+    dataset: WindowSource, frames_path: Path, stride: int = TRAIN_STRIDE
+) -> StandardizationStats:
     names = feature_names()
-    assert len(names) == EXPECTED_FEATURE_DIM
-
-    dataset = load_le2i_pose_window_dataset(TRAIN_SPLIT, stride)
+    if len(names) != EXPECTED_D:
+        raise RuntimeError(
+            f"layout de features inválido: {len(names)} nomes para {EXPECTED_D} dimensões"
+        )
     window_count = len(dataset)
 
-    count, sum_, sumsq = _accumulate_train_statistics(stride)
+    count, sum_, sumsq = _accumulate_train_statistics(dataset)
     mean, std = mean_std_from_accumulators(count, sum_, sumsq)
 
     excluded_mask = excluded_dimension_mask(names)
@@ -144,7 +164,7 @@ def compute_train_stats(stride: int = TRAIN_STRIDE) -> StandardizationStats:
     mean[excluded_mask] = 0.0
     std[excluded_mask] = 1.0
 
-    frames_hash = sha256_file(FRAMES_PATH)
+    frames_hash = sha256_file(frames_path)
 
     return StandardizationStats(
         source=SOURCE_NAME,
@@ -153,7 +173,7 @@ def compute_train_stats(stride: int = TRAIN_STRIDE) -> StandardizationStats:
         window_frames=WINDOW_FRAMES,
         stride=stride,
         window_count=window_count,
-        feature_dim=EXPECTED_FEATURE_DIM,
+        feature_dim=EXPECTED_D,
         feature_names=names,
         excluded_mask=excluded_mask.tolist(),
         mean=mean.tolist(),
@@ -165,6 +185,7 @@ def compute_train_stats(stride: int = TRAIN_STRIDE) -> StandardizationStats:
 
 
 def apply_standardization(x: np.ndarray, stats: StandardizationStats) -> np.ndarray:
+    validate_stats_layout(stats)
     mean = np.asarray(stats.mean, dtype=np.float64)
     std = np.asarray(stats.std, dtype=np.float64)
     if x.shape[-1] != mean.shape[0]:

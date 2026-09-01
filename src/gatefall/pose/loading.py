@@ -46,7 +46,11 @@ def load_pose(video_id: str) -> PoseArrays:
         k = int(cast(int, h5_file.attrs["K"]))
         width = int(cast(int, h5_file.attrs["width"]))
         height = int(cast(int, h5_file.attrs["height"]))
-    assert keypoints.shape[0] == k
+    if keypoints.shape[0] != k:
+        raise ValueError(
+            f"artefato de pose incompatível em {path}: keypoints tem "
+            f"{keypoints.shape[0]} linhas, atributo K={k}"
+        )
     return PoseArrays(
         keypoints=keypoints,
         bbox=bbox,
@@ -144,9 +148,12 @@ def impute_missing(
         conf_out[:first_valid_index] = 0.0
         bbox_out[:first_valid_index] = bbox_out[first_valid_index]
 
-    assert np.isfinite(xy_out).all()
-    assert np.isfinite(conf_out).all()
-    assert np.isfinite(bbox_out).all()
+    if not (
+        np.isfinite(xy_out).all()
+        and np.isfinite(conf_out).all()
+        and np.isfinite(bbox_out).all()
+    ):
+        raise ValueError("imputação de pose produziu valor não finito")
     return xy_out, conf_out, bbox_out
 
 

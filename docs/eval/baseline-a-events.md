@@ -1,7 +1,7 @@
-# Avaliação — Arma A (protocolo de alarme por evento)
+# Avaliação — Braço A (protocolo de alarme por evento)
 
 `src/gatefall/eval/` implementa um protocolo de detecção de alarme em nível
-de evento sobre o checkpoint já treinado da arma A (ver [Treino — Arma A
+de evento sobre o checkpoint já treinado do braço A (ver [Treino — Braço A
 (TCN)](../train/baseline-a.md)). Diferente da macro-F1 restrita por janela
 usada no treino, aqui a unidade de avaliação é o evento de queda: quantos
 eventos reais foram detectados, com que latência, e quantos alarmes
@@ -18,23 +18,27 @@ alarme-evento (`events_selftest.py`), sem tocar no checkpoint nem no
 dataset real.
 
 ```bash
-uv run python -m gatefall.eval.baseline_a_events evaluate --force
+uv run python -m gatefall.eval.baseline_a_events evaluate --dataset le2i \
+  --run-dir runs/local/le2i/baseline_a
 ```
 
-Carrega `runs/baseline_a/checkpoint.pt` e `runs/baseline_a/config.yaml`,
-roda o protocolo de alarme sobre os splits `val` e `test` do Le2i e grava
-`runs/baseline_a/alarm_protocol.yaml` e `runs/baseline_a/event_metrics.json`.
-Assim como no treino, `runs/baseline_a/event_metrics.json` já está
-versionado neste repositório: uma execução sem `--force` apenas imprime a
-mensagem de "já existe" e retorna sem erro. `alarm_protocol.yaml` é sempre
-regravado, pois descreve a configuração fixa do protocolo, não um resultado
-de execução.
+Carrega `checkpoint.pt`, `config.yaml` e `metrics.json` do run local completo,
+roda o protocolo sobre `val` e `test` e publica `alarm_protocol.yaml` e
+`event_metrics.json` no mesmo diretório. Destinos em `runs/reference/` são
+rejeitados.
+
+A avaliação usa lock, temporários, hashes do config, checkpoint, métricas de
+treino e protocolo e uma promoção conjunta. Sem `--force`, preserva um par de
+saídas válido; saídas parciais ou inconsistentes falham de forma explícita.
+Com `--force`, substitui o par local somente depois de validar os dois novos
+arquivos e restaura o par anterior se a promoção falhar.
 
 ## Protocolo de alarme
 
 Definido em `alarm_protocol.py` (`AlarmProtocol`, instanciado como
 `BASELINE_A_ALARM_PROTOCOL`) e persistido em
-`runs/baseline_a/alarm_protocol.yaml`.
+`alarm_protocol.yaml` do run avaliado. A cópia histórica versionada fica em
+`runs/reference/le2i/baseline_a/alarm_protocol.yaml`.
 
 ### Predição positiva e gatilho
 
@@ -81,8 +85,8 @@ que uma janela ignorada partiu um run `fall` real em dois eventos.
 
 A FSM de gatilho e a extração de eventos assumem `k_end` contíguo
 (`k_end == k_end_anterior + 1`); por isso `split_event_report` exige
-`protocol.eval_stride == 1` (`assert`) — o protocolo não suporta stride
-diferente de 1.
+`protocol.eval_stride == 1`; uma violação gera erro explícito mesmo com Python
+otimizado, pois o protocolo não suporta stride diferente de 1.
 
 Um alarme é associado ao evento cujo `trigger_time_s` cai dentro dessa
 janela; entre múltiplos matches, a associação usa o de menor
@@ -93,9 +97,9 @@ um falso alarme.
 ### Inferência sobre a grade completa de janelas
 
 `evaluate` carrega `val`/`test` com `drop_ignored=False`
-(`load_le2i_pose_window_dataset` / `PoseWindowDataset`), rodando o modelo
+com a fonte genérica `PoseWindowDataset`, rodando o modelo
 sobre **todas** as janelas do split, incluindo as antes descartadas por
-`IGNORE_LABEL`. `run_evaluate` afirma (`assert`) que `usable_windows ==
+`IGNORE_LABEL`. A avaliação exige explicitamente que `usable_windows ==
 total_windows` nesse modo, já que nada é descartado. Isso significa que um
 alarme disparado dentro de um trecho sem rótulo confiável (`IGNORE_LABEL`)
 ainda conta como falso alarme — não há mais um "buraco" na cobertura
@@ -184,8 +188,8 @@ execução. `splits.val` e `splits.test` trazem, cada um:
 
 ## Resultado da execução real
 
-Execução registrada em `runs/baseline_a/event_metrics.json`, sobre o
-checkpoint da última época treinado em [Treino — Arma A
+Execução registrada em `runs/reference/le2i/baseline_a/event_metrics.json`, sobre o
+checkpoint da última época treinado em [Treino — Braço A
 (TCN)](../train/baseline-a.md):
 
 | Split | Eventos | Detectados | Sensibilidade (evento) | Falsos alarmes/h (total) | Falsos alarmes/h (tempo rotulado) | Falsos alarmes pré-queda | Sensibilidade (janela) | Especificidade (janela) | Latência média |
@@ -195,8 +199,8 @@ checkpoint da última época treinado em [Treino — Arma A
 
 A taxa de falsos alarmes por hora é maior no teste que na validação
 (58,4 vs. 17,3 no denominador de tempo total), consistente com a queda de
-macro-F1 do treino para o teste já documentada em [Treino — Arma A
-(TCN)](../train/baseline-a.md#resultado-da-execução-real): o split de
+macro-F1 do treino para o teste já documentada em [Treino — Braço A
+(TCN)](../train/baseline-a.md): o split de
 teste é cross-subject, então mais confusões entre classes próximas de
 `fall`/`fallen` viram alarmes espúrios sobre subjects não vistos. Os
 contadores de evento (13/12 na validação, 22/21 no teste) não mudaram

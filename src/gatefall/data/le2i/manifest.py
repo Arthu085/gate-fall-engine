@@ -20,10 +20,11 @@ from gatefall.data.le2i.path_matching import (
 )
 from gatefall.data.manifest import apply_manifest_schema, write_manifest
 from gatefall.data.video_metadata import probe_video, resolve_frame_rate
+from gatefall.datasets.le2i import LE2I_DATASET, Le2iDatasetAdapter
 from gatefall.hashing import sha256_file
 
-RAW_DIR = Path("data/raw/le2i")
-MANIFEST_PATH = Path("data/manifest.parquet")
+RAW_DIR = LE2I_DATASET.raw_dir
+MANIFEST_PATH = LE2I_DATASET.manifest_path
 
 
 def build_le2i_manifest(
@@ -44,7 +45,9 @@ def build_le2i_manifest(
 
     rows: list[dict[str, object]] = []
     for annotation_path, relative_path in matched_paths.items():
-        absolute_path = (raw_directory / relative_path).resolve()
+        absolute_path = Le2iDatasetAdapter(
+            raw_dir=raw_directory
+        ).resolve_video_path(str(relative_path))
         metadata = probe_video(absolute_path)
         fps, fps_source = resolve_frame_rate(
             metadata["r_frame_rate"], metadata["avg_frame_rate"]

@@ -3,7 +3,6 @@
 import numpy as np
 
 from gatefall.config import NUM_CLASSES
-from gatefall.data.le2i.pose_dataset import LABEL_NAMES
 
 # 5=lie_down tem suporte zero no treino em stride 4 (ver
 # EXPECTED_USABLE_WINDOWS_BY_LABEL_STRIDE4 em gatefall.data.le2i.pose_dataset),
@@ -55,6 +54,8 @@ def support(y_true: np.ndarray, num_classes: int = NUM_CLASSES) -> dict[int, int
     return {c: int(np.sum(y_true == c)) for c in range(num_classes)}
 
 
-def support_by_name(y_true: np.ndarray, num_classes: int = NUM_CLASSES) -> dict[str, int]:
+def support_by_name(
+    y_true: np.ndarray, label_names: tuple[str, ...], num_classes: int = NUM_CLASSES
+) -> dict[str, int]:
     counts = support(y_true, num_classes)
-    return {LABEL_NAMES[c]: counts[c] for c in range(num_classes)}
+    return {label_names[c]: counts[c] for c in range(num_classes)}

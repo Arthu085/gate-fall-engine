@@ -81,6 +81,12 @@ vez de escolher um deles. Depois da normalização, a ingestão exige uma bijeç
 entre todos os vídeos locais e todos os paths anotados. No snapshot atual, são
 190 vídeos e 190 paths únicos.
 
+O adapter Le2i resolve a identidade portátil `relative_path` contra
+`data/raw/le2i/` e rejeita caminhos absolutos, componentes `..` ou qualquer
+escape da raiz. O manifesto e a grade gerados ficam em
+`data/processed/le2i/`; consulte a [organização dos dados](organization.md)
+para a migração dos caminhos legados.
+
 ## Exploração histórica
 
 O script `scripts/exploratory/explore_le2i.py` preserva as análises usadas para

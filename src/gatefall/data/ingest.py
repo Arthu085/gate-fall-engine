@@ -1,4 +1,4 @@
-"""Constrói e verifica `data/manifest.parquet` para o Le2i."""
+"""Constrói e verifica o manifesto processado de um dataset."""
 
 import argparse
 
@@ -11,17 +11,19 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ingest_parser = subparsers.add_parser(
-        "ingest", help="Constrói data/manifest.parquet"
+        "ingest", help="Constrói data/processed/le2i/manifest.parquet"
     )
     ingest_parser.add_argument(
         "--force",
         action="store_true",
         help="Sobrescreve o manifesto já existente em vez de pulá-lo",
     )
+    ingest_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
-    subparsers.add_parser(
+    verify_parser = subparsers.add_parser(
         "verify", help="Verifica a integridade do manifesto já construído"
     )
+    verify_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     args = parser.parse_args()
     if args.command == "ingest":

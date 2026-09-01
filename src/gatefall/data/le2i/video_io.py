@@ -12,16 +12,11 @@ from gatefall.data.frames import read_frames
 from gatefall.data.le2i.frames import FRAMES_PATH
 from gatefall.data.le2i.verification import load_le2i_manifest
 from gatefall.data.video_io import decode_frames, probe_frame_count
+from gatefall.datasets.le2i import LE2I_DATASET
 
 
 def load_le2i_video_paths() -> dict[str, Path]:
-    manifest = load_le2i_manifest()
-    return {
-        str(video_id): Path(str(absolute_path))
-        for video_id, absolute_path in zip(
-            manifest["video_id"], manifest["absolute_path"]
-        )
-    }
+    return LE2I_DATASET.video_paths()
 
 
 def select_le2i_report_sample(
@@ -72,9 +67,12 @@ def select_le2i_report_sample(
         selected.extend(picked[:videos_per_env])
 
     n_envs = cast(pd.Series, manifest["env"]).nunique()
-    assert len(selected) == videos_per_env * n_envs
-    assert len(set(selected)) == len(selected)
-    assert forced_by_id <= set(selected)
+    if len(selected) != videos_per_env * n_envs:
+        raise RuntimeError("amostra de relatório não cobre a quantidade esperada")
+    if len(set(selected)) != len(selected):
+        raise RuntimeError("amostra de relatório contém vídeos duplicados")
+    if not forced_by_id <= set(selected):
+        raise RuntimeError("amostra de relatório omitiu casos extremos obrigatórios")
     return selected
 
 

@@ -11,17 +11,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser(
+    report_parser = subparsers.add_parser(
         "report", help="Relata a grade de reamostragem temporal do Le2i"
     )
-    subparsers.add_parser(
+    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    selftest_parser = subparsers.add_parser(
         "selftest", help="Verifica a grade de reamostragem contra entradas sintéticas"
     )
-    subparsers.add_parser(
+    selftest_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    build_parser = subparsers.add_parser(
         "build",
         help="Grava a grade de reamostragem temporal do Le2i em "
-        "data/labels/le2i/frames.parquet",
+        "data/processed/le2i/frames.parquet",
     )
+    build_parser.add_argument("--force", action="store_true")
+    build_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     args = parser.parse_args()
     if args.command == "report":
@@ -29,7 +33,7 @@ def main() -> None:
     elif args.command == "selftest":
         run_resampling_selftest()
     elif args.command == "build":
-        build_le2i_timegrid()
+        build_le2i_timegrid(force=args.force)
 
 
 if __name__ == "__main__":

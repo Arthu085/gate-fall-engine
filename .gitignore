@@ -81,7 +81,7 @@ data/features/*
 !data/features/.gitkeep
 data/scratch/*
 !data/scratch/.gitkeep
-data/manifest.parquet
+data/processed/*
 
 # Mídia e arquivos de dados binários
 *.mp4
@@ -97,16 +97,8 @@ data/manifest.parquet
 *.pth
 checkpoints/
 
-# Saídas de execução, tracking e build da documentação: runs/baseline_a/config.yaml
-# e runs/baseline_a/metrics.json são versionados como resultado reproduzível;
-# checkpoints (*.pt) já ficam de fora pela regra global acima.
-runs/*
-!runs/baseline_a/
-runs/baseline_a/*
-!runs/baseline_a/config.yaml
-!runs/baseline_a/metrics.json
-!runs/baseline_a/alarm_protocol.yaml
-!runs/baseline_a/event_metrics.json
+# Resultados históricos em runs/reference são versionados; reproduções locais não.
+runs/local/**
 outputs/
 wandb/
 site/

@@ -1,6 +1,9 @@
 """Loop de treino e avaliação da TCN sobre janelas de pose padronizadas."""
 
 import json
+import os
+import shutil
+import uuid
 from pathlib import Path
 from typing import Protocol
 
@@ -9,8 +12,10 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
-from gatefall.data.le2i.pose_dataset import LABEL_NAMES
 from gatefall.features.standardization import StandardizationStats, apply_standardization
+from gatefall.hashing import sha256_file
+from gatefall.runs import validate_local_run_dir
+from gatefall.train.artifacts import REQUIRED_TRAINING_ARTIFACTS, validate_training_run
 from gatefall.train.config import TrainConfig, save_config
 from gatefall.train.metrics import RESTRICTED_CLASSES, restricted_macro_f1, support
 from gatefall.train.tcn import TCNClassifier
@@ -66,14 +71,20 @@ def _predict(model: TCNClassifier, loader: DataLoader, device: str) -> tuple[np.
     return np.concatenate(y_true), np.concatenate(y_pred)
 
 
-def _evaluate_split(model: TCNClassifier, loader: DataLoader, device: str, num_classes: int) -> dict:
+def _evaluate_split(
+    model: TCNClassifier,
+    loader: DataLoader,
+    device: str,
+    num_classes: int,
+    label_names: tuple[str, ...],
+) -> dict:
     y_true, y_pred = _predict(model, loader, device)
     macro_f1, f1_by_class = restricted_macro_f1(y_true, y_pred, num_classes)
     split_support = support(y_true, num_classes)
     return {
         "macro_f1_restricted": macro_f1,
         "f1_by_class": {str(c): f1_by_class[c] for c in RESTRICTED_CLASSES},
-        "support": {LABEL_NAMES[c]: split_support[c] for c in range(num_classes)},
+        "support": {label_names[c]: split_support[c] for c in range(num_classes)},
     }
 
 
@@ -86,13 +97,32 @@ def run_training(
     config: TrainConfig,
     run_dir: Path,
     force: bool,
+    label_names: tuple[str, ...],
 ) -> dict | None:
-    config_path = run_dir / "config.yaml"
-    if config_path.exists() and not force:
-        print(f"skip {run_dir} (já existe, use --force para sobrescrever)")
-        return None
+    validate_local_run_dir(run_dir)
+    required = REQUIRED_TRAINING_ARTIFACTS
+    present = [name for name in required if (run_dir / name).is_file()]
+    if run_dir.exists() and not force:
+        if len(present) == len(required):
+            try:
+                validate_training_run(run_dir, expected_config=config)
+            except RuntimeError as exc:
+                raise RuntimeError(
+                    f"run inconsistente em {run_dir}: artefato inválido ({exc}); "
+                    "use --force para reconstruir"
+                ) from exc
+            print(f"skip {run_dir} (treino completo e íntegro)")
+            return None
+        missing = [name for name in required if name not in present]
+        raise RuntimeError(
+            f"run parcial em {run_dir}: artefatos ausentes: {', '.join(missing)}; "
+            "use --force para reconstruir"
+        )
 
-    save_config(config, config_path, force=True)
+    temporary_dir = run_dir.with_name(f".{run_dir.name}.tmp-{uuid.uuid4().hex}")
+    if temporary_dir.exists():
+        shutil.rmtree(temporary_dir)
+    temporary_dir.mkdir(parents=True)
 
     torch.manual_seed(config.seed)
     if torch.cuda.is_available():
@@ -166,9 +196,9 @@ def run_training(
         )
 
     final = {
-        "train": _evaluate_split(model, train_loader, device, config.num_classes),
-        "val": _evaluate_split(model, val_loader, device, config.num_classes),
-        "test": _evaluate_split(model, test_loader, device, config.num_classes),
+        "train": _evaluate_split(model, train_loader, device, config.num_classes, label_names),
+        "val": _evaluate_split(model, val_loader, device, config.num_classes, label_names),
+        "test": _evaluate_split(model, test_loader, device, config.num_classes, label_names),
     }
 
     metrics = {
@@ -182,10 +212,31 @@ def run_training(
         "excluded_classes": [c for c in range(config.num_classes) if c not in RESTRICTED_CLASSES],
     }
 
-    run_dir.mkdir(parents=True, exist_ok=True)
-    with (run_dir / "metrics.json").open("w", encoding="utf-8") as f:
+    config_path = temporary_dir / "config.yaml"
+    checkpoint_path = temporary_dir / "checkpoint.pt"
+    save_config(config, config_path, force=True)
+    torch.save(model.state_dict(), checkpoint_path)
+    metrics["config_sha256"] = sha256_file(config_path)
+    metrics["checkpoint_sha256"] = sha256_file(checkpoint_path)
+    with (temporary_dir / "metrics.json").open("w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2, ensure_ascii=False)
-
-    torch.save(model.state_dict(), run_dir / "checkpoint.pt")
+    for name in required:
+        if not (temporary_dir / name).is_file():
+            raise RuntimeError(f"treino não produziu o artefato obrigatório: {name}")
+    validate_training_run(temporary_dir, expected_config=config)
+    run_dir.parent.mkdir(parents=True, exist_ok=True)
+    if run_dir.exists():
+        if not force:
+            raise RuntimeError(f"run surgiu durante a execução: {run_dir}")
+        backup_dir = run_dir.with_name(f".{run_dir.name}.old-{uuid.uuid4().hex}")
+        os.replace(run_dir, backup_dir)
+        try:
+            os.replace(temporary_dir, run_dir)
+        except BaseException:
+            os.replace(backup_dir, run_dir)
+            raise
+        shutil.rmtree(backup_dir)
+    else:
+        os.replace(temporary_dir, run_dir)
 
     return metrics

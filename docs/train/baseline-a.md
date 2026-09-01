@@ -1,6 +1,6 @@
-# Treino — Arma A (TCN sobre pose)
+# Treino — Braço A (TCN sobre pose)
 
-`src/gatefall/train/` implementa o treino da arma A: uma TCN causal dilatada
+`src/gatefall/train/` implementa o treino do braço A: uma TCN causal dilatada
 consumindo o vetor de 134 features de pose descrito em [Contrato
 temporal](../data/temporal-contract.md#dataset-de-janelas-de-pose), já
 padronizado por [`apply_standardization`](../data/pose-standardization.md)
@@ -18,17 +18,22 @@ métricas restritas (`metrics_selftest.py`), sem treinar nem tocar no dataset
 real.
 
 ```bash
-uv run python -m gatefall.train.baseline_a train --force
+uv run python -m gatefall.train.baseline_a train --dataset le2i \
+  --run-dir runs/local/le2i/baseline_a
 ```
 
-Treina a arma A sobre o Le2i real e grava `config.yaml`, `metrics.json` e
-`checkpoint.pt` em `runs/baseline_a/`. `runs/baseline_a/config.yaml` já
-está versionado neste repositório, então uma execução sem `--force` apenas
-imprime a mensagem de "já existe" e retorna sem erro; `--force` sobrescreve
-o `run_dir` existente. O resultado registrado em `runs/baseline_a/` é a
-referência canônica do experimento — uma execução `--force` local serve
-para reproduzir o treino, não para substituir os números de referência
-versionados.
+Treina o braço A sobre o Le2i real. O destino padrão é
+`runs/local/le2i/baseline_a/`; `--run-dir` permite explicitar outro diretório
+local. Destinos dentro de `runs/reference/` são rejeitados, inclusive quando o
+comando é chamado fora da raiz do repositório.
+
+Um run completo exige `config.yaml`, `metrics.json` e `checkpoint.pt` válidos e
+coerentes. O treino usa lock e journal, escreve em um diretório temporário,
+registra hashes de configuração e checkpoint nas métricas, valida o conjunto e
+só então o promove atomicamente. Sem `--force`, um run completo é preservado e
+um run parcial ou inconsistente falha informando o artefato inválido ou ausente.
+`--force` autoriza substituir somente o run local e recupera journals
+interrompidos; não torna a referência gravável.
 
 ## Arquitetura
 
@@ -41,7 +46,7 @@ many-to-one: classifica sobre `NUM_CLASSES=10`, tomando apenas a saída do
 
 ## Receita de treino congelada
 
-A receita abaixo é compartilhada, sem alteração, pelas armas B e C
+A receita abaixo é compartilhada, sem alteração, pelos braços B e C
 (`CLAUDE.md`, invariante 1 — só o vetor de feature por passo muda entre A,
 B e C):
 
@@ -80,15 +85,15 @@ Incluir essas duas classes no macro-F1 faria o denominador da média ser
 dominado por F1 indefinido ou instável sobre poucas ou nenhuma amostra,
 distorcendo a métrica agregada sem refletir desempenho real do modelo.
 
-## Schema de `runs/baseline_a/config.yaml` e `metrics.json`
+## Artefatos locais e referência histórica
 
-`runs/baseline_a/config.yaml` e `runs/baseline_a/metrics.json` são
-versionados no Git como resultado reproduzível do treino (ver `.gitignore`);
-`checkpoint.pt` permanece fora do versionamento pela regra global de
-`*.pt`.
+`runs/reference/le2i/baseline_a/config.yaml` e `metrics.json` são evidência
+histórica versionada; o conteúdo científico foi apenas movido do caminho
+legado, sem regeneração. O checkpoint não é versionado. Uma reprodução grava
+os três artefatos em `runs/local/le2i/baseline_a/`, ignorado pelo Git.
 
 `config.yaml` grava a configuração completa da execução: identificação do
-run e da arma, `seed`, dimensão de entrada, `window_frames`, stride de
+run e do braço, `seed`, dimensão de entrada, `window_frames`, stride de
 treino e de avaliação, número de classes, hiperparâmetros da TCN
 (`kernel_size`, `dilations`, `channels`, `dropout`, `receptive_field`),
 hiperparâmetros de otimização (`optimizer_name`, `lr`, `weight_decay`,
@@ -105,7 +110,7 @@ histórico por época (`train_loss` e `val_macro_f1_restricted`), o bloco
 
 ## Resultado da execução real
 
-Execução registrada em `runs/baseline_a/metrics.json`, checkpoint na
+Execução registrada em `runs/reference/le2i/baseline_a/metrics.json`, checkpoint na
 última época (30):
 
 | Split | Macro-F1 restrita |
@@ -125,7 +130,7 @@ vídeo/subject justamente para evitar vazamento entre treino e teste
 ## Limitações
 
 Nesta execução de seed único, `val_macro_f1_restricted` não é monotônica
-ao longo do treino: pelo histórico em `runs/baseline_a/metrics.json`, ela
+ao longo do treino: pelo histórico em `runs/reference/le2i/baseline_a/metrics.json`, ela
 atinge um pico de 0,6807 na época 15 e termina em 0,6558 na época 30 (o
 checkpoint salvo, ver "Seleção de checkpoint" acima). Como o orçamento de
 30 épocas é fixo e pré-registrado (ver "Receita de treino congelada"), o

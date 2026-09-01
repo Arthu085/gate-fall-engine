@@ -11,15 +11,14 @@ import pandas as pd
 import torch
 from ultralytics import YOLO
 
-from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
-from gatefall.data.le2i.video_io import load_le2i_video_paths
 from gatefall.data.video_io import decode_frames
+from gatefall.datasets import get_dataset
 from gatefall.pose.selection import select_person_index
 
 DEFAULT_VIDEO_ID = "coffee_room_01/video_1"
 DEFAULT_MODEL = "yolo26n-pose.pt"
 WEIGHTS_DIR = Path("data/scratch/weights")
+_DATASET = get_dataset("le2i")
 
 
 def _resolve_model_path(model_name: str) -> str:
@@ -30,22 +29,22 @@ def _resolve_model_path(model_name: str) -> str:
 
 
 def _select_src_indices(video_id: str) -> list[int]:
-    if not FRAMES_PATH.exists():
+    if not _DATASET.frames_path.exists():
         print(
-            f"\npose smoke test FALHOU: {FRAMES_PATH} não existe — rode "
+            f"\npose smoke test FALHOU: {_DATASET.frames_path} não existe — rode "
             "`uv run python -m gatefall.data.timegrid build` primeiro",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    frames = read_frames(FRAMES_PATH)
+    frames = _DATASET.load_frames()
     video_frames = cast(
         pd.DataFrame, frames[frames["video_id"] == video_id]
     ).sort_values("frame_index")
     if video_frames.empty:
         print(
             f"\npose smoke test FALHOU: video_id '{video_id}' não encontrado "
-            f"em {FRAMES_PATH}",
+            f"em {_DATASET.frames_path}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -63,7 +62,7 @@ def run_pose_smoke_test(video_id: str, model_name: str) -> None:
     src_indices = _select_src_indices(video_id)
     k_expected = len(src_indices)
 
-    video_paths = load_le2i_video_paths()
+    video_paths = _DATASET.video_paths()
     if video_id not in video_paths:
         print(
             f"\npose smoke test FALHOU: video_id '{video_id}' não encontrado "
@@ -73,7 +72,10 @@ def run_pose_smoke_test(video_id: str, model_name: str) -> None:
         sys.exit(1)
 
     frames_rgb = decode_frames(video_paths[video_id], src_indices)
-    assert len(frames_rgb) == k_expected
+    if len(frames_rgb) != k_expected:
+        raise RuntimeError(
+            f"decodificação retornou {len(frames_rgb)} quadros; esperado {k_expected}"
+        )
 
     model = YOLO(_resolve_model_path(model_name))
 
@@ -172,6 +174,7 @@ def main() -> None:
     )
     report_parser.add_argument("--video-id", default=DEFAULT_VIDEO_ID)
     report_parser.add_argument("--model", default=DEFAULT_MODEL)
+    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     args = parser.parse_args()
     if args.command == "report":

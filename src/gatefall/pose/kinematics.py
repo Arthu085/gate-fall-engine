@@ -13,8 +13,7 @@ import numpy as np
 import pandas as pd
 
 from gatefall.config import TARGET_FPS
-from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
+from gatefall.datasets import get_dataset
 from gatefall.pose.loading import (
     bbox_descriptors,
     impute_missing,
@@ -240,8 +239,11 @@ def build_pose_features(video_id: str) -> tuple[np.ndarray, list[str]]:
     )
 
     feature_names = _feature_names()
-    assert matrix.shape[1] == len(feature_names)
-    assert matrix.shape[1] == EXPECTED_D
+    if matrix.shape[1] != len(feature_names) or matrix.shape[1] != EXPECTED_D:
+        raise RuntimeError(
+            f"layout de features inválido: matrix={matrix.shape[1]}, "
+            f"names={len(feature_names)}, esperado={EXPECTED_D}"
+        )
     return matrix, feature_names
 
 
@@ -477,8 +479,8 @@ def run_selftest() -> None:
     print("\npose kinematics selftest OK: todas as checagens passaram")
 
 
-def run_report() -> None:
-    frames = read_frames(FRAMES_PATH)
+def run_report(dataset_name: str = "le2i") -> None:
+    frames = get_dataset(dataset_name).load_frames()
     video_ids = [str(video_id) for video_id in frames["video_id"].unique()]
     group_sizes = cast(pd.Series, frames.groupby("video_id").size())
 
@@ -543,20 +545,22 @@ def run_report() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser(
+    selftest_parser = subparsers.add_parser(
         "selftest",
         help="Roda checagens sintéticas dos descritores cinemáticos",
     )
-    subparsers.add_parser(
+    selftest_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser = subparsers.add_parser(
         "report",
         help="Roda build_pose_features sobre todos os vídeos e reporta estatísticas",
     )
+    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
     args = parser.parse_args()
     if args.command == "selftest":
         run_selftest()
     elif args.command == "report":
-        run_report()
+        run_report(args.dataset)
 
 
 if __name__ == "__main__":

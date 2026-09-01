@@ -7,8 +7,7 @@ from pathlib import Path
 import yaml
 
 from gatefall.config import EVAL_STRIDE, NUM_CLASSES, TRAIN_STRIDE, WINDOW_FRAMES
-from gatefall.data.le2i.pose_dataset import EXPECTED_FEATURE_DIM
-from gatefall.features.standardization import STATS_PATH
+from gatefall.pose.kinematics import EXPECTED_D
 from gatefall.train.tcn import receptive_field
 
 
@@ -56,7 +55,7 @@ BASELINE_A_CONFIG = TrainConfig(
     arm="A",
     feature_source="pose",
     seed=42,
-    input_dim=EXPECTED_FEATURE_DIM,
+    input_dim=EXPECTED_D,
     window_frames=WINDOW_FRAMES,
     train_stride=TRAIN_STRIDE,
     eval_stride=EVAL_STRIDE,
@@ -75,7 +74,7 @@ BASELINE_A_CONFIG = TrainConfig(
     epochs=30,
     loss_name="cross_entropy",
     class_weighted=True,
-    standardization_stats_path=str(STATS_PATH),
+    standardization_stats_path="",
     standardization_stats_sha256="",
 )
 
