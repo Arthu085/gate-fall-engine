@@ -29,6 +29,7 @@ jobs:
           uv run python -m gatefall.features.standardize selftest
           uv run python -m gatefall.train.baseline_a selftest
           uv run python -m gatefall.eval.baseline_a_events selftest
+          uv run python -m gatefall.eval.qualitative selftest
           uv run python -m gatefall.pipeline selftest
           uv run python -m gatefall.runs_selftest
       - name: Verificar tipos

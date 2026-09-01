@@ -1,8 +1,9 @@
 """Diagnóstico qualitativo: renderiza quadros reais nos gatilhos de alarme detectados.
 
 Ferramenta independente de estágio, deliberadamente fora do pipeline padrão
-(`gatefall.pipeline`) e fora da suíte de selftests da CI — `render` depende de
-vídeo bruto decodificado, que a CI não tem. Lê apenas artefatos já publicados
+(`gatefall.pipeline`). O subcomando `render` fica fora da suíte de selftests da
+CI — depende de vídeo bruto decodificado, que a CI não tem; `selftest` roda na
+CI normalmente, pois é totalmente sintético. Lê apenas artefatos já publicados
 do run (`config.yaml`, `alarm_protocol.yaml`, `event_metrics.json`) e nunca
 escreve ou toca no lock/journal de `gatefall.eval.baseline_a_events`.
 """
@@ -17,13 +18,18 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 
-import cv2
 import numpy as np
 import pandas as pd
 import torch
+from PIL import Image, ImageDraw, ImageFont
 
 from gatefall.config import EVAL_STRIDE
 from gatefall.data.pose_dataset import PoseWindowDataset
+
+# Este módulo nunca abre vídeo diretamente: toda decodificação passa por
+# gatefall.data.video_io.decode_frames (ffmpeg-pipe). Desenho/codificação de
+# imagem usam Pillow, não OpenCV — cv2.VideoCapture trava em AVIs brutos do
+# Le2i (ver docstring de video_io.py).
 from gatefall.data.video_io import decode_frames
 from gatefall.datasets import get_dataset
 from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, AlarmProtocol, load_alarm_protocol
@@ -80,7 +86,8 @@ class RenderTarget:
     src_index: int
     time_s: float
     predicted_label: int
-    latency_s: float
+    latency_s: float | None
+    is_false_alarm: bool = False
 
 
 def _load_model(
@@ -167,6 +174,7 @@ def _collect_render_targets(
     pred_labels: list[int],
     protocol: AlarmProtocol,
     frame_lookup: dict[tuple[str, int], tuple[int, float]],
+    include_false_alarms: bool = False,
 ) -> tuple[list[RenderTarget], int]:
     grouped: dict[str, list[int]] = {}
     for index, video_id in enumerate(video_ids):
@@ -188,7 +196,7 @@ def _collect_render_targets(
         for k_end, pred_label in zip(video_k_ends.tolist(), video_pred.tolist()):
             pred_by_video_k[(video_id, k_end)] = pred_label
 
-    outcomes, _false_alarms = associate_events_and_alarms(all_events, all_alarms, protocol)
+    outcomes, false_alarms = associate_events_and_alarms(all_events, all_alarms, protocol)
 
     targets: list[RenderTarget] = []
     for outcome in outcomes:
@@ -219,6 +227,21 @@ def _collect_render_targets(
             )
         )
 
+    if include_false_alarms:
+        for alarm in false_alarms:
+            src_index, time_s = frame_lookup[(alarm.video_id, alarm.trigger_k)]
+            targets.append(
+                RenderTarget(
+                    video_id=alarm.video_id,
+                    trigger_k=alarm.trigger_k,
+                    src_index=src_index,
+                    time_s=time_s,
+                    predicted_label=pred_by_video_k[(alarm.video_id, alarm.trigger_k)],
+                    latency_s=None,
+                    is_false_alarm=True,
+                )
+            )
+
     n_detected = sum(1 for outcome in outcomes if outcome.detected)
     return targets, n_detected
 
@@ -228,13 +251,21 @@ def _caption_text(
     trigger_k: int,
     time_s: float,
     label_name: str,
-    latency_s: float,
+    latency_s: float | None,
     imputed: bool,
+    is_false_alarm: bool = False,
 ) -> str:
-    base = (
-        f"{video_id} k={trigger_k} t={time_s:.1f}s pred={label_name} "
-        f"latencia={latency_s:.1f}s"
-    )
+    if is_false_alarm:
+        base = (
+            f"{video_id} k={trigger_k} t={time_s:.1f}s pred={label_name} "
+            f"(ALARME FALSO)"
+        )
+    else:
+        assert latency_s is not None
+        base = (
+            f"{video_id} k={trigger_k} t={time_s:.1f}s pred={label_name} "
+            f"latencia={latency_s:.1f}s"
+        )
     if imputed:
         return f"{base} (pose imputada)"
     return base
@@ -247,66 +278,77 @@ def _draw_alarm_frame(
     caption: str,
     imputed: bool,
 ) -> np.ndarray:
-    annotated = frame_rgb.copy()
+    image = Image.fromarray(frame_rgb, mode="RGB")
+    draw = ImageDraw.Draw(image)
 
     if not imputed:
         keypoints = pose.keypoints[k]
         bbox = pose.bbox[k]
 
         for start, end in COCO17_SKELETON_EDGES:
-            start_point = (int(keypoints[start, 0]), int(keypoints[start, 1]))
-            end_point = (int(keypoints[end, 0]), int(keypoints[end, 1]))
-            cv2.line(annotated, start_point, end_point, COLOR_SKELETON, 2)
+            start_point = (float(keypoints[start, 0]), float(keypoints[start, 1]))
+            end_point = (float(keypoints[end, 0]), float(keypoints[end, 1]))
+            draw.line([start_point, end_point], fill=COLOR_SKELETON, width=2)
 
         for index in range(17):
-            point = (int(keypoints[index, 0]), int(keypoints[index, 1]))
-            cv2.circle(annotated, point, 3, COLOR_KEYPOINT, -1)
+            x = float(keypoints[index, 0])
+            y = float(keypoints[index, 1])
+            draw.ellipse([x - 3, y - 3, x + 3, y + 3], fill=COLOR_KEYPOINT)
 
-        top_left = (int(bbox[0]), int(bbox[1]))
-        bottom_right = (int(bbox[2]), int(bbox[3]))
-        cv2.rectangle(annotated, top_left, bottom_right, COLOR_BBOX, 2)
+        top_left = (float(bbox[0]), float(bbox[1]))
+        bottom_right = (float(bbox[2]), float(bbox[3]))
+        draw.rectangle([top_left, bottom_right], outline=COLOR_BBOX, width=2)
 
     caption_margin_px = 10
-    max_caption_width = annotated.shape[1] - 2 * caption_margin_px
-    font_scale = _fit_caption_font_scale(caption, max_caption_width)
-    cv2.putText(
-        annotated,
+    max_caption_width = image.width - 2 * caption_margin_px
+    font = _fit_caption_font(caption, max_caption_width)
+    _, top, _, bottom = draw.textbbox((0, 0), caption, font=font)
+    caption_height = bottom - top
+    draw.text(
+        (caption_margin_px, image.height - caption_margin_px - caption_height),
         caption,
-        (caption_margin_px, annotated.shape[0] - caption_margin_px),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        font_scale,
-        COLOR_CAPTION,
-        1,
-        cv2.LINE_AA,
+        fill=COLOR_CAPTION,
+        font=font,
     )
-    return annotated
+    return np.array(image)
 
 
-CAPTION_FONT_SCALE_DEFAULT = 0.5
-CAPTION_FONT_SCALE_MIN = 0.28
+CAPTION_FONT_SIZE_DEFAULT = 16
+# PIL.ImageFont.load_default(size=N) rasteriza espaços de forma inconsistente
+# em tamanhos muito pequenos: alguns espaços (ex.: entre dígito/underscore e
+# a letra seguinte) colapsam visualmente a um espaçamento quase nulo, mesmo
+# com font.getlength() reportando um avanço não nulo. Verificado empiricamente
+# renderizando legendas reais do Le2i (320px): tamanho 11 colapsa
+# "k=64 t=6.4s" em "k=64t=6.4s"; tamanho 14 mantém todos os espaços visíveis
+# nas legendas reais testadas. Não reduzir sem reverificar visualmente.
+CAPTION_FONT_SIZE_MIN = 14
 
 
-def _fit_caption_font_scale(caption: str, max_width_px: int) -> float:
-    font_scale = CAPTION_FONT_SCALE_DEFAULT
-    (text_width, _), _ = cv2.getTextSize(
-        caption, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1
-    )
+def _fit_caption_font(
+    caption: str, max_width_px: int
+) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    font_size = CAPTION_FONT_SIZE_DEFAULT
+    font = ImageFont.load_default(size=font_size)
+    text_width = font.getlength(caption)
     if text_width <= max_width_px or max_width_px <= 0:
-        return font_scale
+        return font
 
-    font_scale = font_scale * (max_width_px / text_width)
-    font_scale = max(font_scale, CAPTION_FONT_SCALE_MIN)
-    return font_scale
+    font_size = max(int(font_size * (max_width_px / text_width)), CAPTION_FONT_SIZE_MIN)
+    font = ImageFont.load_default(size=font_size)
+    while font.getlength(caption) > max_width_px and font_size > CAPTION_FONT_SIZE_MIN:
+        font_size -= 1
+        font = ImageFont.load_default(size=font_size)
+    return font
 
 
-def _figure_filename(video_id: str, trigger_k: int) -> str:
-    return f"{video_id.replace('/', '__')}__k{trigger_k:06d}.png"
+def _figure_filename(video_id: str, trigger_k: int, is_false_alarm: bool = False) -> str:
+    prefix = "falsealarm__" if is_false_alarm else ""
+    return f"{prefix}{video_id.replace('/', '__')}__k{trigger_k:06d}.png"
 
 
 def _write_png_atomic(path: Path, frame_rgb: np.ndarray) -> None:
-    frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-    tmp_path = path.with_name(f".{path.stem}.tmp.png")
-    cv2.imwrite(str(tmp_path), frame_bgr)
+    tmp_path = path.with_name(f".{path.stem}.tmp")
+    Image.fromarray(frame_rgb, mode="RGB").save(tmp_path, format="PNG")
     os.replace(tmp_path, path)
 
 
@@ -330,7 +372,9 @@ def _render_video(
     written = 0
     skipped = 0
     for target in targets:
-        out_path = figures_dir / _figure_filename(target.video_id, target.trigger_k)
+        out_path = figures_dir / _figure_filename(
+            target.video_id, target.trigger_k, target.is_false_alarm
+        )
         if out_path.exists() and not force:
             print(f"skip {out_path} (já existe, use --force para sobrescrever)")
             skipped += 1
@@ -345,6 +389,7 @@ def _render_video(
             label_name,
             target.latency_s,
             imputed,
+            target.is_false_alarm,
         )
         frame_rgb = frame_by_src_index[target.src_index]
         annotated = _draw_alarm_frame(frame_rgb, pose, target.trigger_k, caption, imputed)
@@ -355,7 +400,11 @@ def _render_video(
 
 
 def run_render(
-    run_dir: Path, dataset_name: str, splits: tuple[str, ...], force: bool
+    run_dir: Path,
+    dataset_name: str,
+    splits: tuple[str, ...],
+    force: bool,
+    include_false_alarms: bool = False,
 ) -> None:
     validate_local_run_dir(run_dir)
     adapter = get_dataset(dataset_name)
@@ -406,7 +455,13 @@ def run_render(
             model, source, stats, device, batch_size=config.batch_size
         )
         targets, n_detected = _collect_render_targets(
-            video_ids, k_ends, true_labels, pred_labels, protocol, frame_lookup
+            video_ids,
+            k_ends,
+            true_labels,
+            pred_labels,
+            protocol,
+            frame_lookup,
+            include_false_alarms,
         )
 
         expected_n_detected = event_metrics["splits"][split]["n_detected_events"]
@@ -565,7 +620,14 @@ def _selftest_draw_alarm_frame_changes_pixels() -> bool:
     )
 
 
-def _selftest_narrow_frame_caption_fits_width() -> bool:
+def _selftest_narrow_frame_caption_never_shrinks_below_legible_floor() -> bool:
+    # CAPTION_FONT_SIZE_MIN=14 foi calibrado visualmente (ver comentário na
+    # constante): abaixo disso, PIL.ImageFont.load_default() rasteriza alguns
+    # espaços como colapsados mesmo com getlength() > 0, o que não é
+    # detectável só pela largura medida. Este teste garante que o piso
+    # nunca regride silenciosamente para um valor não revisado; a legenda
+    # pode ficar mais larga que o quadro (clipando) em vez de encolher além
+    # do piso, o que é o comportamento aceito.
     frame = np.zeros((240, 320, 3), dtype=np.uint8)
     pose = _synthetic_pose_arrays(1)
     caption = _caption_text(
@@ -574,10 +636,8 @@ def _selftest_narrow_frame_caption_fits_width() -> bool:
 
     caption_margin_px = 10
     max_width_px = frame.shape[1] - 2 * caption_margin_px
-    font_scale = _fit_caption_font_scale(caption, max_width_px)
-    (measured_width, _), _ = cv2.getTextSize(
-        caption, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1
-    )
+    font = _fit_caption_font(caption, max_width_px)
+    chosen_size = font.size if isinstance(font, ImageFont.FreeTypeFont) else CAPTION_FONT_SIZE_MIN
 
     raised = False
     try:
@@ -586,9 +646,9 @@ def _selftest_narrow_frame_caption_fits_width() -> bool:
         raised = True
 
     return _check(
-        "legenda de vídeo estreito (320px) cabe dentro da largura do "
-        "quadro após ajuste de escala da fonte",
-        not raised and measured_width <= max_width_px,
+        "legenda de vídeo estreito (320px) nunca usa fonte menor que "
+        "CAPTION_FONT_SIZE_MIN, mesmo quando isso implica clipar a legenda",
+        not raised and chosen_size >= CAPTION_FONT_SIZE_MIN,
     )
 
 
@@ -632,10 +692,11 @@ def _selftest_write_png_atomic_writes_readable_png() -> bool:
 
         exists = out_path.exists()
         no_leftover_tmp = not any(out_path.parent.glob("*.tmp*"))
-        reread = cv2.imread(str(out_path))
-        readable_with_expected_shape = (
-            reread is not None and reread.shape == frame.shape
-        )
+        with Image.open(out_path) as reread:
+            reread.load()
+            readable_with_expected_shape = (
+                reread.mode == "RGB" and reread.size == (frame.shape[1], frame.shape[0])
+            )
         ok = exists and no_leftover_tmp and readable_with_expected_shape
 
     return _check(
@@ -650,7 +711,7 @@ def run_qualitative_selftest() -> bool:
         _selftest_imputed_pose_skips_drawing(),
         _selftest_decode_frames_called_once_per_video(),
         _selftest_draw_alarm_frame_changes_pixels(),
-        _selftest_narrow_frame_caption_fits_width(),
+        _selftest_narrow_frame_caption_never_shrinks_below_legible_floor(),
         _selftest_matched_alarm_picks_earliest(),
         _selftest_figure_filename_is_unique_and_stable(),
         _selftest_write_png_atomic_writes_readable_png(),
@@ -682,6 +743,7 @@ def main() -> None:
         "--split", default="both", choices=("val", "test", "both")
     )
     render_parser.add_argument("--force", action="store_true")
+    render_parser.add_argument("--include-false-alarms", action="store_true")
     subparsers.add_parser(
         "selftest", help="Roda checagens sintéticas do diagnóstico qualitativo"
     )
@@ -694,6 +756,7 @@ def main() -> None:
             dataset_name=args.dataset,
             splits=splits,
             force=args.force,
+            include_false_alarms=args.include_false_alarms,
         )
     elif args.command == "selftest":
         run_selftest()

@@ -56,7 +56,19 @@ PNGs vão para `runs/local/{dataset}/{run_name}/figures/`, um arquivo por
 par `(video_id, trigger_k)`: `{video_id com "/" trocado por
 "__"}__k{trigger_k:06d}.png`. Sem `--force`, um arquivo já existente é
 preservado e contado como pulado; com `--force`, é sobrescrito
-atomicamente (escrita em `.tmp` seguida de `os.replace`).
+atomicamente (escrita em `.tmp` seguida de `os.replace`). O desenho do
+esqueleto/bbox e a codificação do PNG usam Pillow (`PIL.Image`,
+`PIL.ImageDraw`, `PIL.ImageFont`); a decodificação de vídeo continua
+exclusivamente via `gatefall.data.video_io.decode_frames`, nunca por
+alguma API de vídeo do Pillow.
+
+Com `--include-false-alarms`, o comando escreve também um PNG por
+gatilho de alarme falso, além dos PNGs de evento detectado já descritos
+acima. Esses arquivos usam o prefixo `falsealarm__` no nome (em vez do
+padrão acima) e a legenda mostra `(ALARME FALSO)` no lugar da latência,
+já que não há evento associado a um alarme falso. A flag é aditiva e
+desligada por padrão: sem ela, os arquivos e a contagem de PNGs de
+evento detectado são exatamente os mesmos de antes.
 
 ## Como executar
 
@@ -78,11 +90,13 @@ Recomputa predições sobre `val` e `test` (`--split val`, `--split test`
 ou `--split both`, o padrão) e renderiza os PNGs correspondentes aos
 eventos detectados. `--force` sobrescreve figuras já existentes.
 
-## Ausência intencional do pipeline e da CI
+## Ausência intencional do pipeline; `render` fora da CI
 
 Este módulo está deliberadamente fora da lista de estágios de
-`gatefall.pipeline` (`build_pipeline()`) e fora da suíte de selftests do
-`.github/workflows/ci.yml`: `render` depende de vídeo bruto decodificado,
-que a CI não tem disponível. Essa exclusão é intencional, não um
-esquecimento — apenas `selftest` é sintético e seguro para CI; `render`
-requer o dataset real e um run já treinado e avaliado.
+`gatefall.pipeline` (`build_pipeline()`). Dentro do próprio módulo,
+`selftest` é totalmente sintético e roda na suíte de selftests do
+`.github/workflows/ci.yml` junto com os demais módulos. Só o subcomando
+`render` fica fora da CI: ele depende de vídeo bruto decodificado, que a
+CI não tem disponível. Essa exclusão de `render` é intencional, não um
+esquecimento — ele requer o dataset real e um run já treinado e
+avaliado.
