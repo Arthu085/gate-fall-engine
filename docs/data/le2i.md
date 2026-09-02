@@ -34,7 +34,14 @@ aninhado, mantém seus diretórios e copia o `README.txt` da distribuição quan
 presente. Antes da extração, imprime o SHA-256 de `FallDataset.zip`; ao final,
 mostra a árvore resumida e o tamanho total.
 
-Diretórios já extraídos são preservados. Para removê-los e extraí-los de novo:
+Diretórios já extraídos são preservados. Se `FallDataset.zip` não for encontrado
+mas os seis diretórios esperados (`Coffee_room_01`, `Coffee_room_02`, `Home_01`,
+`Home_02`, `Lecture room`, `Office`) já estiverem extraídos em `data/raw/le2i/`,
+o script imprime um aviso e encerra sem erro; nesse caso o ZIP não é necessário.
+Sem `--force`, a ausência do arquivo só é um erro quando a extração está
+incompleta.
+
+Para removê-los e extraí-los de novo:
 
 ```bash
 uv run python scripts/extract_le2i.py --force

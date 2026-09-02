@@ -1,9 +1,11 @@
 """Selftest sintético da orquestração do pipeline do braço A."""
 
+import contextlib
+import io
 import sys
 from collections.abc import Sequence
 
-from gatefall.pipeline import PipelineStep, build_pipeline, execute_pipeline
+from gatefall.pipeline import CommandRunner, PipelineStep, build_pipeline, execute_pipeline
 from gatefall.features.standardize import build_cli_parser
 
 
@@ -11,6 +13,16 @@ def _check(name: str, condition: bool) -> bool:
     status = "PASS" if condition else "FAIL"
     print(f"[{status}] {name}")
     return condition
+
+
+def _execute_pipeline_silently(
+    steps: Sequence[PipelineStep],
+    runner: CommandRunner | None = None,
+    dry_run: bool = False,
+) -> int:
+    kwargs = {} if runner is None else {"runner": runner}
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return execute_pipeline(steps, dry_run=dry_run, **kwargs)
 
 
 def _command_signature(step: PipelineStep) -> tuple[str, ...]:
@@ -68,7 +80,7 @@ def check_dry_run_executes_no_child() -> bool:
         calls.append(tuple(command))
         return 0
 
-    exit_code = execute_pipeline(steps, runner=runner, dry_run=True)
+    exit_code = _execute_pipeline_silently(steps, runner=runner, dry_run=True)
     return _check(
         "dry-run: imprime o plano sem executar processos filhos",
         exit_code == 0 and calls == [],
@@ -87,7 +99,7 @@ def check_failure_stops_and_propagates_exit_code() -> bool:
             return child_exit_code
         return 0
 
-    exit_code = execute_pipeline(steps, runner=runner)
+    exit_code = _execute_pipeline_silently(steps, runner=runner)
     expected_calls = [tuple(step.command) for step in steps[: failure_index + 1]]
     return _check(
         "falha: interrompe antes do passo seguinte e propaga o exit code do filho",
@@ -103,7 +115,7 @@ def check_success_reaches_final_step() -> bool:
         calls.append(tuple(command))
         return 0
 
-    exit_code = execute_pipeline(steps, runner=runner)
+    exit_code = _execute_pipeline_silently(steps, runner=runner)
     return _check(
         "sucesso: executa todos os passos e chega à avaliação de eventos",
         exit_code == 0
