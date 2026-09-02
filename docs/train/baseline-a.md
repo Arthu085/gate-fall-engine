@@ -140,3 +140,16 @@ checkpoint final não é o de melhor macro-F1 de validação observada — a
 diferença entre pico e final é um lembrete de que essa métrica de
 validação é ruidosa (19 vídeos, três ambientes) e não deve ser lida como
 uma curva estável.
+
+Uma reprodução local sob a mesma `config.yaml` congelada (`seed=42`,
+`epochs=30`, mesmo `standardization_stats_sha256`) não é idêntica bit a bit
+à execução de referência: `runs/reference/le2i/baseline_a` foi executada com
+`device: cuda` e a reprodução local com `device: cpu` (mesmo
+`torch_version`), e todo o histórico por época de `train_loss` e
+`val_macro_f1_restricted` diverge a partir da época 1, refletindo isso na
+sensibilidade de evento em validação (12/13 na referência, 13/13 na
+reprodução local; teste concorda entre as duas). A causa são diferenças de
+kernel numérico entre CPU e GPU sob a mesma seed, não instabilidade de
+treino ou divergência de configuração — a receita é determinística por
+dispositivo, mas reprodução bit a bit entre dispositivos diferentes não deve
+ser esperada.
