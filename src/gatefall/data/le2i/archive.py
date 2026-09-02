@@ -9,6 +9,11 @@ from gatefall.hashing import sha256_file
 
 DEFAULT_ARCHIVE_PATH = Path("data/raw/le2i/FallDataset.zip")
 
+EXPECTED_DIRECTORIES = (
+    "Coffee_room_01", "Coffee_room_02", "Home_01", "Home_02",
+    "Lecture room", "Office",
+)
+
 
 def format_byte_size(num_bytes: int) -> str:
     size = float(num_bytes)
@@ -82,8 +87,20 @@ def print_directory_tree(root: Path, max_depth: int = 2) -> None:
 
 def extract_le2i_archive(archive_path: Path, force: bool) -> None:
     if not archive_path.exists():
+        destination = archive_path.parent
+        already_extracted = all(
+            (destination / name).is_dir() for name in EXPECTED_DIRECTORIES
+        )
+        if not force and already_extracted:
+            print(
+                f"{archive_path} não encontrado, mas os {len(EXPECTED_DIRECTORIES)} "
+                f"diretórios esperados já estão extraídos em {destination}, nada a fazer"
+            )
+            return
         print(f"erro: arquivo não encontrado: {archive_path}", file=sys.stderr)
         sys.exit(1)
+
+    destination = archive_path.parent
 
     print(f"sha256({archive_path}) = {sha256_file(archive_path)}")
 
@@ -96,7 +113,6 @@ def extract_le2i_archive(archive_path: Path, force: bool) -> None:
         )
         sys.exit(1)
 
-    destination = archive_path.parent
     with archive:
         extract_dataset_readme(archive, destination, force)
         for member_name in archive.namelist():
