@@ -62,7 +62,8 @@ B e C):
   `torch.use_deterministic_algorithms(True)` e `CUBLAS_WORKSPACE_CONFIG=:4096:8` —
   retreinos com a mesma seed produzem checkpoint idêntico na mesma
   máquina/GPU/driver/cuDNN. `runs/reference/le2i/baseline_a` foi treinado antes
-  desta correção e não é regenerado.
+  desta correção e não é regenerado. Ver [investigação de determinismo de
+  GPU](gpu-determinism.md) para o diagnóstico completo.
 
 As 30 épocas são um orçamento fixo pré-registrado, definido antes de rodar
 o treino, não um resultado de monitorar `val_macro_f1_restricted` e parar
