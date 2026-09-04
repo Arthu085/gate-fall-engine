@@ -13,9 +13,9 @@ o JSON de estatísticas fazem parte deste módulo.
 uv run python -m gatefall.train.baseline_a selftest
 ```
 
-Roda checagens sintéticas da arquitetura da TCN (`tcn_selftest.py`) e das
-métricas restritas (`metrics_selftest.py`), sem treinar nem tocar no dataset
-real.
+Roda checagens sintéticas da arquitetura da TCN (`tcn_selftest.py`), das
+métricas restritas (`metrics_selftest.py`) e das guardas de determinismo de
+GPU (`engine_selftest.py`), sem treinar nem tocar no dataset real.
 
 ```bash
 uv run python -m gatefall.train.baseline_a train --dataset le2i \
@@ -58,6 +58,11 @@ B e C):
 - `batch_size=64`, 30 épocas, sem early stopping.
 - `CrossEntropyLoss` ponderada por frequência inversa das classes.
 - Clipping de gradiente por norma, limite 1.0.
+- Determinismo de GPU: `cudnn.deterministic=True`, `cudnn.benchmark=False`,
+  `torch.use_deterministic_algorithms(True)` e `CUBLAS_WORKSPACE_CONFIG=:4096:8` —
+  retreinos com a mesma seed produzem checkpoint idêntico na mesma
+  máquina/GPU/driver/cuDNN. `runs/reference/le2i/baseline_a` foi treinado antes
+  desta correção e não é regenerado.
 
 As 30 épocas são um orçamento fixo pré-registrado, definido antes de rodar
 o treino, não um resultado de monitorar `val_macro_f1_restricted` e parar

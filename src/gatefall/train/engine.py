@@ -88,6 +88,23 @@ def _evaluate_split(
     }
 
 
+def _configure_determinism(seed: int) -> str:
+    # CUBLAS_WORKSPACE_CONFIG precisa estar no ambiente do processo antes da
+    # primeira chamada CUDA (abaixo) para que o cuBLAS use um algoritmo
+    # determinístico; nada neste processo toca CUDA antes daqui.
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Retreinos com a mesma seed e as mesmas features devem produzir o
+    # mesmo checkpoint nesta máquina/GPU/driver/cuDNN.
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True)
+    return device
+
+
 def run_training(
     input_dim: int,
     train_source: _WindowSource,
@@ -124,10 +141,7 @@ def run_training(
         shutil.rmtree(temporary_dir)
     temporary_dir.mkdir(parents=True)
 
-    torch.manual_seed(config.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(config.seed)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = _configure_determinism(config.seed)
 
     train_dataset = _StandardizedTorchDataset(train_source, stats)
     val_dataset = _StandardizedTorchDataset(val_source, stats)

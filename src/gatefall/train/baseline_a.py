@@ -14,6 +14,7 @@ from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
 from gatefall.runs import validate_local_run_dir
 from gatefall.train.config import BASELINE_A_CONFIG
 from gatefall.train.engine import run_training
+from gatefall.train.engine_selftest import run_engine_selftest
 from gatefall.train.metrics_selftest import run_metrics_selftest
 from gatefall.train.tcn_selftest import run_tcn_selftest
 
@@ -55,7 +56,8 @@ def run_train(force: bool, dataset_name: str = "le2i", run_dir: Path = RUN_DIR) 
 def run_selftest() -> None:
     tcn_ok = run_tcn_selftest()
     metrics_ok = run_metrics_selftest()
-    if not (tcn_ok and metrics_ok):
+    engine_ok = run_engine_selftest()
+    if not (tcn_ok and metrics_ok and engine_ok):
         sys.exit(1)
 
 
