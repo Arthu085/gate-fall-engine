@@ -127,10 +127,10 @@ contado no numerador de `false_alarms_per_hour` (que cobre toda a grade),
 mas excluído do numerador de `false_alarms_per_hour_labeled_time`. Por
 isso os dois valores podem divergir de forma não trivial quando parte dos
 falsos alarmes cai em trechos `IGNORE_LABEL`: no split de teste da
-execução real (ver tabela abaixo), 2 dos 10 falsos alarmes disparam em
-janelas `IGNORE_LABEL` e são excluídos apenas do numerador da taxa
-secundária, o que basta para separar as duas taxas mesmo com denominadores
-próximos.
+execução real (ver tabela abaixo), 4 dos 12 falsos
+alarmes disparam em janelas `IGNORE_LABEL` e são excluídos apenas do
+numerador da taxa secundária, o que basta para separar as duas taxas
+mesmo com denominadores próximos.
 
 ## Schema de `alarm_protocol.yaml`
 
@@ -196,27 +196,27 @@ checkpoint da última época treinado em [Treino — Braço A
 
 | Split | Eventos | Detectados | Sensibilidade (evento) | Falsos alarmes/h (total) | Falsos alarmes/h (tempo rotulado) | Falsos alarmes pré-queda | Sensibilidade (janela) | Especificidade (janela) | Latência média |
 | ----- | ------- | ---------- | ----------------------- | ------------------ | ------------------------- | ------------------------- | ------------------------ | -------------------------- | --------------- |
-| Validação | 13 | 12 | 92,3% | 17,3 | 17,3 | 0 | 91,6% | 97,3% | 0,4 s |
-| Teste | 22 | 21 | 95,5% | 58,4 | 51,3 | 1 | 90,0% | 97,1% | 0,5 s |
+| Validação | 13 | 13 | 100,0% | 0,0 | 0,0 | 0 | 91,8% | 97,4% | 0,4 s |
+| Teste | 22 | 20 | 90,9% | 70,0 | 51,3 | 1 | 89,1% | 97,0% | 0,4 s |
 
 A taxa de falsos alarmes por hora é maior no teste que na validação
-(58,4 vs. 17,3 no denominador de tempo total), consistente com a queda de
+(70,0 vs. 0,0 no denominador de tempo total), consistente com a queda de
 macro-F1 do treino para o teste já documentada em [Treino — Braço A
 (TCN)](../train/baseline-a.md): o split de
 teste é cross-subject, então mais confusões entre classes próximas de
-`fall`/`fallen` viram alarmes espúrios sobre subjects não vistos. Os
-contadores de evento (13/12 na validação, 22/21 no teste) não mudaram
-com a inclusão das janelas antes ignoradas na inferência — apenas o
-denominador de falsos alarmes por hora e a contagem de falsos alarmes em
-si mudaram.
+`fall`/`fallen` viram alarmes espúrios sobre subjects não vistos.
 
 No split de teste, `false_alarms_per_hour_labeled_time` (51,3) fica
-sensivelmente abaixo de `false_alarms_per_hour` (58,4): apesar de
+sensivelmente abaixo de `false_alarms_per_hour` (70,0): apesar de
 `labeled_time_hours` (0,156 h) já ser menor que `total_video_time_hours`
-(0,171 h), 2 dos 10 falsos alarmes do split disparam dentro de trechos
-`IGNORE_LABEL` e são excluídos do numerador da taxa secundária (ver
-"Denominador de falsos alarmes por hora" acima) — por isso a taxa
-secundária não sobe proporcionalmente à redução do denominador. Na
-validação os dois valores praticamente coincidem (17,3 vs. 17,3), pois
-apenas 1 janela do split é `IGNORE_LABEL` e o único falso alarme não cai
-nela.
+(0,171 h), 4 dos 12 falsos alarmes do split disparam
+dentro de trechos `IGNORE_LABEL` e são excluídos do numerador da taxa
+secundária (ver "Denominador de falsos alarmes por hora" acima) — por
+isso a taxa secundária não sobe proporcionalmente à redução do
+denominador. Na validação não há nenhum falso alarme, então as duas taxas
+são igualmente 0,0.
+
+Para o histórico completo da mudança de referência (run anterior ao PR
+#35 vs. este run) e a justificativa metodológica da migração, ver
+"Migração de referência: determinismo de GPU" em [Treino — Braço A
+(TCN)](../train/baseline-a.md#migracao-de-referencia-determinismo-de-gpu).
