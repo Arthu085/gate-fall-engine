@@ -52,7 +52,7 @@ pesos. Links apontam para o contrato detalhado.
 
 | Sintaxe | Propósito e pré-requisitos | Entrada → saída; mutação e idempotência | Dados | GPU/pesos | Detalhes |
 | --- | --- | --- | --- | --- | --- |
-| `uv run python -m gatefall.train.baseline_a selftest` | Testa TCN e métricas | Casos sintéticos → stdout; não muta | Não | Não | [Treino](../train/baseline-a.md) |
+| `uv run python -m gatefall.train.baseline_a selftest` | Testa TCN, métricas e guardas de determinismo de GPU | Casos sintéticos → stdout; não muta | Não | Não | [Treino](../train/baseline-a.md) |
 | `uv run python -m gatefall.train.baseline_a train [--dataset le2i] [--run-dir PATH] [--force]` | Treina o braço A; destino deve ser local | grade + HDF5 + stats → config, checkpoint e métricas; staging validado e promoção por diretório; run válido é preservado; parcial falha; `--force` usa backup para rollback | Sim | GPU recomendada | [Treino](../train/baseline-a.md#como-executar) |
 | `uv run python -m gatefall.eval.baseline_a_events selftest` | Testa FSM e associação de eventos | Casos sintéticos → stdout; não muta | Não | Não | [Avaliação](../eval/baseline-a-events.md) |
 | `uv run python -m gatefall.eval.baseline_a_events evaluate [--dataset le2i] [--run-dir PATH] [--force]` | Avalia checkpoint local completo; requer runtime POSIX para `fcntl.flock` | run + grade + HDF5 → protocolo e métricas de eventos; lock e journal protegem a publicação conjunta; preserva par válido; `--force` substitui o par local | Sim | GPU recomendada e checkpoint | [Avaliação](../eval/baseline-a-events.md#como-executar) |

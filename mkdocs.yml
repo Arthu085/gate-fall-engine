@@ -48,6 +48,7 @@ nav:
       - Padronização de features de pose: data/pose-standardization.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
+      - Investigação de determinismo de GPU: train/gpu-determinism.md
   - Avaliação:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
       - Diagnóstico qualitativo (render): eval/qualitative-render.md
