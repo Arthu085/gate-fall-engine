@@ -9,8 +9,10 @@ em [Treino — Braço A (TCN)](baseline-a.md).
   `cudnn.deterministic=True`, `cudnn.benchmark=False`,
   `torch.use_deterministic_algorithms(True)` e `CUBLAS_WORKSPACE_CONFIG`
   fixado em um valor suportado pelo cuBLAS, padrão `:4096:8`.
-- `runs/reference/le2i/baseline_a` foi treinado antes desta correção e não é
-  regenerado por ela.
+- `runs/reference/le2i/baseline_a` foi treinado antes desta correção e já
+  foi regenerado sob o regime determinístico corrigido — ver "Migração de
+  referência: determinismo de GPU" em
+  [Treino — Braço A (TCN)](baseline-a.md#migracao-de-referencia-determinismo-de-gpu).
 
 ## Hipóteses descartadas
 

@@ -61,8 +61,9 @@ B e C):
 - Determinismo de GPU: `cudnn.deterministic=True`, `cudnn.benchmark=False`,
   `torch.use_deterministic_algorithms(True)` e `CUBLAS_WORKSPACE_CONFIG=:4096:8` —
   retreinos com a mesma seed produzem checkpoint idêntico na mesma
-  máquina/GPU/driver/cuDNN. `runs/reference/le2i/baseline_a` foi treinado antes
-  desta correção e não é regenerado. Ver [investigação de determinismo de
+  máquina/GPU/driver/cuDNN. `runs/reference/le2i/baseline_a` já foi
+  regenerado sob esse regime determinístico (ver "Migração de referência:
+  determinismo de GPU" abaixo). Ver [investigação de determinismo de
   GPU](gpu-determinism.md) para o diagnóstico completo.
 
 As 30 épocas são um orçamento fixo pré-registrado, definido antes de rodar
@@ -96,9 +97,12 @@ distorcendo a métrica agregada sem refletir desempenho real do modelo.
 ## Artefatos locais e referência histórica
 
 `runs/reference/le2i/baseline_a/config.yaml` e `metrics.json` são evidência
-histórica versionada; o conteúdo científico foi apenas movido do caminho
-legado, sem regeneração. O checkpoint não é versionado. Uma reprodução grava
-os três artefatos em `runs/local/le2i/baseline_a/`, ignorado pelo Git.
+histórica versionada. Desde a migração de referência para o regime
+determinístico de GPU (ver "Migração de referência: determinismo de GPU"
+abaixo), o conteúdo desses arquivos é a saída real e regenerada do run
+determinístico, não apenas conteúdo movido de um caminho legado. O
+checkpoint não é versionado. Uma reprodução grava os três artefatos em
+`runs/local/le2i/baseline_a/`, ignorado pelo Git.
 
 `config.yaml` grava a configuração completa da execução: identificação do
 run e do braço, `seed`, dimensão de entrada, `window_frames`, stride de
@@ -123,9 +127,9 @@ Execução registrada em `runs/reference/le2i/baseline_a/metrics.json`, checkpoi
 
 | Split | Macro-F1 restrita |
 | ----- | ------------------ |
-| Treino | 0,8589 |
-| Validação | 0,6558 |
-| Teste | 0,6212 |
+| Treino | 0,8565 |
+| Validação | 0,6656 |
+| Teste | 0,6201 |
 
 A queda de treino para validação/teste é esperada: o split de validação é
 pequeno e enviesado (19 vídeos concentrados em três ambientes, ver acima) e
@@ -135,14 +139,38 @@ reflete subjects não vistos no treino, não ambientes novos. O split é por
 vídeo/subject justamente para evitar vazamento entre treino e teste
 (`CLAUDE.md`, invariante 2).
 
+## Migração de referência: determinismo de GPU
+
+Antes da correção de determinismo de GPU (PR #35), a referência mantinha um
+run treinado sem as guardas corrigidas de `CUBLAS_WORKSPACE_CONFIG` e
+determinismo.
+
+Referência antiga (mantida apenas como registro histórico, não reprodutível
+sob as guardas atuais): macro-F1 de teste 0,6212 (0.6211639593563492); 12/13
+eventos de queda detectados em validação; 21/22 em teste; 10 falsos alarmes
+em teste.
+
+Referência nova (esta migração): macro-F1 de teste 0,6201 (0.6201067209256219);
+13/13 em validação; 20/22 em teste; 12 falsos alarmes em teste. Checkpoint
+sha256 `264f4997f0875881f35e20f64a370c955b3488759d5f3714816c6771f12f0ff7`,
+reproduzido de forma idêntica em retreinos independentes sob as guardas de
+determinismo corrigidas (ver [determinismo de GPU](gpu-determinism.md)).
+
+Esta é uma migração metodológica de referência, para reprodutibilidade sob
+o regime determinístico congelado e compartilhado com os braços B e C
+(`CLAUDE.md`, invariante 1) — não uma seleção do checkpoint de melhor
+desempenho. O novo macro-F1 de teste (0,6201) não é maior que o antigo
+(0,6212), o que é evidência contra cherry-picking.
+
 ## Limitações
 
 Nesta execução de seed único, `val_macro_f1_restricted` não é monotônica
 ao longo do treino: pelo histórico em `runs/reference/le2i/baseline_a/metrics.json`, ela
-atinge um pico de 0,6807 na época 15 e termina em 0,6558 na época 30 (o
+atinge um pico de 0,6686 na época 27 e termina em 0,6656 na época 30 (o
 checkpoint salvo, ver "Seleção de checkpoint" acima). Como o orçamento de
 30 épocas é fixo e pré-registrado (ver "Receita de treino congelada"), o
 checkpoint final não é o de melhor macro-F1 de validação observada — a
-diferença entre pico e final é um lembrete de que essa métrica de
-validação é ruidosa (19 vídeos, três ambientes) e não deve ser lida como
-uma curva estável.
+diferença entre pico e final (~0,0030) é bem menor que na execução anterior
+(~0,0249), mas segue sendo um lembrete de que essa métrica de validação é
+ruidosa (19 vídeos, três ambientes) e não deve ser lida como uma curva
+estável.
