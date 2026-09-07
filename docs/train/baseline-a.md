@@ -125,7 +125,8 @@ Por split, o relatório traz:
 O comando é somente leitura em relação aos artefatos de um run: nunca abre
 `config.yaml`, `metrics.json`, `checkpoint.pt`, `alarm_protocol.yaml` ou
 `event_metrics.json` para escrita, e recusa explicitamente qualquer
-`--output` que resolva para um desses cinco nomes dentro de `--run-dir`.
+`--output` que resolva para um desses cinco nomes dentro de `--run-dir` ou
+para dentro de `runs/reference/`, mesmo fora de `--run-dir`.
 `--force` só governa a sobrescrita do próprio `--output`; sem ele, um
 `--output` já existente é recusado.
 

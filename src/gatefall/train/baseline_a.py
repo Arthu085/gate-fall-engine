@@ -18,8 +18,10 @@ from gatefall.datasets import get_dataset
 from gatefall.features.standardization import load_stats, validate_stats_layout
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
-from gatefall.runs import validate_local_run_dir
+from gatefall.runs import REFERENCE_RUN_ROOT, validate_local_run_dir
 from gatefall.train.artifacts import load_compatible_checkpoint, validate_training_run
+from gatefall.train.artifacts_selftest import run_artifacts_selftest
+from gatefall.train.baseline_a_selftest import run_baseline_a_selftest
 from gatefall.train.config import BASELINE_A_CONFIG
 from gatefall.train.engine import _StandardizedTorchDataset, _predict, run_training
 from gatefall.train.engine_selftest import run_engine_selftest
@@ -84,6 +86,14 @@ def _guard_protected_output(run_dir: Path, output_path: Path) -> None:
                 f"--output não pode apontar para o artefato protegido {name!r} "
                 f"em {run_dir}"
             )
+    if (
+        resolved_output == REFERENCE_RUN_ROOT
+        or REFERENCE_RUN_ROOT in resolved_output.parents
+    ):
+        raise ValueError(
+            f"--output não pode apontar para dentro da referência histórica "
+            f"somente leitura: {resolved_output}"
+        )
 
 
 def run_report(
@@ -221,7 +231,9 @@ def run_selftest() -> None:
     tcn_ok = run_tcn_selftest()
     metrics_ok = run_metrics_selftest()
     engine_ok = run_engine_selftest()
-    if not (tcn_ok and metrics_ok and engine_ok):
+    baseline_a_ok = run_baseline_a_selftest()
+    artifacts_ok = run_artifacts_selftest()
+    if not (tcn_ok and metrics_ok and engine_ok and baseline_a_ok and artifacts_ok):
         sys.exit(1)
 
 

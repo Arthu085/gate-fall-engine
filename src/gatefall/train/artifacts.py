@@ -182,6 +182,26 @@ def _validate_classification_diagnostics(
                 f"({row_sum}) diverge de support ({class_support})"
             )
 
+        matrix_tp = matrix[class_id][class_id]
+        if tp != matrix_tp:
+            raise ValueError(
+                f"{entry_prefix}: tp ({tp}) diverge de confusion_matrix[{class_id}][{class_id}] "
+                f"({matrix_tp})"
+            )
+        matrix_fn = row_sum - matrix_tp
+        if fn != matrix_fn:
+            raise ValueError(
+                f"{entry_prefix}: fn ({fn}) diverge da confusion_matrix "
+                f"(soma da linha {class_id} menos a diagonal = {matrix_fn})"
+            )
+        column_sum = sum(row[class_id] for row in matrix)
+        matrix_fp = column_sum - matrix_tp
+        if fp != matrix_fp:
+            raise ValueError(
+                f"{entry_prefix}: fp ({fp}) diverge da confusion_matrix "
+                f"(soma da coluna {class_id} menos a diagonal = {matrix_fp})"
+            )
+
         float_fields = ("precision", "recall", "f1")
         for field in float_fields:
             value = entry.get(field)
