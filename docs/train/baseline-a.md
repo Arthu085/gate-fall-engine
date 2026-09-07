@@ -94,6 +94,49 @@ Incluir essas duas classes no macro-F1 faria o denominador da média ser
 dominado por F1 indefinido ou instável sobre poucas ou nenhuma amostra,
 distorcendo a métrica agregada sem refletir desempenho real do modelo.
 
+## Diagnóstico de classificação: `report`
+
+```bash
+uv run python -m gatefall.train.baseline_a report --dataset le2i \
+  --run-dir runs/local/le2i/baseline_a \
+  --output runs/local/le2i/baseline_a/classification_report.json --force
+```
+
+Gera um diagnóstico multiclasse completo a partir de um run já treinado, sem
+alterar o treino, o protocolo de alarme ou qualquer artefato existente. Antes
+de rodar inferência, o comando valida `config.yaml`, `metrics.json` e
+`checkpoint.pt` com `gatefall.train.artifacts.validate_training_run` (mesma
+configuração esperada usada por `train`) e reconstrói os três splits
+(`train`, `val`, `test`) exatamente como `train` faz — mesmo stride de treino
+(`TRAIN_STRIDE`) e de avaliação (`EVAL_STRIDE`), mesmo carregador de features
+de pose.
+
+Por split, o relatório traz:
+
+- `confusion_matrix`: matriz 10x10 (linha = classe verdadeira, coluna =
+  classe predita), cobrindo as 10 classes do Le2i, inclusive `lie_down` e
+  `lying` (fora do macro-F1 restrito, mas presentes aqui).
+- `per_class`: `tp`/`tn`/`fp`/`fn`/`support`/`precision`/`recall`/`f1` para
+  cada uma das 10 classes.
+- `binary_fall_fallen`: a mesma família de métricas (mais `specificity` e
+  `accuracy`) projetando as classes `{fall, fallen}` como positivo contra
+  todas as demais como negativo.
+
+O comando é somente leitura em relação aos artefatos de um run: nunca abre
+`config.yaml`, `metrics.json`, `checkpoint.pt`, `alarm_protocol.yaml` ou
+`event_metrics.json` para escrita, e recusa explicitamente qualquer
+`--output` que resolva para um desses cinco nomes dentro de `--run-dir`.
+`--force` só governa a sobrescrita do próprio `--output`; sem ele, um
+`--output` já existente é recusado.
+
+O relatório também inclui `verification_against_metrics_json`: o comando
+recalcula, a partir da própria inferência, `macro_f1_restricted`, o `f1` de
+cada classe restrita e o `support` de cada split, e compara com o que está
+gravado em `metrics.json`. O relatório completo é sempre persistido em
+`--output`, mesmo quando há divergência, mas o processo sai com código 1 se
+qualquer campo recalculado não bater com o valor histórico — um sinal de que
+`metrics.json` foi produzido por código diferente do atual.
+
 ## Artefatos locais e referência histórica
 
 `runs/reference/le2i/baseline_a/config.yaml` e `metrics.json` são evidência
@@ -116,9 +159,13 @@ padronização usadas (`standardization_stats_path` e
 
 `metrics.json` grava `epochs_trained`, `device`, `torch_version`, o
 histórico por época (`train_loss` e `val_macro_f1_restricted`), o bloco
-`final` com `macro_f1_restricted`, `f1_by_class` e `support` por split
-(`train`, `val`, `test`), e as listas `restricted_classes` /
-`excluded_classes`.
+`final` com `macro_f1_restricted`, `f1_by_class`, `support`, `confusion_matrix`
+e `per_class` por split (`train`, `val`, `test`), e as listas
+`restricted_classes` / `excluded_classes`. `confusion_matrix` e `per_class`
+cobrem as 10 classes (não apenas as restritas ao macro-F1) e só existem em
+`metrics.json` gerados após a introdução do diagnóstico de classificação —
+`validate_training_metrics` continua aceitando `metrics.json` legado sem
+esses dois campos.
 
 ## Resultado da execução real
 

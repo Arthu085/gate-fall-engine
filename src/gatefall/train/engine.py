@@ -17,7 +17,12 @@ from gatefall.hashing import sha256_file
 from gatefall.runs import validate_local_run_dir
 from gatefall.train.artifacts import REQUIRED_TRAINING_ARTIFACTS, validate_training_run
 from gatefall.train.config import TrainConfig, save_config
-from gatefall.train.metrics import RESTRICTED_CLASSES, restricted_macro_f1, support
+from gatefall.train.metrics import (
+    RESTRICTED_CLASSES,
+    classification_summary,
+    restricted_macro_f1,
+    support,
+)
 from gatefall.train.tcn import TCNClassifier
 
 
@@ -81,10 +86,13 @@ def _evaluate_split(
     y_true, y_pred = _predict(model, loader, device)
     macro_f1, f1_by_class = restricted_macro_f1(y_true, y_pred, num_classes)
     split_support = support(y_true, num_classes)
+    summary = classification_summary(y_true, y_pred, label_names, num_classes)
     return {
         "macro_f1_restricted": macro_f1,
         "f1_by_class": {str(c): f1_by_class[c] for c in RESTRICTED_CLASSES},
         "support": {label_names[c]: split_support[c] for c in range(num_classes)},
+        "confusion_matrix": summary["confusion_matrix"],
+        "per_class": summary["per_class"],
     }
 
 

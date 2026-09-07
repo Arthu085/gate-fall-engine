@@ -1,9 +1,16 @@
 """Arma A: TCN dilatada rasa treinada sobre o vetor de pose de 134 dimensões."""
 
 import argparse
+import json
+import math
+import os
 import sys
+import uuid
 from dataclasses import replace
 from pathlib import Path
+
+import torch
+from torch.utils.data import DataLoader
 
 from gatefall.config import EVAL_STRIDE, TRAIN_STRIDE
 from gatefall.data.pose_dataset import PoseWindowDataset
@@ -12,13 +19,29 @@ from gatefall.features.standardization import load_stats, validate_stats_layout
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
 from gatefall.runs import validate_local_run_dir
+from gatefall.train.artifacts import load_compatible_checkpoint, validate_training_run
 from gatefall.train.config import BASELINE_A_CONFIG
-from gatefall.train.engine import run_training
+from gatefall.train.engine import _StandardizedTorchDataset, _predict, run_training
 from gatefall.train.engine_selftest import run_engine_selftest
+from gatefall.train.metrics import (
+    RESTRICTED_CLASSES,
+    binary_projection_summary,
+    classification_summary,
+    restricted_macro_f1,
+    support,
+)
 from gatefall.train.metrics_selftest import run_metrics_selftest
 from gatefall.train.tcn_selftest import run_tcn_selftest
 
 RUN_DIR = Path("runs/local/le2i/baseline_a")
+PROTECTED_ARTIFACT_NAMES = (
+    "config.yaml",
+    "metrics.json",
+    "checkpoint.pt",
+    "alarm_protocol.yaml",
+    "event_metrics.json",
+)
+BINARY_POSITIVE_LABELS = frozenset({1, 2})
 
 
 def run_train(force: bool, dataset_name: str = "le2i", run_dir: Path = RUN_DIR) -> None:
@@ -53,6 +76,147 @@ def run_train(force: bool, dataset_name: str = "le2i", run_dir: Path = RUN_DIR) 
     )
 
 
+def _guard_protected_output(run_dir: Path, output_path: Path) -> None:
+    resolved_output = output_path.resolve()
+    for name in PROTECTED_ARTIFACT_NAMES:
+        if resolved_output == (run_dir / name).resolve():
+            raise ValueError(
+                f"--output não pode apontar para o artefato protegido {name!r} "
+                f"em {run_dir}"
+            )
+
+
+def run_report(
+    dataset_name: str,
+    run_dir: Path,
+    output_path: Path,
+    force: bool,
+) -> bool:
+    validate_local_run_dir(run_dir)
+    _guard_protected_output(run_dir, output_path)
+    if output_path.exists() and not force:
+        raise RuntimeError(
+            f"{output_path} já existe; use --force para sobrescrever"
+        )
+
+    adapter = get_dataset(dataset_name)
+    stats = load_stats(adapter.pose_stats_path)
+    validate_stats_layout(stats)
+    expected_config = replace(
+        BASELINE_A_CONFIG,
+        standardization_stats_path=str(adapter.pose_stats_path),
+        standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
+    )
+    config = validate_training_run(run_dir, expected_config=expected_config)
+
+    checkpoint_path = run_dir / "checkpoint.pt"
+    model = load_compatible_checkpoint(checkpoint_path, config)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = model.to(device)
+    model.eval()
+
+    frames = adapter.load_frames()
+    loader = lambda video_id: build_pose_features(
+        video_id, pose_root=adapter.pose_root
+    )[0]
+
+    split_sources = {
+        "train": PoseWindowDataset(frames, "train", TRAIN_STRIDE, loader),
+        "val": PoseWindowDataset(frames, "val", EVAL_STRIDE, loader),
+        "test": PoseWindowDataset(frames, "test", EVAL_STRIDE, loader),
+    }
+
+    splits_report: dict[str, dict] = {}
+    mismatches: list[dict] = []
+
+    metrics_path = run_dir / "metrics.json"
+    with metrics_path.open(encoding="utf-8") as f:
+        stored_metrics = json.load(f)
+    stored_final = stored_metrics["final"]
+
+    for split_name, source in split_sources.items():
+        dataset = _StandardizedTorchDataset(source, stats)
+        dataloader = DataLoader(
+            dataset, batch_size=config.batch_size, shuffle=False, num_workers=0
+        )
+        y_true, y_pred = _predict(model, dataloader, device)
+
+        summary = classification_summary(y_true, y_pred, adapter.label_names, config.num_classes)
+        binary = binary_projection_summary(y_true, y_pred, BINARY_POSITIVE_LABELS)
+        splits_report[split_name] = {
+            "confusion_matrix": summary["confusion_matrix"],
+            "per_class": summary["per_class"],
+            "binary_fall_fallen": binary,
+        }
+
+        stored_split = stored_final[split_name]
+        macro_f1, f1_by_class = restricted_macro_f1(y_true, y_pred, config.num_classes)
+        stored_macro_f1 = stored_split["macro_f1_restricted"]
+        if not math.isclose(stored_macro_f1, macro_f1, abs_tol=1e-12, rel_tol=0):
+            mismatches.append(
+                {
+                    "split": split_name,
+                    "field": "macro_f1_restricted",
+                    "stored": stored_macro_f1,
+                    "recomputed": macro_f1,
+                }
+            )
+        stored_f1_by_class = stored_split["f1_by_class"]
+        for c in RESTRICTED_CLASSES:
+            stored_value = stored_f1_by_class[str(c)]
+            recomputed_value = f1_by_class[c]
+            if not math.isclose(stored_value, recomputed_value, abs_tol=1e-12, rel_tol=0):
+                mismatches.append(
+                    {
+                        "split": split_name,
+                        "field": f"f1_by_class[{c}]",
+                        "stored": stored_value,
+                        "recomputed": recomputed_value,
+                    }
+                )
+        recomputed_support = support(y_true, config.num_classes)
+        stored_support = stored_split["support"]
+        for c in range(config.num_classes):
+            label_name = adapter.label_names[c]
+            stored_count = stored_support[label_name]
+            recomputed_count = recomputed_support[c]
+            if stored_count != recomputed_count:
+                mismatches.append(
+                    {
+                        "split": split_name,
+                        "field": f"support[{label_name}]",
+                        "stored": stored_count,
+                        "recomputed": recomputed_count,
+                    }
+                )
+
+    ok = len(mismatches) == 0
+
+    report = {
+        "run_name": config.run_name,
+        "dataset": dataset_name,
+        "run_dir": str(run_dir),
+        "checkpoint_sha256": sha256_file(checkpoint_path),
+        "device": device,
+        "splits": splits_report,
+        "verification_against_metrics_json": {"ok": ok, "mismatches": mismatches},
+    }
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = output_path.with_name(f".{output_path.name}.tmp-{uuid.uuid4().hex}")
+    with temporary_path.open("w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+    os.replace(temporary_path, output_path)
+
+    print(f"{output_path}: relatório de classificação gravado (run_name={config.run_name})")
+    if not ok:
+        print(
+            f"verificação contra metrics.json falhou: {len(mismatches)} divergência(s)",
+            file=sys.stderr,
+        )
+    return ok
+
+
 def run_selftest() -> None:
     tcn_ok = run_tcn_selftest()
     metrics_ok = run_metrics_selftest()
@@ -75,11 +239,36 @@ def main() -> None:
     train_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas da TCN e das métricas")
 
+    report_parser = subparsers.add_parser(
+        "report",
+        help=(
+            "Gera diagnóstico de classificação (matriz de confusão 10x10, "
+            "métricas por classe e projeção binária fall/fallen) a partir de "
+            "um run já treinado, sem modificar nenhum artefato existente"
+        ),
+    )
+    report_parser.add_argument(
+        "--force", action="store_true", help="Sobrescreve o --output já existente"
+    )
+    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    report_parser.add_argument("--output", type=Path, default=None)
+
     args = parser.parse_args()
     if args.command == "train":
         run_train(force=args.force, dataset_name=args.dataset, run_dir=args.run_dir)
     elif args.command == "selftest":
         run_selftest()
+    elif args.command == "report":
+        output_path = args.output or (args.run_dir / "classification_report.json")
+        ok = run_report(
+            dataset_name=args.dataset,
+            run_dir=args.run_dir,
+            output_path=output_path,
+            force=args.force,
+        )
+        if not ok:
+            sys.exit(1)
 
 
 if __name__ == "__main__":
