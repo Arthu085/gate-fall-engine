@@ -19,6 +19,7 @@ from gatefall.dinov3.backbone import (
     NORMALIZE_MEAN,
     NORMALIZE_STD,
     RESIZE_SIZE,
+    ensure_backbone_paths_exist,
     load_backbone,
     read_dinov3_repo_commit,
     resolve_repo_dir,
@@ -32,11 +33,12 @@ DEFAULT_BATCH_SIZE = 32
 
 
 class Dinov3ExtractSkipped(Exception):
-    """.h5 do vídeo já existe e --force não foi passado."""
+    """.h5 do vídeo já existe e é válido (dados e proveniência batem) e --force não foi passado."""
 
 
 class Dinov3ExtractError(Exception):
-    """Falha ao processar um vídeo (dados ausentes, video_id não encontrado, verificação pós-escrita divergente)."""
+    """Falha ao processar um vídeo (dados ausentes, video_id não encontrado, verificação
+    pós-escrita divergente, ou .h5 existente inválido sem --force para reextrair)."""
 
 
 @dataclass(frozen=True)
@@ -77,21 +79,65 @@ def run_dinov3_extract(
     batch_size: int = DEFAULT_BATCH_SIZE,
     backbone: torch.nn.Module | None = None,
     force: bool = False,
+    weights_sha256: str | None = None,
+    dinov3_repo_commit: str | None = None,
 ) -> Dinov3ExtractResult:
     from gatefall.dinov3.storage import (
         dinov3_path,
+        validate_existing_file,
         verify_written_file,
         write_dinov3_features_atomic,
     )
 
     output_path = dinov3_path(video_id, dinov3_root=adapter.dinov3_root)
-    if output_path.exists() and not force:
-        raise Dinov3ExtractSkipped(
-            f"skip {output_path} (já existe, use --force para sobrescrever)"
-        )
+
+    repo_dir = resolve_repo_dir(repo_dir_value)
+    weights_path = resolve_weights_path(weights_path_value)
+    ensure_backbone_paths_exist(repo_dir, weights_path)
+
+    resolved_weights_sha256 = (
+        weights_sha256 if weights_sha256 is not None else sha256_file(weights_path)
+    )
+    resolved_dinov3_repo_commit = (
+        dinov3_repo_commit
+        if dinov3_repo_commit is not None
+        else read_dinov3_repo_commit(repo_dir)
+    )
 
     src_indices = _select_src_indices(video_id, adapter=adapter)
     k = len(src_indices)
+
+    current_provenance: dict[str, object] = {
+        "model_name": MODEL_NAME,
+        "feature_dim": FEATURE_DIM,
+        "weights_sha256": resolved_weights_sha256,
+        "dinov3_repo_commit": resolved_dinov3_repo_commit,
+        "resize_height": RESIZE_SIZE,
+        "resize_width": RESIZE_SIZE,
+        "normalize_mean": np.array(NORMALIZE_MEAN, dtype=np.float64),
+        "normalize_std": np.array(NORMALIZE_STD, dtype=np.float64),
+        "target_fps": TARGET_FPS,
+    }
+
+    if output_path.exists():
+        reasons = validate_existing_file(
+            output_path,
+            expected_k=k,
+            feature_dim=FEATURE_DIM,
+            expected_attrs=current_provenance,
+        )
+        if not reasons and not force:
+            raise Dinov3ExtractSkipped(
+                f"skip {output_path} (já existe e é válido, use --force para "
+                "sobrescrever)"
+            )
+        if reasons and not force:
+            raise Dinov3ExtractError(
+                f"\ndinov3 extract FALHOU: {output_path} existe mas é inválido "
+                f"({'; '.join(reasons)}) — rode com --force para reextrair"
+            )
+        if reasons and force:
+            print(f"revalidando e reextraindo {output_path}: {'; '.join(reasons)}")
 
     manifest = adapter.load_manifest()
     manifest_row = cast(pd.DataFrame, manifest[manifest["video_id"] == video_id])
@@ -119,8 +165,6 @@ def run_dinov3_extract(
     resolved_device = device if device is not None else (
         "cuda" if torch.cuda.is_available() else "cpu"
     )
-    repo_dir = resolve_repo_dir(repo_dir_value)
-    weights_path = resolve_weights_path(weights_path_value)
 
     if backbone is None:
         backbone = load_backbone(repo_dir, weights_path, resolved_device)
@@ -142,17 +186,9 @@ def run_dinov3_extract(
         "fps": float(manifest_row["fps"]),
         "width": int(manifest_row["width"]),
         "height": int(manifest_row["height"]),
-        "target_fps": TARGET_FPS,
-        "model_name": MODEL_NAME,
-        "feature_dim": FEATURE_DIM,
-        "weights_sha256": sha256_file(weights_path),
-        "dinov3_repo_commit": read_dinov3_repo_commit(repo_dir),
-        "resize_height": RESIZE_SIZE,
-        "resize_width": RESIZE_SIZE,
-        "normalize_mean": np.array(NORMALIZE_MEAN, dtype=np.float64),
-        "normalize_std": np.array(NORMALIZE_STD, dtype=np.float64),
         "torch_version": str(torch.__version__),
         "torchvision_version": torchvision.__version__,
+        **current_provenance,
     }
 
     write_dinov3_features_atomic(output_path, features, attrs)
@@ -222,6 +258,8 @@ def run_dinov3_extract_all(
     repo_dir = resolve_repo_dir(repo_dir_value)
     weights_path = resolve_weights_path(weights_path_value)
     backbone = load_backbone(repo_dir, weights_path, device)
+    weights_sha256 = sha256_file(weights_path)
+    dinov3_repo_commit = read_dinov3_repo_commit(repo_dir)
 
     processed = 0
     skipped = 0
@@ -239,6 +277,8 @@ def run_dinov3_extract_all(
                 batch_size=batch_size,
                 backbone=backbone,
                 force=force,
+                weights_sha256=weights_sha256,
+                dinov3_repo_commit=dinov3_repo_commit,
             )
         except Dinov3ExtractSkipped as exc:
             skipped += 1
@@ -297,6 +337,23 @@ def main() -> None:
     )
     report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
 
+    audit_parser = subparsers.add_parser(
+        "audit", help="Audita a qualidade das features DINOv3 extraídas"
+    )
+    audit_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+
+    verify_determinism_parser = subparsers.add_parser(
+        "verify-determinism",
+        help="Roda a extração de um vídeo duas vezes e confere que as features batem",
+    )
+    verify_determinism_parser.add_argument("--video-id", required=True)
+    verify_determinism_parser.add_argument("--repo-dir", default=None)
+    verify_determinism_parser.add_argument("--weights", default=None)
+    verify_determinism_parser.add_argument(
+        "--batch-size", type=int, default=DEFAULT_BATCH_SIZE
+    )
+    verify_determinism_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+
     subparsers.add_parser(
         "selftest", help="Roda checagens sintéticas de pré-processamento e armazenamento"
     )
@@ -330,6 +387,20 @@ def main() -> None:
         from gatefall.dinov3.report import run_dinov3_report
 
         run_dinov3_report(adapter=adapter)
+    elif args.command == "audit":
+        from gatefall.dinov3.audit import run_dinov3_audit
+
+        run_dinov3_audit(adapter=adapter)
+    elif args.command == "verify-determinism":
+        from gatefall.dinov3.determinism import run_dinov3_verify_determinism
+
+        run_dinov3_verify_determinism(
+            args.video_id,
+            adapter=adapter,
+            repo_dir_value=args.repo_dir,
+            weights_path_value=args.weights,
+            batch_size=args.batch_size,
+        )
 
 
 if __name__ == "__main__":

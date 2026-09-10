@@ -7,6 +7,7 @@ import h5py
 import pandas as pd
 
 from gatefall.datasets import DatasetAdapter
+from gatefall.dinov3 import storage
 from gatefall.dinov3.storage import dinov3_path
 
 EXPECTED_VIDEO_COUNT = 190
@@ -18,6 +19,33 @@ def _check(name: str, condition: bool) -> bool:
     status = "PASS" if condition else "FAIL"
     print(f"[{status}] {name}")
     return condition
+
+
+def find_provenance_divergences(
+    attrs_by_video: dict[str, dict[str, object]]
+) -> list[str]:
+    if not attrs_by_video:
+        return []
+
+    video_ids = sorted(attrs_by_video)
+    reference_id = video_ids[0]
+    reference_attrs = attrs_by_video[reference_id]
+
+    divergences: list[str] = []
+    for video_id in video_ids[1:]:
+        attrs = attrs_by_video[video_id]
+        mismatched_names = [
+            name
+            for name in storage.PROVENANCE_ATTR_NAMES
+            if name in attrs
+            and name in reference_attrs
+            and not storage.attrs_equal(attrs[name], reference_attrs[name])
+        ]
+        if mismatched_names:
+            divergences.append(
+                f"{video_id} diverge de {reference_id} em {mismatched_names}"
+            )
+    return divergences
 
 
 def run_dinov3_report(adapter: DatasetAdapter) -> None:
@@ -39,6 +67,7 @@ def run_dinov3_report(adapter: DatasetAdapter) -> None:
     mismatched: list[str] = []
     frames_by_split: dict[str, int] = {}
     total_bytes = 0
+    attrs_by_video: dict[str, dict[str, object]] = {}
 
     for video_id, n_frames in group_sizes.items():
         video_id = str(video_id)
@@ -49,11 +78,18 @@ def run_dinov3_report(adapter: DatasetAdapter) -> None:
             continue
         with h5py.File(path, "r") as h5_file:
             k = int(cast(int, h5_file.attrs["K"]))
+            attrs_by_video[video_id] = {
+                name: h5_file.attrs[name]
+                for name in storage.PROVENANCE_ATTR_NAMES
+                if name in h5_file.attrs
+            }
         if k != int(n_frames):
             mismatched.append(f"{video_id} (K={k}, frames.parquet={int(n_frames)})")
             continue
         frames_by_split[split] = frames_by_split.get(split, 0) + k
         total_bytes += path.stat().st_size
+
+    divergences = find_provenance_divergences(attrs_by_video)
 
     n_videos = len(group_sizes)
     total_frames = sum(frames_by_split.values())
@@ -63,6 +99,8 @@ def run_dinov3_report(adapter: DatasetAdapter) -> None:
         print(f"\nvídeos sem .h5 de DINOv3 ({len(missing)}): {missing}")
     if mismatched:
         print(f"\nvídeos com K divergente ({len(mismatched)}): {mismatched}")
+    if divergences:
+        print(f"\ndivergências de proveniência ({len(divergences)}): {divergences}")
 
     print("\nquadros por split:")
     for split, expected in EXPECTED_SPLIT_FRAME_COUNTS.items():
@@ -77,6 +115,7 @@ def run_dinov3_report(adapter: DatasetAdapter) -> None:
         _check("nenhum .h5 ausente", not missing),
         _check("nenhum K divergente", not mismatched),
         _check(f"total de quadros == {EXPECTED_TOTAL_FRAMES}", total_frames == EXPECTED_TOTAL_FRAMES),
+        _check("proveniência idêntica em todos os .h5", not divergences),
     ]
     for split, expected in EXPECTED_SPLIT_FRAME_COUNTS.items():
         checks.append(

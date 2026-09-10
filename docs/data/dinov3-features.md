@@ -2,10 +2,11 @@
 
 `src/gatefall/dinov3/` implementa a extração offline de features visuais do
 braço B a partir do backbone congelado **DINOv3**. A CLI fina
-`src/gatefall/dinov3/extract.py` (`extract`, `extract-all`, `report`,
-`selftest`) opera sobre a mesma grade temporal (`frames.parquet`) e o mesmo
-manifesto usados pelo braço A — nenhuma janela ou split é recalculado aqui.
-Fusão com pose, treino e avaliação do braço B ainda não estão implementados.
+`src/gatefall/dinov3/extract.py` (`extract`, `extract-all`, `report`, `audit`,
+`verify-determinism`, `selftest`) opera sobre a mesma grade temporal
+(`frames.parquet`) e o mesmo manifesto usados pelo braço A — nenhuma janela
+ou split é recalculado aqui. Fusão com pose, treino e avaliação do braço B
+ainda não estão implementados.
 
 ## Backbone
 
@@ -33,6 +34,21 @@ Se o repositório ou o arquivo de pesos não existirem no caminho resolvido, a
 extração falha imediatamente com `FileNotFoundError`, apontando qual flag ou
 variável de ambiente usar — não há download automático nem inicialização
 aleatória do backbone que mascare a ausência dos artefatos locais.
+
+### Determinismo na inferência
+
+Antes de carregar o backbone, `configure_deterministic_inference()` fixa a
+seed do `torch` em `0`, ativa `torch.backends.cudnn.deterministic`,
+desativa `torch.backends.cudnn.benchmark` e desativa o TF32 tanto em
+`torch.backends.cuda.matmul.allow_tf32` quanto em
+`torch.backends.cudnn.allow_tf32`, além de chamar
+`torch.use_deterministic_algorithms(True, warn_only=True)`. O `warn_only=True`
+faz operações sem implementação determinística cair para um aviso em vez de
+lançar exceção, e por isso a variável de ambiente `CUBLAS_WORKSPACE_CONFIG`
+(necessária apenas para o modo estrito, sem `warn_only`) não é exigida aqui.
+Essa configuração torna a extração repetida do mesmo vídeo bit-idêntica em
+hardware/driver fixos; veja `verify-determinism` abaixo para a validação
+real dessa propriedade.
 
 ## Pré-processamento
 
@@ -89,8 +105,15 @@ repositório do DINOv3, nos pesos ou no dataset real.
 uv run python -m gatefall.dinov3.extract extract --video-id ID [--repo-dir DIR] [--weights PATH] [--batch-size N] [--force] [--dataset le2i]
 ```
 
-Extrai features de um único vídeo e grava o `.h5`. Pula vídeos já extraídos a
-menos que `--force` seja passado.
+Extrai features de um único vídeo e grava o `.h5`. Se já existir um `.h5`
+para o vídeo, ele só é pulado quando é válido: abre corretamente, tem o `K`
+esperado a partir de `frames.parquet`, shape `[K, 1536]` em `float16` e
+atributos de proveniência (`model_name`, `feature_dim`, `weights_sha256`,
+`dinov3_repo_commit`, `resize_height`, `resize_width`, `normalize_mean`,
+`normalize_std`, `target_fps`) idênticos aos da extração atual. Um `.h5`
+existente mas inválido faz o comando falhar (código de saída diferente de
+zero) sem reextrair, a menos que `--force` seja passado — nesse caso o
+motivo da invalidade é impresso e o arquivo é reextraído.
 
 ```bash
 uv run python -m gatefall.dinov3.extract extract-all [--repo-dir DIR] [--weights PATH] [--batch-size N] [--force] [--dataset le2i]
@@ -106,8 +129,37 @@ uv run python -m gatefall.dinov3.extract report [--dataset le2i]
 ```
 
 Valida a cobertura dos `.h5` já extraídos contra `frames.parquet`: vídeos
-ausentes, `K` divergente do número de quadros esperado, e contagem de
-quadros por split contra os totais esperados do Le2i.
+ausentes, `K` divergente do número de quadros esperado, contagem de quadros
+por split contra os totais esperados do Le2i, e homogeneidade de
+proveniência entre todos os `.h5` — os atributos `model_name`,
+`feature_dim`, `weights_sha256`, `dinov3_repo_commit`, `resize_height`,
+`resize_width`, `normalize_mean`, `normalize_std` e `target_fps` devem ser
+idênticos em todo arquivo extraído; qualquer divergência (por exemplo, uma
+extração parcial feita com pesos ou commit diferentes) faz o `report`
+falhar.
+
+```bash
+uv run python -m gatefall.dinov3.extract audit [--dataset le2i]
+```
+
+Audita a qualidade das features já extraídas, vídeo a vídeo e no dataset
+inteiro: ausência de valores não finitos (NaN/Inf), valor máximo absoluto
+frente ao teto do `float16` (65504 — apenas informativo, não falha o
+comando), variância por dimensão maior que zero (reporta dimensões mortas
+entre as 1536), ausência de linhas consecutivas duplicadas dentro do mesmo
+vídeo, contiguidade do `frame_index` (0..K-1) por vídeo contra
+`frames.parquet`, e `K` de DINOv3 igual ao `K` do `.h5` de pose
+correspondente.
+
+```bash
+uv run python -m gatefall.dinov3.extract verify-determinism --video-id ID [--repo-dir DIR] [--weights PATH] [--batch-size N] [--dataset le2i]
+```
+
+Reextrai um único vídeo duas vezes com `--force` e compara o hash SHA-256
+dos bytes brutos do array `features` entre as duas extrações. Exige backbone,
+pesos e GPU reais — **não faz parte do `selftest` nem de nenhuma checagem de
+CI**; é uma validação manual em hardware real de que a configuração de
+determinismo descrita acima realmente produz saídas bit-idênticas.
 
 ## Licença do DINOv3
 

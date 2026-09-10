@@ -39,7 +39,7 @@ def resolve_weights_path(cli_value: str | None) -> Path:
     return DEFAULT_WEIGHTS_PATH
 
 
-def load_backbone(repo_dir: Path, weights_path: Path, device: str) -> torch.nn.Module:
+def ensure_backbone_paths_exist(repo_dir: Path, weights_path: Path) -> None:
     if not repo_dir.exists():
         raise FileNotFoundError(
             f"repositório do DINOv3 não encontrado: {repo_dir} — passe "
@@ -52,6 +52,20 @@ def load_backbone(repo_dir: Path, weights_path: Path, device: str) -> torch.nn.M
             f"--weights, defina {WEIGHTS_PATH_ENV_VAR} ou baixe-os no caminho "
             "padrão antes de rodar a extração"
         )
+
+
+def configure_deterministic_inference() -> None:
+    torch.manual_seed(0)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+
+def load_backbone(repo_dir: Path, weights_path: Path, device: str) -> torch.nn.Module:
+    ensure_backbone_paths_exist(repo_dir, weights_path)
+    configure_deterministic_inference()
 
     model = cast(
         torch.nn.Module,
