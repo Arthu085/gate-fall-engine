@@ -58,8 +58,12 @@ As colunas são persistidas nesta ordem:
 | `sha256` | `string` | Hash do arquivo de vídeo |
 | `pose_status`, `dino_status`, `sam_status` | `string` | Estado de cada branch de features |
 
-Na ingestão, os três status começam como `pending`. A extração de pose do braço
-A está implementada; DINOv3 e SAM 3 continuam planejados para os braços B e C.
+Na ingestão, os três status começam como `pending`. A extração de pose do
+braço A está implementada; a extração offline de features DINOv3 do braço B
+também está implementada ([detalhes](dinov3-features.md)), mas nenhuma das
+duas atualiza estas colunas do manifesto — `pose_status` e `dino_status`
+permanecem `pending` independentemente da extração real ter rodado. SAM 3
+continua planejado para o braço C.
 
 Camadas posteriores resolvem `relative_path` contra `data/raw/le2i/`; não
 dependem de `absolute_path`, que é específico da máquina. Caminhos relativos

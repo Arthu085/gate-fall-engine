@@ -15,7 +15,7 @@
 | TCN | Codificador temporal causal do braço A |
 | MkDocs Material | Site desta documentação |
 | Pyright | Verificação estática obrigatória do Python |
-| DINOv3 | **Planejado** para embeddings visuais congelados do braço B |
+| DINOv3 | Backbone congelado ViT-B/16 (LVD-1689M); extração offline de embeddings visuais do braço B implementada, fusão e treino ainda pendentes |
 | SAM 3 | **Planejado** para descritores de máscara congelados do braço C |
 
 O pipeline é monocular RGB. YOLO-Pose não é ajustado durante o treino; somente
@@ -29,3 +29,11 @@ dependências, datasets, anotações, modelos e pesos pré-treinados podem ter
 licenças e restrições diferentes. Consulte as fontes oficiais antes de baixar,
 redistribuir ou usar esses materiais; a MIT não concede automaticamente
 direitos sobre eles.
+
+O código e os pesos do DINOv3 são regidos pela licença própria do DINOv3, não
+pela MIT deste repositório, e não são redistribuídos aqui — o repositório de
+referência é clonado localmente em `data/scratch/` (git-ignored), nunca
+vendorizado. Publicações que usem este trabalho devem reconhecer o uso de
+"DINO Materials", conforme exigido pela licença do DINOv3. Veja
+[Features DINOv3](../data/dinov3-features.md#licenca-do-dinov3) para os
+termos completos.

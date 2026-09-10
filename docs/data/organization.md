@@ -9,6 +9,7 @@ data/
 ├── labels/omnifall/{train,val,test,le2i}.csv e PROVENANCE.json
 ├── processed/le2i/{manifest,frames}.parquet
 ├── features/le2i/pose/<video_id>.h5
+├── features/le2i/dinov3/<env>/<video_name>.h5
 └── scratch/
 
 runs/
