@@ -11,16 +11,23 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "datasets>=5.0.1",
+    "ftfy>=6.3.1",
     "h5py>=3.16.0",
     "huggingface-hub>=1.28.0",
     "lap>=0.5.13",
     "numpy>=2.5.2",
+    "omegaconf>=2.3.1",
     "pandas>=3.0.5",
     "pillow>=12.3.0",
     "pyarrow>=25.0.1",
     "pyyaml>=6.0.3",
+    "regex>=2026.9.10",
+    "scikit-learn>=1.9.0",
+    "submitit>=1.5.4",
+    "termcolor>=3.3.0",
     "torch>=2.13.0",
     "torchmetrics>=1.9.0",
+    "torchvision>=0.28.0",
     "ultralytics>=8.4.131",
 ]
 
