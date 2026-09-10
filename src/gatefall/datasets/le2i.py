@@ -30,6 +30,8 @@ class Le2iDatasetAdapter:
     frames_path: Path = Path("data/processed/le2i/frames.parquet")
     pose_root: Path = Path("data/features/le2i/pose")
     pose_stats_path: Path = Path("src/gatefall/features/stats/pose_le2i_cs.json")
+    dinov3_root: Path = Path("data/features/le2i/dinov3")
+    dinov3_stats_path: Path = Path("src/gatefall/features/stats/dinov3_le2i_cs.json")
     label_names: tuple[str, ...] = LE2I_LABEL_NAMES
 
     def load_manifest(self) -> pd.DataFrame:
