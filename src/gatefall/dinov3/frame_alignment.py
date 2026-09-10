@@ -101,6 +101,7 @@ def run_dinov3_verify_frame_alignment(
     video_paths = adapter.video_paths()
 
     failures: list[str] = []
+    inconclusive_count = 0
     for video_id in video_ids:
         try:
             src_indices = select_src_indices(video_id, adapter=adapter)
@@ -146,6 +147,7 @@ def run_dinov3_verify_frame_alignment(
                 f"distances={distances}"
             )
             if inconclusive:
+                inconclusive_count += 1
                 print(
                     f"{video_id} k={position}: empate exato com {inconclusive} "
                     "— inconclusivo, não tratado como falha"
@@ -166,7 +168,16 @@ def run_dinov3_verify_frame_alignment(
         for message in failures:
             print(f"  {message}", file=sys.stderr)
         sys.exit(1)
-    print(
-        "\ndinov3 verify-frame-alignment OK: todas as posições amostradas "
-        "batem e são discriminativas"
-    )
+    if inconclusive_count == 0:
+        print(
+            "\ndinov3 verify-frame-alignment OK: todas as posições amostradas "
+            "batem e são discriminativas"
+        )
+    else:
+        plural = "posições" if inconclusive_count > 1 else "posição"
+        print(
+            "\ndinov3 verify-frame-alignment OK: todas as posições amostradas "
+            f"batem, mas {inconclusive_count} {plural} amostrada(s) "
+            "foi(ram) inconclusiva(s) por empate exato, não conta(m) como "
+            "confirmação discriminativa"
+        )

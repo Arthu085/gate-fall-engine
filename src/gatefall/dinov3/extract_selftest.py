@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from gatefall.datasets import DatasetAdapter
 from gatefall.datasets.le2i import Le2iDatasetAdapter
 from gatefall.dinov3 import storage
 from gatefall.dinov3.audit import (
@@ -28,10 +29,11 @@ from gatefall.dinov3.backbone import (
     configure_deterministic_inference,
 )
 from gatefall.dinov3.determinism import (
-    _adapter_with_dinov3_root,
+    adapter_with_dinov3_root,
     resolve_verify_determinism_output_root,
+    run_dinov3_verify_determinism,
 )
-from gatefall.dinov3.features import compute_features
+from gatefall.dinov3.features import Dinov3Backbone, compute_features
 from gatefall.dinov3.frame_alignment import (
     check_discriminative_match,
     grid_positions,
@@ -528,7 +530,7 @@ def _run_frame_alignment_and_get_exit_code(
     *,
     adapter: Le2iDatasetAdapter,
     video_ids: tuple[str, ...],
-    backbone: _IndexAwareFakeBackbone,
+    backbone: Dinov3Backbone,
     decode_single_frame: Callable[[Path, int], np.ndarray],
 ) -> int | None:
     try:
@@ -580,6 +582,118 @@ def _check_run_dinov3_verify_frame_alignment_shifted() -> bool:
     return _check(
         "run_dinov3_verify_frame_alignment: quadro decodificado deslocado "
         "de uma posição é reportado como falha", ok
+    )
+
+
+class _FinelySpacedFakeBackbone:
+    """Backbone sintético cujo valor de saída difere entre posições vizinhas
+    por apenas alguns ULPs de float16 na magnitude de `base`, em vez de um
+    passo cheio de intensidade de pixel — simula um deslocamento de quadro
+    sutil o bastante para passar na checagem de tolerância isoladamente."""
+
+    def __init__(
+        self, reference_means: list[float], *, base: float, fine_step: float
+    ) -> None:
+        self._reference_means = reference_means
+        self._base = base
+        self._fine_step = fine_step
+
+    def forward_features(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+        mean_pixel = x.mean(dim=(1, 2, 3))
+        batch_size = x.shape[0]
+        outputs = [
+            self._base
+            + self._fine_step
+            * min(
+                range(len(self._reference_means)),
+                key=lambda i: abs(self._reference_means[i] - value),
+            )
+            for value in mean_pixel.tolist()
+        ]
+        output_tensor = torch.tensor(outputs, dtype=torch.float32)
+        cls_token = output_tensor.view(batch_size, 1).expand(batch_size, 768).clone()
+        patch_tokens = (
+            output_tensor.view(batch_size, 1, 1).expand(batch_size, 4, 768).clone()
+        )
+        return {"x_norm_clstoken": cls_token, "x_norm_patchtokens": patch_tokens}
+
+
+def _build_fine_grid_frame_alignment_fixture(
+    root: Path, *, video_id: str, k: int, backbone: Dinov3Backbone
+) -> Le2iDatasetAdapter:
+    env, _, video_name = video_id.partition("/")
+    raw_dir = root / "raw"
+    manifest_path = root / "manifest.parquet"
+    frames_path = root / "frames.parquet"
+    dinov3_root = root / "dinov3"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    pd.DataFrame(
+        {
+            "video_id": [video_id] * k,
+            "frame_index": list(range(k)),
+            "src_index": list(range(k)),
+        }
+    ).to_parquet(frames_path)
+    pd.DataFrame(
+        {"video_id": [video_id], "relative_path": [f"{env}/{video_name}.avi"]}
+    ).to_parquet(manifest_path)
+
+    stored = np.zeros((k, FEATURE_DIM), dtype=np.float16)
+    for position in range(k):
+        frame = _frame_for_src_index(position)
+        batch = preprocess_frames([frame])
+        stored[position] = compute_features(backbone, batch)[0]
+    write_dinov3_features_atomic(
+        dinov3_path(video_id, dinov3_root=dinov3_root), stored, {"K": k}
+    )
+
+    return Le2iDatasetAdapter(
+        raw_dir=raw_dir,
+        manifest_path=manifest_path,
+        frames_path=frames_path,
+        dinov3_root=dinov3_root,
+    )
+
+
+def _check_run_dinov3_verify_frame_alignment_shifted_within_tolerance() -> bool:
+    k = 3
+    base = float(np.float16(5.0))
+    fine_step = float(np.spacing(np.float16(5.0)))
+    reference_means = [
+        float(preprocess_frames([_frame_for_src_index(position)]).mean().item())
+        for position in range(k)
+    ]
+    backbone = _FinelySpacedFakeBackbone(reference_means, base=base, fine_step=fine_step)
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        video_id = "env1/video1"
+        adapter = _build_fine_grid_frame_alignment_fixture(
+            Path(temporary_dir), video_id=video_id, k=k, backbone=backbone
+        )
+        stored = storage.read_features(
+            dinov3_path(video_id, dinov3_root=adapter.dinov3_root)
+        )
+
+        shifted_batch = preprocess_frames([_frame_for_src_index(2)])
+        shifted_fresh = compute_features(backbone, shifted_batch)[0]
+        tolerance_alone_passes, _, _ = max_abs_diff_within_tolerance(
+            shifted_fresh, stored[1]
+        )
+
+        exit_code = _run_frame_alignment_and_get_exit_code(
+            adapter=adapter,
+            video_ids=(video_id,),
+            backbone=backbone,
+            decode_single_frame=lambda path, index: _frame_for_src_index(index + 1),
+        )
+
+    ok = tolerance_alone_passes and exit_code == 1
+    return _check(
+        "run_dinov3_verify_frame_alignment: deslocamento de um quadro sutil "
+        "(poucos ULPs de float16) passa isoladamente na checagem de "
+        "tolerância, mas ainda é pego pela checagem discriminativa por "
+        "ficar mais próximo da linha vizinha do que da posição correta", ok
     )
 
 
@@ -643,7 +757,7 @@ def _check_run_dinov3_verify_frame_alignment_missing_h5() -> bool:
 def _check_adapter_with_dinov3_root() -> bool:
     base = Le2iDatasetAdapter()
     replacement_root = Path("/tmp/synthetic-dinov3-root")
-    replaced = _adapter_with_dinov3_root(base, replacement_root)
+    replaced = adapter_with_dinov3_root(base, replacement_root)
 
     ok = (
         replaced.dinov3_root == replacement_root
@@ -657,7 +771,7 @@ def _check_adapter_with_dinov3_root() -> bool:
         and replaced.label_names == base.label_names
     )
     return _check(
-        "_adapter_with_dinov3_root: troca só dinov3_root, mantendo os "
+        "adapter_with_dinov3_root: troca só dinov3_root, mantendo os "
         "demais campos idênticos ao adapter base", ok
     )
 
@@ -683,21 +797,51 @@ def _check_resolve_verify_determinism_output_root() -> bool:
     )
     other_ok = other_value_root == other_root and other_mode == "non_canonical"
 
-    with tempfile.TemporaryDirectory(
-        prefix="gatefall-dinov3-verify-determinism-"
-    ) as temporary_dir:
-        ephemeral_path = Path(temporary_dir).resolve()
-    resolved_canonical = canonical_root.resolve()
-    ephemeral_disjoint_ok = (
-        ephemeral_path != resolved_canonical
-        and resolved_canonical not in ephemeral_path.parents
-    )
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        real_dinov3_root = Path(temporary_dir) / "dinov3"
+        adapter = Le2iDatasetAdapter(dinov3_root=real_dinov3_root)
 
-    ok = default_ok and canonical_ok and other_ok and ephemeral_disjoint_ok
+        recorded_roots: list[Path] = []
+
+        def spy_run_verify(
+            video_id: str,
+            *,
+            adapter: DatasetAdapter,
+            output_root: Path,
+            repo_dir_value: str | None,
+            weights_path_value: str | None,
+            batch_size: int,
+        ) -> None:
+            recorded_roots.append(output_root)
+
+        run_dinov3_verify_determinism(
+            "env1/video1",
+            adapter=adapter,
+            repo_dir_value=None,
+            weights_path_value=None,
+            run_verify=spy_run_verify,
+        )
+
+        ephemeral_root_disjoint_ok = (
+            len(recorded_roots) == 1
+            and recorded_roots[0].resolve() != real_dinov3_root.resolve()
+            and real_dinov3_root.resolve() not in recorded_roots[0].resolve().parents
+        )
+        nothing_written_ok = not real_dinov3_root.exists()
+
+    ok = (
+        default_ok
+        and canonical_ok
+        and other_ok
+        and ephemeral_root_disjoint_ok
+        and nothing_written_ok
+    )
     return _check(
         "resolve_verify_determinism_output_root: modo padrão não referencia "
         "dinov3_root e é efêmero; --output-dir igual ao canônico é "
-        "identificado como CANÔNICO; outro caminho é NÃO CANÔNICO", ok
+        "identificado como CANÔNICO; outro caminho é NÃO CANÔNICO; e "
+        "run_dinov3_verify_determinism em modo padrão não escreve nada sob "
+        "adapter.dinov3_root", ok
     )
 
 
@@ -718,6 +862,7 @@ def run_dinov3_selftest() -> None:
         _check_check_discriminative_match(),
         _check_run_dinov3_verify_frame_alignment_happy_path(),
         _check_run_dinov3_verify_frame_alignment_shifted(),
+        _check_run_dinov3_verify_frame_alignment_shifted_within_tolerance(),
         _check_run_dinov3_verify_frame_alignment_k_mismatch(),
         _check_run_dinov3_verify_frame_alignment_missing_manifest_row(),
         _check_run_dinov3_verify_frame_alignment_missing_h5(),

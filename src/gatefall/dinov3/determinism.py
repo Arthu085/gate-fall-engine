@@ -3,6 +3,7 @@
 import sys
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from gatefall.datasets import DatasetAdapter
 from gatefall.datasets.le2i import Le2iDatasetAdapter
@@ -11,7 +12,7 @@ from gatefall.dinov3.storage import dinov3_path, read_features
 from gatefall.hashing import sha256_array
 
 
-def _adapter_with_dinov3_root(adapter: DatasetAdapter, dinov3_root: Path) -> DatasetAdapter:
+def adapter_with_dinov3_root(adapter: DatasetAdapter, dinov3_root: Path) -> DatasetAdapter:
     return Le2iDatasetAdapter(
         identifier=adapter.identifier,
         raw_dir=adapter.raw_dir,
@@ -34,7 +35,7 @@ def _run_verify(
     weights_path_value: str | None,
     batch_size: int,
 ) -> None:
-    verify_adapter = _adapter_with_dinov3_root(adapter, output_root)
+    verify_adapter = adapter_with_dinov3_root(adapter, output_root)
     output_path = dinov3_path(video_id, dinov3_root=verify_adapter.dinov3_root)
 
     run_dinov3_extract(
@@ -88,7 +89,9 @@ def run_dinov3_verify_determinism(
     weights_path_value: str | None,
     batch_size: int = DEFAULT_BATCH_SIZE,
     output_dir_value: str | None = None,
+    run_verify: Callable[..., None] | None = None,
 ) -> None:
+    run_verify_fn = run_verify or _run_verify
     output_root, mode = resolve_verify_determinism_output_root(
         output_dir_value, canonical_root=adapter.dinov3_root
     )
@@ -101,7 +104,7 @@ def run_dinov3_verify_determinism(
             )
         else:
             print(f"\nmodo NÃO CANÔNICO — diretório explícito {output_root}")
-        _run_verify(
+        run_verify_fn(
             video_id,
             adapter=adapter,
             output_root=output_root,
@@ -120,7 +123,7 @@ def run_dinov3_verify_determinism(
             f"{output_root} (use --output-dir para apontar para outro "
             "caminho, inclusive o canônico)"
         )
-        _run_verify(
+        run_verify_fn(
             video_id,
             adapter=adapter,
             output_root=output_root,

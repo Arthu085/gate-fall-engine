@@ -219,8 +219,8 @@ quadro e comparando com a linha armazenada no `.h5`:
   da linha esperada do que das linhas vizinhas (posições `k-1` e `k+1`) —
   é essa checagem que pegaria um deslocamento sistemático de um quadro, que
   passaria despercebido pelas demais. Um empate exato de distância contra
-  uma vizinha é reportado como inconclusivo, não como falha — evita um
-  falso negativo quando duas linhas armazenadas coincidem por acaso.
+  uma vizinha é reportado como inconclusivo, não como falha — evita uma
+  falha espúria quando duas linhas armazenadas coincidem por acaso.
 
 Exige backbone, pesos e GPU reais, como `verify-determinism`; **não faz
 parte do `selftest` nem de nenhuma checagem de CI** e nunca grava em
