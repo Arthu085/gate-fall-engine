@@ -69,6 +69,17 @@ def _run_verify(
     print(f"\ndinov3 verify-determinism OK: hashes idênticos para {video_id}")
 
 
+def resolve_verify_determinism_output_root(
+    output_dir_value: str | None, *, canonical_root: Path
+) -> tuple[Path | None, str]:
+    if output_dir_value is None:
+        return None, "ephemeral"
+    output_root = Path(output_dir_value)
+    if output_root.resolve() == canonical_root.resolve():
+        return output_root, "canonical"
+    return output_root, "non_canonical"
+
+
 def run_dinov3_verify_determinism(
     video_id: str,
     *,
@@ -78,10 +89,13 @@ def run_dinov3_verify_determinism(
     batch_size: int = DEFAULT_BATCH_SIZE,
     output_dir_value: str | None = None,
 ) -> None:
-    if output_dir_value is not None:
-        output_root = Path(output_dir_value)
-        canonical = output_root.resolve() == adapter.dinov3_root.resolve()
-        if canonical:
+    output_root, mode = resolve_verify_determinism_output_root(
+        output_dir_value, canonical_root=adapter.dinov3_root
+    )
+
+    if mode != "ephemeral":
+        assert output_root is not None
+        if mode == "canonical":
             print(
                 f"\nmodo CANÔNICO — sobrescrevendo o dataset real em {output_root}"
             )

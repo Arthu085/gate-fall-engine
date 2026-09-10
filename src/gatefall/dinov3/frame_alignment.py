@@ -1,7 +1,8 @@
 """Confere que decode_frames retorna o quadro correto para o src_index solicitado."""
 
 import sys
-from typing import cast
+from pathlib import Path
+from typing import Callable, cast
 
 import numpy as np
 import torch
@@ -56,19 +57,26 @@ def check_discriminative_match(
     *,
     stored_prev: np.ndarray | None,
     stored_next: np.ndarray | None,
-) -> tuple[bool, dict[str, float]]:
+) -> tuple[bool, dict[str, float], list[str]]:
     def dist(a: np.ndarray, b: np.ndarray) -> float:
         return float(np.linalg.norm(a.astype(np.float64) - b.astype(np.float64)))
 
     distances = {"self": dist(fresh, stored_at_position)}
     ok = True
+    inconclusive: list[str] = []
     if stored_prev is not None:
         distances["prev"] = dist(fresh, stored_prev)
-        ok = ok and distances["self"] < distances["prev"]
+        if distances["self"] > distances["prev"]:
+            ok = False
+        elif distances["self"] == distances["prev"]:
+            inconclusive.append("prev")
     if stored_next is not None:
         distances["next"] = dist(fresh, stored_next)
-        ok = ok and distances["self"] < distances["next"]
-    return ok, distances
+        if distances["self"] > distances["next"]:
+            ok = False
+        elif distances["self"] == distances["next"]:
+            inconclusive.append("next")
+    return ok, distances, inconclusive
 
 
 def run_dinov3_verify_frame_alignment(
@@ -77,13 +85,19 @@ def run_dinov3_verify_frame_alignment(
     repo_dir_value: str | None,
     weights_path_value: str | None,
     video_ids: tuple[str, ...] = FIXED_SAMPLE_VIDEO_IDS,
+    backbone: Dinov3Backbone | None = None,
+    decode_single_frame: Callable[[Path, int], np.ndarray] | None = None,
 ) -> None:
-    repo_dir = resolve_repo_dir(repo_dir_value)
-    weights_path = resolve_weights_path(weights_path_value)
-    ensure_backbone_paths_exist(repo_dir, weights_path)
-    configure_deterministic_inference()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    backbone = load_backbone(repo_dir, weights_path, device)
+    if backbone is None:
+        repo_dir = resolve_repo_dir(repo_dir_value)
+        weights_path = resolve_weights_path(weights_path_value)
+        ensure_backbone_paths_exist(repo_dir, weights_path)
+        configure_deterministic_inference()
+        backbone = cast(Dinov3Backbone, load_backbone(repo_dir, weights_path, device))
+    decode_single_frame = decode_single_frame or (
+        lambda path, index: decode_frames(path, [index])[0]
+    )
     video_paths = adapter.video_paths()
 
     failures: list[str] = []
@@ -94,7 +108,16 @@ def run_dinov3_verify_frame_alignment(
             failures.append(str(exc))
             continue
         k = len(src_indices)
-        stored = storage.read_features(dinov3_path(video_id, dinov3_root=adapter.dinov3_root))
+        if video_id not in video_paths:
+            failures.append(f"{video_id}: ausente do manifesto (video_paths)")
+            continue
+        try:
+            stored = storage.read_features(
+                dinov3_path(video_id, dinov3_root=adapter.dinov3_root)
+            )
+        except (OSError, KeyError) as exc:
+            failures.append(f"{video_id}: falha ao ler .h5 ({exc})")
+            continue
         if stored.shape[0] != k:
             failures.append(
                 f"{video_id}: K armazenado ({stored.shape[0]}) != frames.parquet ({k})"
@@ -103,9 +126,9 @@ def run_dinov3_verify_frame_alignment(
 
         for position in grid_positions(k):
             src_index = src_indices[position]
-            frames_rgb = decode_frames(video_paths[video_id], [src_index])
-            batch = preprocess_frames(frames_rgb).to(device)
-            fresh = compute_features(cast(Dinov3Backbone, backbone), batch)[0]
+            fresh_frame = decode_single_frame(video_paths[video_id], src_index)
+            batch = preprocess_frames([fresh_frame]).to(device)
+            fresh = compute_features(backbone, batch)[0]
             stored_row = stored[position]
 
             within_tol, max_abs_diff, tolerance = max_abs_diff_within_tolerance(
@@ -113,7 +136,7 @@ def run_dinov3_verify_frame_alignment(
             )
             stored_prev = stored[position - 1] if position > 0 else None
             stored_next = stored[position + 1] if position < k - 1 else None
-            discriminative_ok, distances = check_discriminative_match(
+            discriminative_ok, distances, inconclusive = check_discriminative_match(
                 fresh, stored_row, stored_prev=stored_prev, stored_next=stored_next
             )
 
@@ -122,6 +145,11 @@ def run_dinov3_verify_frame_alignment(
                 f"max_abs_diff={max_abs_diff:.6f} (tolerância={tolerance:.6f}), "
                 f"distances={distances}"
             )
+            if inconclusive:
+                print(
+                    f"{video_id} k={position}: empate exato com {inconclusive} "
+                    "— inconclusivo, não tratado como falha"
+                )
             if not within_tol:
                 failures.append(
                     f"{video_id} k={position}: max_abs_diff {max_abs_diff:.6f} "

@@ -156,10 +156,13 @@ ausentes, `K` divergente do número de quadros esperado, contagem de quadros
 por split contra os totais esperados do Le2i, e homogeneidade de
 proveniência entre todos os `.h5` — os atributos `model_name`,
 `feature_dim`, `weights_sha256`, `dinov3_repo_commit`, `resize_height`,
-`resize_width`, `normalize_mean`, `normalize_std` e `target_fps` devem ser
-idênticos em todo arquivo extraído; qualquer divergência (por exemplo, uma
-extração parcial feita com pesos ou commit diferentes) faz o `report`
-falhar.
+`resize_width`, `normalize_mean`, `normalize_std` e `target_fps` devem
+estar presentes e idênticos em todo arquivo extraído, inclusive quando há
+um único vídeo no dataset ou quando o atributo está ausente de todos os
+arquivos ao mesmo tempo; qualquer divergência ou ausência (por exemplo,
+uma extração parcial feita com pesos ou commit diferentes, ou um `.h5`
+gravado por uma versão antiga do extrator sem algum atributo) faz o
+`report` falhar.
 
 ```bash
 uv run python -m gatefall.dinov3.extract audit [--dataset le2i]
@@ -205,11 +208,19 @@ quadro e comparando com a linha armazenada no `.h5`:
 
 - **tolerância**: a diferença absoluta máxima contra a linha esperada deve
   ficar dentro de `ULP_TOLERANCE_MULTIPLE = 2.0` vezes o ULP do `float16` no
-  valor observado;
+  valor observado. O vetor recomputado e a linha armazenada já são ambos
+  `float16` (`compute_features` sempre converte para `float16` antes de
+  retornar), então redecodificar exatamente o mesmo quadro já dá
+  `max_abs_diff == 0`; a tolerância baseada em ULP existe como margem para
+  não associatividade de ponto flutuante entre a extração em lote original e
+  esta reinferência quadro a quadro (tamanho de batch e kernels de GPU
+  diferentes), não por diferença de precisão entre os dois lados;
 - **discriminação**: o vetor recomputado deve ser estritamente mais próximo
   da linha esperada do que das linhas vizinhas (posições `k-1` e `k+1`) —
   é essa checagem que pegaria um deslocamento sistemático de um quadro, que
-  passaria despercebido pelas demais.
+  passaria despercebido pelas demais. Um empate exato de distância contra
+  uma vizinha é reportado como inconclusivo, não como falha — evita um
+  falso negativo quando duas linhas armazenadas coincidem por acaso.
 
 Exige backbone, pesos e GPU reais, como `verify-determinism`; **não faz
 parte do `selftest` nem de nenhuma checagem de CI** e nunca grava em

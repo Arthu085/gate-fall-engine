@@ -32,19 +32,28 @@ def find_provenance_divergences(
     reference_attrs = attrs_by_video[reference_id]
 
     divergences: list[str] = []
+    missing_by_video: dict[str, set[str]] = {video_id: set() for video_id in video_ids}
+    for video_id in video_ids:
+        attrs = attrs_by_video[video_id]
+        missing_names = [
+            name for name in storage.PROVENANCE_ATTR_NAMES if name not in attrs
+        ]
+        if missing_names:
+            missing_by_video[video_id] = set(missing_names)
+            divergences.append(
+                f"{video_id}: atributo(s) de proveniência ausente(s): "
+                f"{', '.join(missing_names)}"
+            )
+
     for video_id in video_ids[1:]:
         attrs = attrs_by_video[video_id]
         reasons: list[str] = []
         for name in storage.PROVENANCE_ATTR_NAMES:
-            in_candidate = name in attrs
-            in_reference = name in reference_attrs
-            if in_candidate and in_reference:
+            if name in missing_by_video[video_id] or name in missing_by_video[reference_id]:
+                continue
+            if name in attrs and name in reference_attrs:
                 if not storage.attrs_equal(attrs[name], reference_attrs[name]):
                     reasons.append(f"'{name}' com valor divergente")
-            elif in_candidate and not in_reference:
-                reasons.append(f"'{name}' ausente em {reference_id}")
-            elif in_reference and not in_candidate:
-                reasons.append(f"'{name}' ausente em {video_id}")
         if reasons:
             divergences.append(
                 f"{video_id} diverge de {reference_id}: {'; '.join(reasons)}"

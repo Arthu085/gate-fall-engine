@@ -7,10 +7,14 @@ sintéticas.
 import sys
 import tempfile
 from pathlib import Path
+from typing import Callable, cast
 
 import numpy as np
+import pandas as pd
 import torch
 
+from gatefall.datasets.le2i import Le2iDatasetAdapter
+from gatefall.dinov3 import storage
 from gatefall.dinov3.audit import (
     DimensionStatsAccumulator,
     count_duplicate_consecutive_rows,
@@ -23,16 +27,22 @@ from gatefall.dinov3.backbone import (
     RESIZE_SIZE,
     configure_deterministic_inference,
 )
+from gatefall.dinov3.determinism import (
+    _adapter_with_dinov3_root,
+    resolve_verify_determinism_output_root,
+)
 from gatefall.dinov3.features import compute_features
 from gatefall.dinov3.frame_alignment import (
     check_discriminative_match,
     grid_positions,
     max_abs_diff_within_tolerance,
+    run_dinov3_verify_frame_alignment,
 )
 from gatefall.dinov3.preprocessing import preprocess_frames
 from gatefall.dinov3.report import find_provenance_divergences
 from gatefall.dinov3.storage import (
     Dinov3StorageError,
+    dinov3_path,
     validate_existing_file,
     verify_written_file,
     write_dinov3_features_atomic,
@@ -213,16 +223,24 @@ def _check_audit_helpers() -> bool:
     )
 
 
+def _full_provenance_attrs(**overrides: object) -> dict[str, object]:
+    attrs: dict[str, object] = {
+        name: f"valor-{name}" for name in storage.PROVENANCE_ATTR_NAMES
+    }
+    attrs.update(overrides)
+    return attrs
+
+
 def _check_provenance_divergences() -> bool:
     homogeneous: dict[str, dict[str, object]] = {
-        "env1/v1": {"weights_sha256": "abc", "model_name": "dinov3_vitb16"},
-        "env1/v2": {"weights_sha256": "abc", "model_name": "dinov3_vitb16"},
+        "env1/v1": _full_provenance_attrs(),
+        "env1/v2": _full_provenance_attrs(),
     }
     homogeneous_ok = find_provenance_divergences(homogeneous) == []
 
     heterogeneous: dict[str, dict[str, object]] = {
-        "env1/v1": {"weights_sha256": "abc", "model_name": "dinov3_vitb16"},
-        "env1/v2": {"weights_sha256": "different", "model_name": "dinov3_vitb16"},
+        "env1/v1": _full_provenance_attrs(),
+        "env1/v2": _full_provenance_attrs(weights_sha256="different"),
     }
     divergences = find_provenance_divergences(heterogeneous)
     heterogeneous_ok = len(divergences) == 1 and "env1/v2" in divergences[0]
@@ -236,31 +254,81 @@ def _check_provenance_divergences() -> bool:
 
 def _check_provenance_divergences_missing_attribute() -> bool:
     missing_in_reference: dict[str, dict[str, object]] = {
-        "env1/v1": {"model_name": "dinov3_vitb16"},
-        "env1/v2": {"model_name": "dinov3_vitb16", "weights_sha256": "abc"},
+        "env1/v1": {
+            key: value
+            for key, value in _full_provenance_attrs().items()
+            if key != "weights_sha256"
+        },
+        "env1/v2": _full_provenance_attrs(),
     }
     divergences_missing_in_reference = find_provenance_divergences(missing_in_reference)
     missing_in_reference_ok = (
         len(divergences_missing_in_reference) == 1
         and "weights_sha256" in divergences_missing_in_reference[0]
-        and "ausente em env1/v1" in divergences_missing_in_reference[0]
+        and "env1/v1" in divergences_missing_in_reference[0]
     )
 
     missing_in_candidate: dict[str, dict[str, object]] = {
-        "env1/v1": {"model_name": "dinov3_vitb16", "weights_sha256": "abc"},
-        "env1/v2": {"model_name": "dinov3_vitb16"},
+        "env1/v1": _full_provenance_attrs(),
+        "env1/v2": {
+            key: value
+            for key, value in _full_provenance_attrs().items()
+            if key != "weights_sha256"
+        },
     }
     divergences_missing_in_candidate = find_provenance_divergences(missing_in_candidate)
     missing_in_candidate_ok = (
         len(divergences_missing_in_candidate) == 1
         and "weights_sha256" in divergences_missing_in_candidate[0]
-        and "ausente em env1/v2" in divergences_missing_in_candidate[0]
+        and "env1/v2" in divergences_missing_in_candidate[0]
     )
 
     ok = missing_in_reference_ok and missing_in_candidate_ok
     return _check(
         "find_provenance_divergences: atributo ausente em apenas um dos "
         "arquivos (referência ou candidato) é reportado como divergência", ok
+    )
+
+
+def _check_provenance_divergences_missing_from_every_file() -> bool:
+    missing_everywhere: dict[str, dict[str, object]] = {
+        "env1/v1": {
+            key: value
+            for key, value in _full_provenance_attrs().items()
+            if key != "weights_sha256"
+        },
+        "env1/v2": {
+            key: value
+            for key, value in _full_provenance_attrs().items()
+            if key != "weights_sha256"
+        },
+    }
+    divergences = find_provenance_divergences(missing_everywhere)
+    missing_everywhere_ok = (
+        len(divergences) == 2
+        and all("weights_sha256" in message for message in divergences)
+    )
+
+    single_video_with_missing_attribute: dict[str, dict[str, object]] = {
+        "env1/v1": {
+            key: value
+            for key, value in _full_provenance_attrs().items()
+            if key != "weights_sha256"
+        },
+    }
+    single_video_divergences = find_provenance_divergences(
+        single_video_with_missing_attribute
+    )
+    single_video_ok = (
+        len(single_video_divergences) == 1
+        and "weights_sha256" in single_video_divergences[0]
+        and "env1/v1" in single_video_divergences[0]
+    )
+
+    ok = missing_everywhere_ok and single_video_ok
+    return _check(
+        "find_provenance_divergences: atributo ausente em todos os arquivos "
+        "(inclusive a referência) e dataset de um único vídeo são reportados", ok
     )
 
 
@@ -310,24 +378,38 @@ def _check_check_discriminative_match() -> bool:
     stored_prev = np.array([10.0, 20.0, 30.0], dtype=np.float32)
     stored_next = np.array([-10.0, -20.0, -30.0], dtype=np.float32)
 
-    match_ok, _ = check_discriminative_match(
+    match_ok, _, match_inconclusive = check_discriminative_match(
         stored_at_position,
         stored_at_position,
         stored_prev=stored_prev,
         stored_next=stored_next,
     )
 
-    shifted_ok, _ = check_discriminative_match(
+    shifted_ok, _, _ = check_discriminative_match(
         stored_next,
         stored_at_position,
         stored_prev=stored_prev,
         stored_next=stored_next,
     )
 
-    ok = match_ok and not shifted_ok
+    tie_ok, _, tie_inconclusive = check_discriminative_match(
+        stored_at_position,
+        stored_at_position,
+        stored_prev=stored_prev,
+        stored_next=stored_at_position.copy(),
+    )
+
+    ok = (
+        match_ok
+        and not match_inconclusive
+        and not shifted_ok
+        and tie_ok
+        and tie_inconclusive == ["next"]
+    )
     return _check(
         "check_discriminative_match: vetor recomputado igual ao esperado "
-        "passa; simulação de deslocamento de um quadro falha", ok
+        "passa; simulação de deslocamento de um quadro falha; empate exato "
+        "com uma vizinha é inconclusivo, não falha", ok
     )
 
 
@@ -370,6 +452,255 @@ def _check_validate_existing_file() -> bool:
     )
 
 
+class _IndexAwareFakeBackbone:
+    def forward_features(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+        mean_pixel = x.mean(dim=(1, 2, 3))
+        batch_size = x.shape[0]
+        cls_token = mean_pixel.view(batch_size, 1).expand(batch_size, 768).clone()
+        patch_tokens = (
+            mean_pixel.view(batch_size, 1, 1).expand(batch_size, 4, 768).clone()
+        )
+        return {"x_norm_clstoken": cls_token, "x_norm_patchtokens": patch_tokens}
+
+
+def _frame_for_src_index(src_index: int) -> np.ndarray:
+    value = min(255, (src_index + 1) * 10)
+    return np.full((8, 8, 3), value, dtype=np.uint8)
+
+
+def _build_frame_alignment_fixture(
+    root: Path,
+    *,
+    video_id: str,
+    k: int,
+    include_manifest_row: bool = True,
+    include_h5: bool = True,
+    h5_row_count: int | None = None,
+    stored_row_src_index: Callable[[int], int] | None = None,
+) -> Le2iDatasetAdapter:
+    env, _, video_name = video_id.partition("/")
+    raw_dir = root / "raw"
+    manifest_path = root / "manifest.parquet"
+    frames_path = root / "frames.parquet"
+    dinov3_root = root / "dinov3"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    pd.DataFrame(
+        {
+            "video_id": [video_id] * k,
+            "frame_index": list(range(k)),
+            "src_index": list(range(k)),
+        }
+    ).to_parquet(frames_path)
+
+    if include_manifest_row:
+        pd.DataFrame(
+            {
+                "video_id": [video_id],
+                "relative_path": [f"{env}/{video_name}.avi"],
+            }
+        ).to_parquet(manifest_path)
+    else:
+        pd.DataFrame({"video_id": [], "relative_path": []}).to_parquet(manifest_path)
+
+    if include_h5:
+        row_count = h5_row_count if h5_row_count is not None else k
+        resolve_src_index = stored_row_src_index or (lambda position: position)
+        backbone = _IndexAwareFakeBackbone()
+        stored = np.zeros((row_count, FEATURE_DIM), dtype=np.float16)
+        for position in range(row_count):
+            frame = _frame_for_src_index(resolve_src_index(position))
+            batch = preprocess_frames([frame])
+            stored[position] = compute_features(backbone, batch)[0]
+        write_dinov3_features_atomic(
+            dinov3_path(video_id, dinov3_root=dinov3_root), stored, {"K": row_count}
+        )
+
+    return Le2iDatasetAdapter(
+        raw_dir=raw_dir,
+        manifest_path=manifest_path,
+        frames_path=frames_path,
+        dinov3_root=dinov3_root,
+    )
+
+
+def _run_frame_alignment_and_get_exit_code(
+    *,
+    adapter: Le2iDatasetAdapter,
+    video_ids: tuple[str, ...],
+    backbone: _IndexAwareFakeBackbone,
+    decode_single_frame: Callable[[Path, int], np.ndarray],
+) -> int | None:
+    try:
+        run_dinov3_verify_frame_alignment(
+            adapter=adapter,
+            repo_dir_value=None,
+            weights_path_value=None,
+            video_ids=video_ids,
+            backbone=backbone,
+            decode_single_frame=decode_single_frame,
+        )
+    except SystemExit as exc:
+        return cast("int | None", exc.code)
+    return None
+
+
+def _check_run_dinov3_verify_frame_alignment_happy_path() -> bool:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        video_id = "env1/video1"
+        adapter = _build_frame_alignment_fixture(
+            Path(temporary_dir), video_id=video_id, k=5
+        )
+        exit_code = _run_frame_alignment_and_get_exit_code(
+            adapter=adapter,
+            video_ids=(video_id,),
+            backbone=_IndexAwareFakeBackbone(),
+            decode_single_frame=lambda path, index: _frame_for_src_index(index),
+        )
+    ok = exit_code in (None, 0)
+    return _check(
+        "run_dinov3_verify_frame_alignment: caminho feliz sintético não "
+        "reporta falha", ok
+    )
+
+
+def _check_run_dinov3_verify_frame_alignment_shifted() -> bool:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        video_id = "env1/video1"
+        adapter = _build_frame_alignment_fixture(
+            Path(temporary_dir), video_id=video_id, k=5
+        )
+        exit_code = _run_frame_alignment_and_get_exit_code(
+            adapter=adapter,
+            video_ids=(video_id,),
+            backbone=_IndexAwareFakeBackbone(),
+            decode_single_frame=lambda path, index: _frame_for_src_index(index + 1),
+        )
+    ok = exit_code == 1
+    return _check(
+        "run_dinov3_verify_frame_alignment: quadro decodificado deslocado "
+        "de uma posição é reportado como falha", ok
+    )
+
+
+def _check_run_dinov3_verify_frame_alignment_k_mismatch() -> bool:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        video_id = "env1/video1"
+        adapter = _build_frame_alignment_fixture(
+            Path(temporary_dir), video_id=video_id, k=5, h5_row_count=4
+        )
+        exit_code = _run_frame_alignment_and_get_exit_code(
+            adapter=adapter,
+            video_ids=(video_id,),
+            backbone=_IndexAwareFakeBackbone(),
+            decode_single_frame=lambda path, index: _frame_for_src_index(index),
+        )
+    ok = exit_code == 1
+    return _check(
+        "run_dinov3_verify_frame_alignment: K do .h5 divergente de "
+        "frames.parquet é reportado como falha, sem exceção não tratada", ok
+    )
+
+
+def _check_run_dinov3_verify_frame_alignment_missing_manifest_row() -> bool:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        video_id = "env1/video1"
+        adapter = _build_frame_alignment_fixture(
+            Path(temporary_dir), video_id=video_id, k=5, include_manifest_row=False
+        )
+        exit_code = _run_frame_alignment_and_get_exit_code(
+            adapter=adapter,
+            video_ids=(video_id,),
+            backbone=_IndexAwareFakeBackbone(),
+            decode_single_frame=lambda path, index: _frame_for_src_index(index),
+        )
+    ok = exit_code == 1
+    return _check(
+        "run_dinov3_verify_frame_alignment: video_id ausente do manifesto é "
+        "acumulado como falha, sem KeyError não tratado", ok
+    )
+
+
+def _check_run_dinov3_verify_frame_alignment_missing_h5() -> bool:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        video_id = "env1/video1"
+        adapter = _build_frame_alignment_fixture(
+            Path(temporary_dir), video_id=video_id, k=5, include_h5=False
+        )
+        exit_code = _run_frame_alignment_and_get_exit_code(
+            adapter=adapter,
+            video_ids=(video_id,),
+            backbone=_IndexAwareFakeBackbone(),
+            decode_single_frame=lambda path, index: _frame_for_src_index(index),
+        )
+    ok = exit_code == 1
+    return _check(
+        "run_dinov3_verify_frame_alignment: .h5 ausente é acumulado como "
+        "falha, sem exceção não tratada de leitura", ok
+    )
+
+
+def _check_adapter_with_dinov3_root() -> bool:
+    base = Le2iDatasetAdapter()
+    replacement_root = Path("/tmp/synthetic-dinov3-root")
+    replaced = _adapter_with_dinov3_root(base, replacement_root)
+
+    ok = (
+        replaced.dinov3_root == replacement_root
+        and replaced.identifier == base.identifier
+        and replaced.raw_dir == base.raw_dir
+        and replaced.manifest_path == base.manifest_path
+        and replaced.frames_path == base.frames_path
+        and replaced.pose_root == base.pose_root
+        and replaced.pose_stats_path == base.pose_stats_path
+        and replaced.dinov3_stats_path == base.dinov3_stats_path
+        and replaced.label_names == base.label_names
+    )
+    return _check(
+        "_adapter_with_dinov3_root: troca só dinov3_root, mantendo os "
+        "demais campos idênticos ao adapter base", ok
+    )
+
+
+def _check_resolve_verify_determinism_output_root() -> bool:
+    canonical_root = Path("data/features/le2i/dinov3")
+
+    default_root, default_mode = resolve_verify_determinism_output_root(
+        None, canonical_root=canonical_root
+    )
+    default_ok = default_root is None and default_mode == "ephemeral"
+
+    canonical_value_root, canonical_mode = resolve_verify_determinism_output_root(
+        str(canonical_root), canonical_root=canonical_root
+    )
+    canonical_ok = (
+        canonical_value_root == canonical_root and canonical_mode == "canonical"
+    )
+
+    other_root = Path("data/features/le2i/dinov3-verify-tmp")
+    other_value_root, other_mode = resolve_verify_determinism_output_root(
+        str(other_root), canonical_root=canonical_root
+    )
+    other_ok = other_value_root == other_root and other_mode == "non_canonical"
+
+    with tempfile.TemporaryDirectory(
+        prefix="gatefall-dinov3-verify-determinism-"
+    ) as temporary_dir:
+        ephemeral_path = Path(temporary_dir).resolve()
+    resolved_canonical = canonical_root.resolve()
+    ephemeral_disjoint_ok = (
+        ephemeral_path != resolved_canonical
+        and resolved_canonical not in ephemeral_path.parents
+    )
+
+    ok = default_ok and canonical_ok and other_ok and ephemeral_disjoint_ok
+    return _check(
+        "resolve_verify_determinism_output_root: modo padrão não referencia "
+        "dinov3_root e é efêmero; --output-dir igual ao canônico é "
+        "identificado como CANÔNICO; outro caminho é NÃO CANÔNICO", ok
+    )
+
+
 def run_dinov3_selftest() -> None:
     checks = [
         _check_preprocess_frames_shape_and_dtype(),
@@ -379,11 +710,19 @@ def run_dinov3_selftest() -> None:
         _check_audit_helpers(),
         _check_provenance_divergences(),
         _check_provenance_divergences_missing_attribute(),
+        _check_provenance_divergences_missing_from_every_file(),
         _check_validate_existing_file(),
         _check_configure_deterministic_inference_does_not_seed_rng(),
         _check_grid_positions(),
         _check_max_abs_diff_within_tolerance(),
         _check_check_discriminative_match(),
+        _check_run_dinov3_verify_frame_alignment_happy_path(),
+        _check_run_dinov3_verify_frame_alignment_shifted(),
+        _check_run_dinov3_verify_frame_alignment_k_mismatch(),
+        _check_run_dinov3_verify_frame_alignment_missing_manifest_row(),
+        _check_run_dinov3_verify_frame_alignment_missing_h5(),
+        _check_adapter_with_dinov3_root(),
+        _check_resolve_verify_determinism_output_root(),
     ]
     if not all(checks):
         print("\ndinov3 extract selftest FALHOU", file=sys.stderr)
