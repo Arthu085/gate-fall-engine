@@ -19,6 +19,7 @@ from gatefall.dinov3.backbone import (
     NORMALIZE_MEAN,
     NORMALIZE_STD,
     RESIZE_SIZE,
+    configure_deterministic_inference,
     ensure_backbone_paths_exist,
     load_backbone,
     read_dinov3_repo_commit,
@@ -49,7 +50,7 @@ class Dinov3ExtractResult:
     k: int
 
 
-def _select_src_indices(video_id: str, *, adapter: DatasetAdapter) -> list[int]:
+def select_src_indices(video_id: str, *, adapter: DatasetAdapter) -> list[int]:
     if not adapter.frames_path.exists():
         raise Dinov3ExtractError(
             f"\ndinov3 extract FALHOU: {adapter.frames_path} não existe — rode "
@@ -104,7 +105,7 @@ def run_dinov3_extract(
         else read_dinov3_repo_commit(repo_dir)
     )
 
-    src_indices = _select_src_indices(video_id, adapter=adapter)
+    src_indices = select_src_indices(video_id, adapter=adapter)
     k = len(src_indices)
 
     current_provenance: dict[str, object] = {
@@ -166,6 +167,7 @@ def run_dinov3_extract(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
 
+    configure_deterministic_inference()
     if backbone is None:
         backbone = load_backbone(repo_dir, weights_path, resolved_device)
 
@@ -257,6 +259,7 @@ def run_dinov3_extract_all(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     repo_dir = resolve_repo_dir(repo_dir_value)
     weights_path = resolve_weights_path(weights_path_value)
+    configure_deterministic_inference()
     backbone = load_backbone(repo_dir, weights_path, device)
     weights_sha256 = sha256_file(weights_path)
     dinov3_repo_commit = read_dinov3_repo_commit(repo_dir)
@@ -353,6 +356,28 @@ def main() -> None:
         "--batch-size", type=int, default=DEFAULT_BATCH_SIZE
     )
     verify_determinism_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    verify_determinism_parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "diretório alternativo para as duas extrações de verificação "
+            "(padrão: diretório temporário efêmero); aponte para o caminho "
+            "canônico explicitamente para sobrescrever o dataset real"
+        ),
+    )
+
+    verify_frame_alignment_parser = subparsers.add_parser(
+        "verify-frame-alignment",
+        help=(
+            "Confere que decode_frames retorna o quadro correto para o "
+            "src_index solicitado em uma amostra fixa de vídeos"
+        ),
+    )
+    verify_frame_alignment_parser.add_argument("--repo-dir", default=None)
+    verify_frame_alignment_parser.add_argument("--weights", default=None)
+    verify_frame_alignment_parser.add_argument(
+        "--dataset", default="le2i", choices=("le2i",)
+    )
 
     subparsers.add_parser(
         "selftest", help="Roda checagens sintéticas de pré-processamento e armazenamento"
@@ -400,6 +425,15 @@ def main() -> None:
             repo_dir_value=args.repo_dir,
             weights_path_value=args.weights,
             batch_size=args.batch_size,
+            output_dir_value=args.output_dir,
+        )
+    elif args.command == "verify-frame-alignment":
+        from gatefall.dinov3.frame_alignment import run_dinov3_verify_frame_alignment
+
+        run_dinov3_verify_frame_alignment(
+            adapter=adapter,
+            repo_dir_value=args.repo_dir,
+            weights_path_value=args.weights,
         )
 
 

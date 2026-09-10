@@ -24,6 +24,11 @@ from gatefall.dinov3.backbone import (
     configure_deterministic_inference,
 )
 from gatefall.dinov3.features import compute_features
+from gatefall.dinov3.frame_alignment import (
+    check_discriminative_match,
+    grid_positions,
+    max_abs_diff_within_tolerance,
+)
 from gatefall.dinov3.preprocessing import preprocess_frames
 from gatefall.dinov3.report import find_provenance_divergences
 from gatefall.dinov3.storage import (
@@ -229,6 +234,103 @@ def _check_provenance_divergences() -> bool:
     )
 
 
+def _check_provenance_divergences_missing_attribute() -> bool:
+    missing_in_reference: dict[str, dict[str, object]] = {
+        "env1/v1": {"model_name": "dinov3_vitb16"},
+        "env1/v2": {"model_name": "dinov3_vitb16", "weights_sha256": "abc"},
+    }
+    divergences_missing_in_reference = find_provenance_divergences(missing_in_reference)
+    missing_in_reference_ok = (
+        len(divergences_missing_in_reference) == 1
+        and "weights_sha256" in divergences_missing_in_reference[0]
+        and "ausente em env1/v1" in divergences_missing_in_reference[0]
+    )
+
+    missing_in_candidate: dict[str, dict[str, object]] = {
+        "env1/v1": {"model_name": "dinov3_vitb16", "weights_sha256": "abc"},
+        "env1/v2": {"model_name": "dinov3_vitb16"},
+    }
+    divergences_missing_in_candidate = find_provenance_divergences(missing_in_candidate)
+    missing_in_candidate_ok = (
+        len(divergences_missing_in_candidate) == 1
+        and "weights_sha256" in divergences_missing_in_candidate[0]
+        and "ausente em env1/v2" in divergences_missing_in_candidate[0]
+    )
+
+    ok = missing_in_reference_ok and missing_in_candidate_ok
+    return _check(
+        "find_provenance_divergences: atributo ausente em apenas um dos "
+        "arquivos (referência ou candidato) é reportado como divergência", ok
+    )
+
+
+def _check_configure_deterministic_inference_does_not_seed_rng() -> bool:
+    torch.manual_seed(2024)
+    before = torch.get_rng_state()
+    configure_deterministic_inference()
+    after = torch.get_rng_state()
+    ok = torch.equal(before, after)
+    return _check(
+        "configure_deterministic_inference: não altera o estado do RNG global", ok
+    )
+
+
+def _check_grid_positions() -> bool:
+    ok = (
+        grid_positions(0) == []
+        and grid_positions(1) == [0]
+        and grid_positions(2) == [0, 1]
+        and grid_positions(5) == [0, 2, 4]
+        and grid_positions(62) == [0, 31, 61]
+    )
+    return _check(
+        "grid_positions: início, meio e fim, sem duplicatas para K pequeno", ok
+    )
+
+
+def _check_max_abs_diff_within_tolerance() -> bool:
+    stored = np.full((1, FEATURE_DIM), 5.86, dtype=np.float16)
+    close = stored.copy()
+    close[0, 0] = np.nextafter(np.float16(5.86), np.float16(0))
+    close_ok, _, _ = max_abs_diff_within_tolerance(close, stored)
+
+    far = stored.copy().astype(np.float32)
+    far[0, 0] = 1.0
+    far_ok, _, _ = max_abs_diff_within_tolerance(far, stored)
+
+    ok = close_ok and not far_ok
+    return _check(
+        "max_abs_diff_within_tolerance: diferença de arredondamento float16 "
+        "passa, diferença grande falha", ok
+    )
+
+
+def _check_check_discriminative_match() -> bool:
+    stored_at_position = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+    stored_prev = np.array([10.0, 20.0, 30.0], dtype=np.float32)
+    stored_next = np.array([-10.0, -20.0, -30.0], dtype=np.float32)
+
+    match_ok, _ = check_discriminative_match(
+        stored_at_position,
+        stored_at_position,
+        stored_prev=stored_prev,
+        stored_next=stored_next,
+    )
+
+    shifted_ok, _ = check_discriminative_match(
+        stored_next,
+        stored_at_position,
+        stored_prev=stored_prev,
+        stored_next=stored_next,
+    )
+
+    ok = match_ok and not shifted_ok
+    return _check(
+        "check_discriminative_match: vetor recomputado igual ao esperado "
+        "passa; simulação de deslocamento de um quadro falha", ok
+    )
+
+
 def _check_validate_existing_file() -> bool:
     features = np.random.randn(5, FEATURE_DIM).astype(np.float16)
     expected_attrs: dict[str, object] = {
@@ -276,7 +378,12 @@ def run_dinov3_selftest() -> None:
         _check_determinism_plumbing(),
         _check_audit_helpers(),
         _check_provenance_divergences(),
+        _check_provenance_divergences_missing_attribute(),
         _check_validate_existing_file(),
+        _check_configure_deterministic_inference_does_not_seed_rng(),
+        _check_grid_positions(),
+        _check_max_abs_diff_within_tolerance(),
+        _check_check_discriminative_match(),
     ]
     if not all(checks):
         print("\ndinov3 extract selftest FALHOU", file=sys.stderr)

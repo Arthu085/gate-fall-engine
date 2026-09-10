@@ -3,7 +3,8 @@
 `src/gatefall/dinov3/` implementa a extração offline de features visuais do
 braço B a partir do backbone congelado **DINOv3**. A CLI fina
 `src/gatefall/dinov3/extract.py` (`extract`, `extract-all`, `report`, `audit`,
-`verify-determinism`, `selftest`) opera sobre a mesma grade temporal
+`verify-determinism`, `verify-frame-alignment`, `selftest`) opera sobre a
+mesma grade temporal
 (`frames.parquet`) e o mesmo manifesto usados pelo braço A — nenhuma janela
 ou split é recalculado aqui. Fusão com pose, treino e avaliação do braço B
 ainda não estão implementados.
@@ -37,18 +38,35 @@ aleatória do backbone que mascare a ausência dos artefatos locais.
 
 ### Determinismo na inferência
 
-Antes de carregar o backbone, `configure_deterministic_inference()` fixa a
-seed do `torch` em `0`, ativa `torch.backends.cudnn.deterministic`,
-desativa `torch.backends.cudnn.benchmark` e desativa o TF32 tanto em
+`configure_deterministic_inference()` **não mexe no RNG global** — a
+inferência do DINOv3 não consome aleatoriedade, então a função só ativa
+`torch.backends.cudnn.deterministic`, desativa
+`torch.backends.cudnn.benchmark` e o TF32 (tanto em
 `torch.backends.cuda.matmul.allow_tf32` quanto em
-`torch.backends.cudnn.allow_tf32`, além de chamar
-`torch.use_deterministic_algorithms(True, warn_only=True)`. O `warn_only=True`
-faz operações sem implementação determinística cair para um aviso em vez de
-lançar exceção, e por isso a variável de ambiente `CUBLAS_WORKSPACE_CONFIG`
-(necessária apenas para o modo estrito, sem `warn_only`) não é exigida aqui.
-Essa configuração torna a extração repetida do mesmo vídeo bit-idêntica em
-hardware/driver fixos; veja `verify-determinism` abaixo para a validação
-real dessa propriedade.
+`torch.backends.cudnn.allow_tf32`) e chama
+`torch.use_deterministic_algorithms(True, warn_only=True)`. Ela é chamada
+explicitamente por cada ponto de entrada de extração (`run_dinov3_extract` e
+`run_dinov3_extract_all`), imediatamente antes de carregar o backbone —
+nunca implicitamente dentro de `load_backbone`. Isso importa porque o treino
+do braço A (ver `docs/train/gpu-determinism.md`) já é dono da seed global
+(42) e chamar `torch.manual_seed(0)` aqui, como acontecia antes, a
+sobrescreveria silenciosamente caso um futuro treinador do braço B reutilize
+`load_backbone`.
+
+O `warn_only=True` faz operações sem implementação determinística cair para
+um aviso em vez de lançar exceção, e por isso a variável de ambiente
+`CUBLAS_WORKSPACE_CONFIG` (necessária apenas para o modo estrito, sem
+`warn_only`) não é exigida aqui. Esse contrato é mais permissivo que o do
+treino do braço A, que exige `torch.use_deterministic_algorithms(True)`
+**sem** `warn_only` e `CUBLAS_WORKSPACE_CONFIG` fixado (documentado em
+[Treino — Investigação de determinismo de GPU](../train/gpu-determinism.md)).
+A diferença é justificada: o treino atualiza pesos a partir de gradientes
+estocásticos e precisa do modo estrito para garantir reprodutibilidade
+bit-a-bit ponta a ponta; a inferência do DINOv3 não consome RNG algum, e o
+contrato mais frouxo já é suficiente na prática — `verify-determinism`
+(abaixo) mede hashes SHA-256 bit-idênticos entre duas extrações do mesmo
+vídeo em hardware/driver fixos, validando essa propriedade diretamente em
+vez de depender do modo estrito.
 
 ## Pré-processamento
 
@@ -69,7 +87,12 @@ feature = concat(cls_token, mean(patch_tokens, eixo espacial))  # [1536]
 ```
 
 O CLS token carrega contexto global do quadro; a média dos patch tokens
-carrega contexto espacial agregado. As features são gravadas em `float16`.
+carrega contexto espacial agregado. As features são gravadas em `float16`,
+diferente das features cinemáticas do braço A, que são `float32`. No range
+de valores observado no dataset (`max_abs≈5.86`, medido pelo `audit`), o
+erro relativo de quantização por dimensão é de aproximadamente `0,07%`:
+o ULP do `float16` nesse valor é `≈0,0039`
+(`np.spacing(np.float16(5.86))`), e `0,0039 / 5,86 ≈ 0,0007`, ou `0,07%`.
 
 ## Schema do HDF5
 
@@ -152,7 +175,7 @@ vídeo, contiguidade do `frame_index` (0..K-1) por vídeo contra
 correspondente.
 
 ```bash
-uv run python -m gatefall.dinov3.extract verify-determinism --video-id ID [--repo-dir DIR] [--weights PATH] [--batch-size N] [--dataset le2i]
+uv run python -m gatefall.dinov3.extract verify-determinism --video-id ID [--repo-dir DIR] [--weights PATH] [--batch-size N] [--output-dir DIR] [--dataset le2i]
 ```
 
 Reextrai um único vídeo duas vezes com `--force` e compara o hash SHA-256
@@ -160,6 +183,37 @@ dos bytes brutos do array `features` entre as duas extrações. Exige backbone,
 pesos e GPU reais — **não faz parte do `selftest` nem de nenhuma checagem de
 CI**; é uma validação manual em hardware real de que a configuração de
 determinismo descrita acima realmente produz saídas bit-idênticas.
+
+Por padrão (sem `--output-dir`), as duas extrações de verificação são
+gravadas em um diretório temporário efêmero, nunca em `data/features/` —
+o comando imprime qual modo está rodando. Sobrescrever o dataset real é
+opt-in explícito: passe `--output-dir` apontando para o caminho canônico
+do dinov3 (`adapter.dinov3_root`) para reproduzir o comportamento antigo.
+
+```bash
+uv run python -m gatefall.dinov3.extract verify-frame-alignment [--repo-dir DIR] [--weights PATH] [--dataset le2i]
+```
+
+Confere, por reamostragem independente, que `decode_frames` retorna
+realmente o quadro pedido pelo `src_index` — um erro sistemático de
+deslocamento de um quadro não é detectado por nenhuma outra checagem
+existente (contagens de `K`, contiguidade de `frame_index`, concordância de
+`K` com pose). Para uma amostra fixa de dois vídeos (`coffee_room_01/video_1`,
+~25 fps, e `home_01/video_1`, ~24,000384 fps), recomputa as features nas
+posições início/meio/fim da grade (`grid_positions`) redecodificando o
+quadro e comparando com a linha armazenada no `.h5`:
+
+- **tolerância**: a diferença absoluta máxima contra a linha esperada deve
+  ficar dentro de `ULP_TOLERANCE_MULTIPLE = 2.0` vezes o ULP do `float16` no
+  valor observado;
+- **discriminação**: o vetor recomputado deve ser estritamente mais próximo
+  da linha esperada do que das linhas vizinhas (posições `k-1` e `k+1`) —
+  é essa checagem que pegaria um deslocamento sistemático de um quadro, que
+  passaria despercebido pelas demais.
+
+Exige backbone, pesos e GPU reais, como `verify-determinism`; **não faz
+parte do `selftest` nem de nenhuma checagem de CI** e nunca grava em
+`data/features/` (é somente leitura).
 
 ## Licença do DINOv3
 

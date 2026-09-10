@@ -55,7 +55,13 @@ def ensure_backbone_paths_exist(repo_dir: Path, weights_path: Path) -> None:
 
 
 def configure_deterministic_inference() -> None:
-    torch.manual_seed(0)
+    """Configura apenas os backends para inferência determinística.
+
+    Não semeia o RNG global (`torch.manual_seed`) — a inferência não usa
+    aleatoriedade. Deve ser chamada explicitamente por quem precisa de
+    determinismo (extração, verificação, etc.), nunca implicitamente por
+    `load_backbone`.
+    """
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -65,7 +71,6 @@ def configure_deterministic_inference() -> None:
 
 def load_backbone(repo_dir: Path, weights_path: Path, device: str) -> torch.nn.Module:
     ensure_backbone_paths_exist(repo_dir, weights_path)
-    configure_deterministic_inference()
 
     model = cast(
         torch.nn.Module,
