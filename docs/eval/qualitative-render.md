@@ -44,11 +44,13 @@ para vídeo bruto, então todos os alvos de um vídeo são resolvidos numa
 
 ## Pose imputada
 
-Quando a pose no `trigger_k` do alarme tem `person_found=False` (pose
-zero-preenchida por imputação, ver [Contrato temporal — dataset de
-janelas de pose](../data/temporal-contract.md#dataset-de-janelas-de-pose)),
-o esqueleto e a bbox não são desenhados sobre a origem zerada — a
-legenda troca para "pose imputada" no lugar do desenho.
+Quando a pose no `trigger_k` do alarme tem `person_found=False`, o esqueleto
+e a bbox não são desenhados — a legenda troca para "pose imputada" no lugar
+do desenho. A origem do desenho seria imputada em qualquer um dos dois
+regimes de ausência: zerada antes da primeira detecção do vídeo, ou copiada
+por forward-fill da última observação num gap interior (ver [Contrato
+temporal — imputação de pose e causalidade do
+prefixo](../data/temporal-contract.md#imputacao-de-pose-e-causalidade-do-prefixo)).
 
 ## Saída, nome de arquivo e `--force`
 
