@@ -47,7 +47,11 @@ from gatefall.features.standardization import (
     validate_stats_layout,
 )
 from gatefall.hashing import sha256_file
-from gatefall.pose.kinematics import build_pose_features
+from gatefall.pose.kinematics import (
+    COCO17_KEYPOINT_NAMES,
+    COCO17_SKELETON_EDGES,
+    build_pose_features,
+)
 from gatefall.pose.loading import PoseArrays, load_pose
 from gatefall.runs import validate_local_run_dir
 from gatefall.train.artifacts import load_compatible_checkpoint, validate_training_run
@@ -55,23 +59,6 @@ from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig
 from gatefall.train.tcn import TCNClassifier
 
 RUN_DIR = Path("runs/local/le2i/baseline_a")
-
-COCO17_KEYPOINT_NAMES = (
-    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
-    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
-    "left_wrist", "right_wrist", "left_hip", "right_hip",
-    "left_knee", "right_knee", "left_ankle", "right_ankle",
-)
-COCO17_SKELETON_EDGES = (
-    (0, 1), (0, 2), (1, 3), (2, 4),
-    (5, 6),
-    (5, 7), (7, 9),
-    (6, 8), (8, 10),
-    (5, 11), (6, 12),
-    (11, 12),
-    (11, 13), (13, 15),
-    (12, 14), (14, 16),
-)
 
 COLOR_SKELETON = (0, 255, 0)
 COLOR_KEYPOINT = (255, 0, 0)
