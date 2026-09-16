@@ -359,8 +359,9 @@ O volume é pequeno, mas concentrado: os candidatos se acumulam nas caudas p99
 das derivadas temporais de bbox — 17 dos 305 quadros da cauda de velocidade de
 bbox (44,73x o esperado por acaso) e 28 dos 305 da cauda de aceleração
 (41,78x). Nas quatro caudas p99.9 (velocidade e aceleração, de keypoints e de
-bbox) não cai nenhum candidato: o extremo absoluto das derivadas é dominado
-por movimento real, não por troca de pessoa.
+bbox) não cai nenhum candidato: sob a definição operacional de candidato a
+troca adotada nesta auditoria, trocas de identidade não explicam esses
+extremos, e a auditoria não determinou o que os explica.
 
 Três convenções de medida importam para reproduzir esses números. A magnitude
 por quadro de cada bloco é a maior componente absoluta do bloco, não a norma
