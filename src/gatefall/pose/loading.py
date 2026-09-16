@@ -1,8 +1,8 @@
 """Carregamento e imputação de pose (YOLO-Pose) a partir de arquivos HDF5.
 
-Política de imputação: forward-fill a partir do último quadro válido,
-back-fill do trecho inicial quando o vídeo começa sem detecção, e
-zero-fill apenas quando o vídeo inteiro não tem nenhuma detecção.
+Política de imputação: forward-fill a partir do último quadro válido e
+zero-fill do trecho anterior à primeira detecção — caso que inclui, na sua
+forma degenerada, o vídeo inteiro sem nenhuma detecção.
 
 Zero-fill em todo quadro ausente foi descartado porque um quadro zerado
 entre dois quadros válidos produz um salto de posição do tamanho do corpo
@@ -10,7 +10,12 @@ em 0,1 s — ou seja, um pico espúrio de velocidade/aceleração no dado de
 entrada. A perda de pose se concentra nas janelas `fall` (9,6% das janelas
 `fall` de treino não têm pose no quadro do rótulo) e em Home_01, onde a
 perda é sobretudo flicker quadro a quadro, não blocos longos — cenário em
-que forward/back-fill preserva a pose sem introduzir esse salto.
+que o forward-fill preserva a pose sem introduzir esse salto.
+
+Antes da primeira observação, porém, não há pose passada para segurar, e o
+back-fill fazia um quadro depender de uma detecção que ainda não havia
+acontecido; um detector causal não pode fazer isso. Nesse trecho a ausência
+é representada por zeros em coordenadas, descritores de bbox e confiança.
 """
 
 import argparse
@@ -31,6 +36,13 @@ class PoseArrays:
     k: int
     width: int
     height: int
+
+
+def first_observed_index(person_found: np.ndarray) -> int:
+    """Índice da primeira observação; K quando o vídeo não tem nenhuma."""
+    if not np.any(person_found):
+        return int(person_found.shape[0])
+    return int(np.argmax(person_found))
 
 
 def pose_path(video_id: str, *, pose_root: Path) -> Path:
@@ -62,6 +74,16 @@ def load_pose(video_id: str, *, pose_root: Path) -> PoseArrays:
         width=width,
         height=height,
     )
+
+
+def load_person_found(video_id: str, *, pose_root: Path) -> np.ndarray:
+    """Lê apenas `person_found`, sem materializar keypoints e bbox."""
+    path = pose_path(video_id, pose_root=pose_root)
+    if not path.exists():
+        raise FileNotFoundError(f"arquivo de pose não encontrado: {path}")
+    with h5py.File(path, "r") as h5_file:
+        person_found = cast(h5py.Dataset, h5_file["person_found"])[()]
+    return person_found
 
 
 def normalize_keypoints(
@@ -120,15 +142,10 @@ def impute_missing(
     conf_out = conf.copy()
     bbox_out = bbox_desc.copy()
 
-    if not np.any(person_found):
-        xy_out[:] = 0.0
-        # confiança não é preenchida: permanece 0.0 em todo quadro sem
-        # detecção, para que a pose imputada continue distinguível da pose
-        # observada só pelo canal de confiança — sinal reaproveitado depois
-        # pelo gating adaptativo.
-        conf_out[:] = 0.0
-        bbox_out[:] = 0.0
-        return xy_out, conf_out, bbox_out
+    prefix = first_observed_index(person_found)
+    xy_out[:prefix] = 0.0
+    conf_out[:prefix] = 0.0
+    bbox_out[:prefix] = 0.0
 
     # confiança não é preenchida em nenhum dos ramos abaixo: permanece 0.0 em
     # todo quadro sem detecção, para que a pose imputada continue
@@ -144,12 +161,6 @@ def impute_missing(
             xy_out[i] = last_valid
             conf_out[i] = 0.0
             bbox_out[i] = cast(np.ndarray, last_valid_bbox)
-
-    first_valid_index = int(np.argmax(person_found))
-    if first_valid_index > 0:
-        xy_out[:first_valid_index] = xy_out[first_valid_index]
-        conf_out[:first_valid_index] = 0.0
-        bbox_out[:first_valid_index] = bbox_out[first_valid_index]
 
     if not (
         np.isfinite(xy_out).all()
@@ -230,7 +241,7 @@ def _selftest_forward_fill_single_gap() -> bool:
     )
 
 
-def _selftest_back_fill_leading_run() -> bool:
+def _selftest_leading_run_is_zero_filled() -> bool:
     xy = np.zeros((3, 17, 2), dtype=np.float32)
     conf = np.full((3, 17), 0.9, dtype=np.float32)
     bbox_desc = np.zeros((3, 4), dtype=np.float32)
@@ -244,17 +255,19 @@ def _selftest_back_fill_leading_run() -> bool:
 
     xy_out, conf_out, bbox_out = impute_missing(xy, conf, bbox_desc, person_found)
 
+    # Igualdade exata, não allclose: o trecho anterior à primeira detecção não
+    # pode carregar nenhum resíduo do quadro futuro.
+    leading = slice(0, 2)
     ok = (
-        np.allclose(xy_out[0], 0.5)
-        and np.allclose(xy_out[1], 0.5)
-        and np.allclose(conf_out[0], 0.0)
-        and np.allclose(conf_out[1], 0.0)
-        and np.allclose(bbox_out[0], 0.7)
-        and np.allclose(bbox_out[1], 0.7)
-        and not np.isnan(xy_out).any()
+        bool(np.array_equal(xy_out[leading], np.zeros((2, 17, 2), dtype=np.float32)))
+        and bool(np.array_equal(conf_out[leading], np.zeros((2, 17), dtype=np.float32)))
+        and bool(np.array_equal(bbox_out[leading], np.zeros((2, 4), dtype=np.float32)))
+        and bool(np.allclose(xy_out[2], 0.5))
+        and bool(np.allclose(bbox_out[2], 0.7))
+        and not bool(np.isnan(xy_out).any())
     )
     return _check(
-        "impute_missing: trecho inicial ausente é back-filled do primeiro quadro válido",
+        "impute_missing: trecho inicial sem detecção é zerado, não back-filled do futuro",
         ok,
     )
 
@@ -274,7 +287,8 @@ def _selftest_all_missing() -> bool:
         and not np.isnan(xy_out).any()
     )
     return _check(
-        "impute_missing: vídeo inteiro sem detecção dá xy e conf zerados, sem NaN",
+        "impute_missing: vídeo inteiro sem detecção é o caso degenerado do trecho "
+        "inicial ausente — matriz inteira zerada, sem NaN",
         ok,
     )
 
@@ -357,19 +371,36 @@ def _selftest_bbox_descriptors_imputation() -> bool:
     )
 
 
-def _write_synthetic_pose(pose_root: Path, video_id: str, k: int = 3) -> Path:
+def _write_synthetic_pose(
+    pose_root: Path,
+    video_id: str,
+    k: int = 3,
+    *,
+    keypoints: np.ndarray | None = None,
+    bbox: np.ndarray | None = None,
+    person_found: np.ndarray | None = None,
+) -> Path:
+    """Escreve um artefato de pose sintético.
+
+    Sem os parâmetros opcionais, reproduz exatamente o artefato usado pelas
+    checagens já existentes; com eles, serve de fixture para cenários de
+    detecção intermitente.
+    """
     env, _, video_name = video_id.partition("/")
     path = pose_root / env / f"{video_name}.h5"
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    keypoints = np.zeros((k, 17, 3), dtype=np.float32)
-    keypoints[:, :, 0] = np.linspace(12.0, 28.0, 17, dtype=np.float32)
-    keypoints[:, :, 1] = np.linspace(24.0, 56.0, 17, dtype=np.float32)
-    keypoints[:, :, 2] = 0.9
-    bbox = np.tile(
-        np.array([[10.0, 20.0, 30.0, 60.0]], dtype=np.float32), (k, 1)
-    )
-    person_found = np.ones((k,), dtype=np.bool_)
+    if keypoints is None:
+        keypoints = np.zeros((k, 17, 3), dtype=np.float32)
+        keypoints[:, :, 0] = np.linspace(12.0, 28.0, 17, dtype=np.float32)
+        keypoints[:, :, 1] = np.linspace(24.0, 56.0, 17, dtype=np.float32)
+        keypoints[:, :, 2] = 0.9
+    if bbox is None:
+        bbox = np.tile(
+            np.array([[10.0, 20.0, 30.0, 60.0]], dtype=np.float32), (k, 1)
+        )
+    if person_found is None:
+        person_found = np.ones((k,), dtype=np.bool_)
 
     with h5py.File(path, "w") as h5_file:
         h5_file.create_dataset("keypoints", data=keypoints)
@@ -445,7 +476,7 @@ def run_selftest() -> None:
         _selftest_normalization(),
         _selftest_normalization_preserves_angle(),
         _selftest_forward_fill_single_gap(),
-        _selftest_back_fill_leading_run(),
+        _selftest_leading_run_is_zero_filled(),
         _selftest_all_missing(),
         _selftest_shapes_and_dtypes(),
         _selftest_bbox_descriptors(),

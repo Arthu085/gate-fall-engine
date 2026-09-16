@@ -151,8 +151,8 @@ def run_report(dataset_name: str = "le2i") -> None:
     kp_conf_min = float(kp_conf_train.min())
     kp_conf_max = float(kp_conf_train.max())
     # A confiança bruta do YOLO-Pose (saída de sigmoid) nunca satura em
-    # exatamente 1.0 na prática — só o mínimo 0.0, produzido pelo
-    # forward-fill de `impute_missing` em quadros sem detecção, é atingido
+    # exatamente 1.0 na prática — só o mínimo 0.0, produzido pela
+    # imputação de `impute_missing` em quadros sem detecção, é atingido
     # de forma exata. Verificamos os limites do intervalo e o mínimo exato;
     # o máximo observado é reportado, não comparado por igualdade exata.
     checks.append(

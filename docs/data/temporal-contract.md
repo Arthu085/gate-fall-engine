@@ -346,6 +346,10 @@ A auditoria da extração anterior (`scripts/exploratory/audit_pose_selection.py
 mediu 254 quadros multi-pessoa em 30494 (0,8330%) e 38 candidatos a troca de
 identidade da pessoa selecionada.
 
+Todos os números desta seção — incluindo as caudas p99 e p99.9 adiante — foram
+calculados sobre `build_pose_features` anterior à mudança de causalidade do
+prefixo, e não foram recalculados depois dela.
+
 Um candidato é definido assim: sobre a sequência de quadros com
 `person_found` e `track_id >= 0`, em ordem crescente de índice, cada par
 consecutivo em que o `track_id` muda conta como troca — adjacente quando os
@@ -375,8 +379,10 @@ calculadas sobre a concatenação dos 190 vídeos, não por vídeo.
 
 Ou seja, a seleção por confiança quadro a quadro produzia justamente o tipo de
 salto espúrio de posição que as features cinemáticas leem como movimento
-brusco — o mesmo argumento que já havia descartado o zero-fill na imputação de
-pose.
+brusco — o mesmo argumento que já havia descartado o zero-fill nos gaps
+interiores da imputação de pose (ver [imputação de pose e causalidade do
+prefixo](#imputacao-de-pose-e-causalidade-do-prefixo); antes da primeira
+detecção o zero é justamente a política adotada).
 
 O script também imprime dois diagnósticos adicionais, subordinados a essa
 métrica: as trocas cruas da track selecionada e o subconjunto em que a bbox
@@ -420,6 +426,80 @@ metade.
 
 A reextração "depois" foi rodada duas vezes, em sessões separadas, e produziu
 artefatos idênticos nas duas.
+
+## Imputação de pose e causalidade do prefixo { #imputacao-de-pose-e-causalidade-do-prefixo }
+
+`src/gatefall/pose/loading.py:impute_missing` decide o que entra no vetor de
+features quando o YOLO-Pose não devolve detecção em um quadro da grade, e
+`src/gatefall/pose/kinematics.py` deriva as velocidades, acelerações e a
+orientação de tronco sobre o resultado. As duas etapas seguem a mesma regra
+de três regimes, definida a partir de `f` — o índice da primeira observação
+do vídeo (`first_observed_index(person_found)`, igual a `K` quando o vídeo
+não tem nenhuma detecção).
+
+### Contrato por linha
+
+- **`i < f` (antes da primeira detecção).** A linha inteira é exatamente
+  `0.0` nas 134 colunas: coordenadas de keypoint, descritores de bbox,
+  confiança, os dois blocos de derivada de cada um e o bloco `trunk`.
+  Zerar `trunk_sin`/`trunk_cos` explicitamente é necessário porque
+  `arctan2(0, 0)` vale `0.0`, o que daria `trunk_cos = 1.0` — um tronco
+  horizontal sintético onde não há pose nenhuma.
+- **`i == f` (aquisição).** Posição, confiança e `trunk_sin`/`trunk_cos` são
+  os valores observados. `kp_velocity`, `kp_acceleration`, `bbox_velocity`,
+  `bbox_acceleration` e `trunk_dtheta` são exatamente `0.0`: não existe
+  observação anterior, logo não há deslocamento medido.
+- **`i == f + 1`.** As velocidades e `trunk_dtheta` são reais; os dois blocos
+  de aceleração são exatamente `0.0`, porque só há uma velocidade observada
+  até aqui e a segunda diferença precisaria usar o `0.0` convencional de `f`
+  como se fosse velocidade medida — o que injetaria um pico de aceleração
+  `v[f+1]/dt` cuja magnitude só depende de onde a aquisição começou.
+- **`i >= f + 2`.** Nada muda em relação ao regime já documentado: gaps
+  interiores mantêm forward-fill a partir da última observação, com
+  confiança `0.0`, e a reaparição depois de um gap de `N` quadros divide o
+  deslocamento por `N * dt`, não por `dt`.
+
+Um vídeo sem nenhuma detecção é o caso degenerado do prefixo ausente: `f`
+vale `K` e a matriz `[K, 134]` inteira é exatamente zero.
+
+### Por que zeros antes de `f`, e por que não nos gaps interiores
+
+A política anterior fazia back-fill do trecho inicial a partir da primeira
+detecção futura. Isso torna uma linha dependente de uma detecção que ainda
+não aconteceu. O janelamento e a TCN já eram causais — a janela que termina
+em `k_end` só lê quadros `<= k_end`, e a TCN é dilatada causal —, então o
+back-fill era o único ponto do caminho de features em que informação do
+futuro atravessava para trás: uma janela cujo `k_end` cai dentro do prefixo
+carregaria a pose de um quadro posterior ao próprio instante de decisão.
+
+O zero-fill continua rejeitado nos gaps **interiores** pelo motivo de sempre:
+um quadro zerado entre dois quadros válidos produz um salto de posição do
+tamanho do corpo em 0,1 s, ou seja, um pico espúrio de velocidade e
+aceleração. Antes de `f`, porém, não existe pose passada a segurar, e o zero
+não fica entre dois quadros observados — não há salto a introduzir, apenas a
+ausência a representar. A confiança exatamente `0.0` continua sendo o canal
+que distingue pose imputada de pose observada, tanto no prefixo quanto nos
+gaps interiores.
+
+### Impacto medido no Le2i
+
+63 dos 190 vídeos começam sem detecção. São 1384 das 30494 linhas da grade
+(4,54%) em prefixo ausente, com o prefixo mais longo em 66 quadros (6,6 s em
+`TARGET_FPS`); nenhum vídeo fica inteiramente sem detecção. A cobertura de
+pose não muda (`person_found` soma 27561 em 30494) e as contagens de janela
+por rótulo e split também não — a mudança é de conteúdo das linhas, não da
+grade nem do janelamento.
+
+`gatefall.pose.kinematics report` trava essas duas contagens em
+`EXPECTED_VIDEOS_WITH_PREFIX` e `EXPECTED_PREFIX_ROWS`, além de verificar,
+por vídeo, que o prefixo é exatamente zero, que as derivadas em `f` são zero
+e que as acelerações em `f + 1` são zero. As contagens congeladas existem
+porque a checagem de prefixo passaria vazia se `first_observed_index`
+devolvesse `0` para todo vídeo.
+
+Como o vetor de features mudou, as estatísticas de padronização precisam ser
+recalculadas junto (ver [Padronização de features de
+pose](pose-standardization.md)).
 
 ## Dataset de janelas de pose
 

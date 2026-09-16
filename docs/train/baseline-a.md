@@ -173,6 +173,12 @@ esses dois campos.
 Execução registrada em `runs/reference/le2i/baseline_a/metrics.json`, checkpoint na
 última época (30):
 
+Esta referência foi treinada sobre as features de pose anteriores à
+[causalidade do prefixo](../data/temporal-contract.md#imputacao-de-pose-e-causalidade-do-prefixo).
+Ela segue válida como registro histórico e não foi sobrescrita, mas um
+retreino sob as features atuais não reproduz estes números: o vetor de
+entrada mudou nas linhas anteriores à primeira detecção de cada vídeo.
+
 | Split | Macro-F1 restrita |
 | ----- | ------------------ |
 | Treino | 0,8565 |

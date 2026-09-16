@@ -7,6 +7,7 @@ nunca fique congelada em um arquivo.
 
 import argparse
 import sys
+import tempfile
 from pathlib import Path
 from typing import cast
 
@@ -16,13 +17,18 @@ import pandas as pd
 from gatefall.config import TARGET_FPS
 from gatefall.datasets import DatasetAdapter, get_dataset
 from gatefall.pose.loading import (
+    _write_synthetic_pose,
     bbox_descriptors,
+    first_observed_index,
     impute_missing,
+    load_person_found,
     load_pose,
     normalize_keypoints,
 )
 
 EXPECTED_K_SUM = 30494
+EXPECTED_VIDEOS_WITH_PREFIX = 63
+EXPECTED_PREFIX_ROWS = 1384
 POSE_FEATURE_DIM = 134
 EXPECTED_D = POSE_FEATURE_DIM
 
@@ -89,36 +95,30 @@ def feature_blocks() -> list[tuple[str, int, int]]:
     return list(_BLOCKS)
 
 
-def _backfill_source_indices(person_found: np.ndarray) -> np.ndarray:
+def _last_observed_indices(person_found: np.ndarray) -> np.ndarray:
     k = person_found.shape[0]
-    src = np.zeros(k, dtype=np.int64)
-    if not np.any(person_found):
-        return src
-
-    # Espelha exatamente o forward-fill de impute_missing: cada quadro ausente
-    # aponta para o último quadro observado antes dele.
-    last_valid_idx = 0
+    src = np.full(k, -1, dtype=np.int64)   # -1 = nenhuma observação ainda
+    # Espelha o forward-fill de impute_missing: cada quadro aponta para a
+    # última observação em ou antes dele.
+    last_valid_idx = -1
     for i in range(k):
         if person_found[i]:
             last_valid_idx = i
         src[i] = last_valid_idx
-
-    # E o back-fill do trecho inicial, quando o vídeo começa sem detecção.
-    first_valid_index = int(np.argmax(person_found))
-    if first_valid_index > 0:
-        src[:first_valid_index] = first_valid_index
-
     return src
 
 
 def _effective_dt(person_found: np.ndarray, dt: float) -> np.ndarray:
-    src = _backfill_source_indices(person_found)
+    src = _last_observed_indices(person_found)
     dt_eff = np.zeros(src.shape[0], dtype=np.float32)
     # No quadro em que a pessoa reaparece após um gap de N quadros, o
     # deslocamento observado se acumulou ao longo do gap inteiro, não de um
     # único intervalo de quadro; dividir por dt fixo infla a velocidade em N
     # vezes (e a aceleração em ~N^2). dt_eff carrega esse N implícito.
-    dt_eff[1:] = (src[1:] - src[:-1]).astype(np.float32) * dt
+    # Antes da primeira observação o sentinela -1 marca "sem passado": ali
+    # dt_eff é 0.0, e não a diferença espúria contra o sentinela.
+    observed_before = src[:-1] >= 0
+    dt_eff[1:] = np.where(observed_before, src[1:] - src[:-1], 0).astype(np.float32) * dt
     return dt_eff
 
 
@@ -138,11 +138,18 @@ def _first_difference(values: np.ndarray, dt_eff: np.ndarray) -> np.ndarray:
     return _safe_divide(numerator, dt_eff)
 
 
-def _second_difference(first_diff: np.ndarray, dt_eff: np.ndarray) -> np.ndarray:
+def _second_difference(
+    first_diff: np.ndarray, dt_eff: np.ndarray, *, first_observed: int
+) -> np.ndarray:
     numerator = np.zeros_like(first_diff, dtype=np.float32)
-    # Sem diferença de segunda ordem nos dois primeiros quadros pelo mesmo
-    # motivo: não há vizinho anterior suficiente para formar a diferença.
-    numerator[2:] = first_diff[2:] - first_diff[1:-1]
+    # Sem diferença de segunda ordem nos dois primeiros quadros após a
+    # aquisição, pelo mesmo motivo: não há vizinho anterior suficiente para
+    # formar a diferença. first_diff[f] é 0.0 pela convenção de ausência, não
+    # uma velocidade medida, então first_diff[f+1] - first_diff[f] injetaria
+    # um pico de aceleração v[f+1]/dt cuja magnitude só depende de onde a
+    # aquisição começou. Com f == 0 isto reduz ao clássico numerator[2:].
+    start = first_observed + 2
+    numerator[start:] = first_diff[start:] - first_diff[start - 1 : -1]
     return _safe_divide(numerator, dt_eff)
 
 
@@ -150,7 +157,9 @@ def _wrap_angle(angle: np.ndarray) -> np.ndarray:
     return (angle + np.pi) % (2.0 * np.pi) - np.pi
 
 
-def _trunk_orientation(xy: np.ndarray, dt_eff: np.ndarray) -> np.ndarray:
+def _trunk_orientation(
+    xy: np.ndarray, dt_eff: np.ndarray, *, first_observed: int
+) -> np.ndarray:
     shoulder_mid = (xy[:, SHOULDER_LEFT] + xy[:, SHOULDER_RIGHT]) / 2.0
     hip_mid = (xy[:, HIP_LEFT] + xy[:, HIP_RIGHT]) / 2.0
     trunk_vector = hip_mid - shoulder_mid
@@ -158,6 +167,12 @@ def _trunk_orientation(xy: np.ndarray, dt_eff: np.ndarray) -> np.ndarray:
 
     trunk_sin = np.sin(theta).astype(np.float32)
     trunk_cos = np.cos(theta).astype(np.float32)
+
+    # Nas linhas anteriores à primeira observação o tronco é o vetor nulo, e
+    # arctan2(0, 0) == 0.0 daria trunk_cos = 1.0 — um tronco horizontal
+    # sintético onde não há pose nenhuma.
+    trunk_sin[:first_observed] = 0.0
+    trunk_cos[:first_observed] = 0.0
 
     # sin/cos em vez do ângulo bruto: o ângulo bruto salta em 2*pi entre
     # quadros adjacentes puramente por causa do wrap +pi/-pi, e o codificador
@@ -222,14 +237,19 @@ def build_pose_features(
     xy_flat = xy.reshape(k, 34)
 
     dt_eff = _effective_dt(pose.person_found, dt)
+    first_observed = first_observed_index(pose.person_found)
 
     kp_velocity = _first_difference(xy_flat, dt_eff)
-    kp_acceleration = _second_difference(kp_velocity, dt_eff)
+    kp_acceleration = _second_difference(
+        kp_velocity, dt_eff, first_observed=first_observed
+    )
 
     bbox_velocity = _first_difference(bbox_desc, dt_eff)
-    bbox_acceleration = _second_difference(bbox_velocity, dt_eff)
+    bbox_acceleration = _second_difference(
+        bbox_velocity, dt_eff, first_observed=first_observed
+    )
 
-    trunk = _trunk_orientation(xy, dt_eff)
+    trunk = _trunk_orientation(xy, dt_eff, first_observed=first_observed)
 
     matrix = _assemble_matrix(
         xy_flat,
@@ -268,7 +288,7 @@ def _selftest_bbox_constant_velocity() -> bool:
     dt_eff = _effective_dt(np.ones((k,), dtype=bool), dt)
 
     velocity = _first_difference(bbox_desc, dt_eff)
-    acceleration = _second_difference(velocity, dt_eff)
+    acceleration = _second_difference(velocity, dt_eff, first_observed=0)
 
     expected_v = 2.0 / dt
     ok = (
@@ -296,7 +316,7 @@ def _selftest_trunk_upright_and_horizontal() -> bool:
     xy[1, HIP_RIGHT] = [0.2, 0.0]
 
     dt_eff = _effective_dt(np.ones((2,), dtype=bool), dt)
-    trunk = _trunk_orientation(xy, dt_eff)
+    trunk = _trunk_orientation(xy, dt_eff, first_observed=0)
     upright_ok = np.isclose(trunk[0, 0], 1.0, atol=1e-5) and np.isclose(
         trunk[0, 1], 0.0, atol=1e-5
     )
@@ -322,7 +342,7 @@ def _selftest_trunk_wrap() -> bool:
         xy[i, HIP_RIGHT] = vector / 2.0
 
     dt_eff = _effective_dt(np.ones((k,), dtype=bool), dt)
-    trunk = _trunk_orientation(xy, dt_eff)
+    trunk = _trunk_orientation(xy, dt_eff, first_observed=0)
     dtheta_wrap = trunk[2, 2]
     huge_wrap = (2.0 * np.pi) / dt
 
@@ -347,7 +367,7 @@ def _selftest_trunk_gap_uses_gap_length() -> bool:
     person_found = np.array([True, False, False, True])
 
     dt_eff = _effective_dt(person_found, dt)
-    trunk = _trunk_orientation(xy, dt_eff)
+    trunk = _trunk_orientation(xy, dt_eff, first_observed=0)
 
     expected_dtheta = 0.3 / (3.0 * dt)
     ok = bool(np.isclose(trunk[3, 2], expected_dtheta)) and not bool(
@@ -430,10 +450,12 @@ def _selftest_output_shape_and_finiteness() -> bool:
     xy_flat = xy_out.reshape(k, 34)
     dt_eff = _effective_dt(person_found, dt)
     kp_velocity = _first_difference(xy_flat, dt_eff)
-    kp_acceleration = _second_difference(kp_velocity, dt_eff)
+    kp_acceleration = _second_difference(kp_velocity, dt_eff, first_observed=0)
     bbox_velocity = _first_difference(bbox_out, dt_eff)
-    bbox_acceleration = _second_difference(bbox_velocity, dt_eff)
-    trunk = _trunk_orientation(xy_out, dt_eff)
+    bbox_acceleration = _second_difference(
+        bbox_velocity, dt_eff, first_observed=0
+    )
+    trunk = _trunk_orientation(xy_out, dt_eff, first_observed=0)
 
     matrix = _assemble_matrix(
         xy_flat,
@@ -469,6 +491,294 @@ def _selftest_blocks_cover_range_without_gaps_or_overlaps() -> bool:
     )
 
 
+def _block_range(block_name: str) -> tuple[int, int]:
+    for name, start, end in feature_blocks():
+        if name == block_name:
+            return start, end
+    raise KeyError(f"bloco de features desconhecido: {block_name}")
+
+
+def _column_index(column_name: str) -> int:
+    return _feature_names().index(column_name)
+
+
+def _synthetic_keypoints_and_bbox(k: int, *, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(seed)
+    keypoints = np.zeros((k, 17, 3), dtype=np.float32)
+    keypoints[:, :, 0] = rng.uniform(10.0, 90.0, size=(k, 17))
+    keypoints[:, :, 1] = rng.uniform(10.0, 190.0, size=(k, 17))
+    keypoints[:, :, 2] = rng.uniform(0.4, 1.0, size=(k, 17))
+    # bbox estritamente não degenerada em todo quadro: normalize_keypoints
+    # divide pela diagonal da bbox, que precisa ser > 0 onde há detecção.
+    x_min = rng.uniform(0.0, 40.0, size=k)
+    y_min = rng.uniform(0.0, 80.0, size=k)
+    bbox = np.stack(
+        [
+            x_min,
+            y_min,
+            x_min + rng.uniform(10.0, 50.0, size=k),
+            y_min + rng.uniform(20.0, 100.0, size=k),
+        ],
+        axis=1,
+    ).astype(np.float32)
+    return keypoints, bbox
+
+
+def _prefix_causality_fixtures() -> list[tuple[str, np.ndarray]]:
+    return [
+        # Cobre todos os regimes: trecho inicial ausente, primeira detecção,
+        # gaps curtos, reaparições e trecho ausente no meio.
+        (
+            "gaps",
+            np.array(
+                [
+                    False, False, False, True, True, False,
+                    True, True, True, False, False, True,
+                ],
+                dtype=np.bool_,
+            ),
+        ),
+        # f == 0: não há trecho inicial ausente, então first_observed não
+        # protege nenhuma linha e as bordas de derivada caem em 0, 1 e 2.
+        (
+            "first_observed_zero",
+            np.array(
+                [True, True, False, True, False, False, True, True],
+                dtype=np.bool_,
+            ),
+        ),
+        # K == 1 e K == 2: vídeos mais curtos que a janela de duas linhas usada
+        # por _second_difference, onde os slices de borda ficam vazios.
+        ("single_frame", np.array([True], dtype=np.bool_)),
+        ("two_frames", np.array([False, True], dtype=np.bool_)),
+    ]
+
+
+def _selftest_prefix_causality() -> bool:
+    ok = True
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        pose_root = Path(temporary_dir)
+        for fixture_name, base_found in _prefix_causality_fixtures():
+            k = int(base_found.shape[0])
+            base_keypoints, base_bbox = _synthetic_keypoints_and_bbox(k, seed=20240917)
+            alt_keypoints, alt_bbox = _synthetic_keypoints_and_bbox(k, seed=20240918)
+
+            base_id = f"prefix_env/{fixture_name}_base"
+            _write_synthetic_pose(
+                pose_root,
+                base_id,
+                k,
+                keypoints=base_keypoints,
+                bbox=base_bbox,
+                person_found=base_found,
+            )
+            base_matrix, names = build_pose_features(base_id, pose_root=pose_root)
+
+            ok = ok and base_matrix.shape == (k, EXPECTED_D)
+            ok = ok and len(names) == EXPECTED_D
+
+            for t in range(k - 1):
+                variant_found = base_found.copy()
+                variant_found[t + 1 :] = ~variant_found[t + 1 :]
+                variant_keypoints = base_keypoints.copy()
+                variant_bbox = base_bbox.copy()
+                variant_keypoints[t + 1 :] = alt_keypoints[t + 1 :]
+                variant_bbox[t + 1 :] = alt_bbox[t + 1 :]
+
+                video_id = f"prefix_env/{fixture_name}_variant_{t}"
+                _write_synthetic_pose(
+                    pose_root,
+                    video_id,
+                    k,
+                    keypoints=variant_keypoints,
+                    bbox=variant_bbox,
+                    person_found=variant_found,
+                )
+                variant_matrix, _ = build_pose_features(video_id, pose_root=pose_root)
+
+                # Igualdade exata: qualquer vazamento do futuro aparece como
+                # diferença de bit, não como diferença dentro de tolerância.
+                ok = ok and bool(
+                    np.array_equal(base_matrix[: t + 1], variant_matrix[: t + 1])
+                )
+                # Guarda de não trivialidade: o sufixo realmente difere na
+                # primeira linha alterada. Aqui ela vale em todo t porque o flip
+                # inverte person_found[t+1], e o lado com detecção tem kp_conf
+                # não nulo enquanto o outro tem kp_conf exatamente zero.
+                ok = ok and not bool(
+                    np.array_equal(base_matrix[t + 1], variant_matrix[t + 1])
+                )
+
+    return _check(
+        "build_pose_features: prefixo 0..t é idêntico quando só o sufixo muda "
+        "(nenhuma feature depende do futuro)",
+        ok,
+    )
+
+
+def _selftest_leading_absent_rows_are_fully_zero() -> bool:
+    k = 5
+    person_found = np.array([False, False, True, True, True], dtype=np.bool_)
+    keypoints, bbox = _synthetic_keypoints_and_bbox(k, seed=7)
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        pose_root = Path(temporary_dir)
+        _write_synthetic_pose(
+            pose_root,
+            "leading_env/video",
+            k,
+            keypoints=keypoints,
+            bbox=bbox,
+            person_found=person_found,
+        )
+        matrix, _ = build_pose_features("leading_env/video", pose_root=pose_root)
+
+    leading = matrix[:2]
+    # O bloco trunk é o caso não óbvio dentro dessas linhas: sem o zeramento
+    # explícito, arctan2(0, 0) daria trunk_cos = 1.0 em vez de 0.0.
+    ok = (
+        bool(np.array_equal(leading, np.zeros((2, EXPECTED_D), dtype=np.float32)))
+        and bool(np.any(matrix[2] != 0.0))
+    )
+    return _check(
+        "build_pose_features: linhas antes da primeira detecção são exatamente "
+        "zero em todas as 134 colunas, inclusive o bloco trunk",
+        ok,
+    )
+
+
+def _selftest_first_observation_has_zero_derivatives() -> bool:
+    k = 5
+    person_found = np.array([False, False, True, True, True], dtype=np.bool_)
+    keypoints, bbox = _synthetic_keypoints_and_bbox(k, seed=11)
+    first_observed = 2
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        pose_root = Path(temporary_dir)
+        _write_synthetic_pose(
+            pose_root,
+            "first_env/video",
+            k,
+            keypoints=keypoints,
+            bbox=bbox,
+            person_found=person_found,
+        )
+        matrix, _ = build_pose_features("first_env/video", pose_root=pose_root)
+
+    derivative_blocks = [
+        "kp_velocity",
+        "kp_acceleration",
+        "bbox_velocity",
+        "bbox_acceleration",
+    ]
+    acceleration_blocks = ["kp_acceleration", "bbox_acceleration"]
+    dtheta_col = _column_index("trunk_dtheta")
+    sin_col = _column_index("trunk_sin")
+    cos_col = _column_index("trunk_cos")
+
+    ok = True
+    for block_name in derivative_blocks:
+        start, end = _block_range(block_name)
+        ok = ok and bool(
+            np.array_equal(
+                matrix[first_observed, start:end],
+                np.zeros(end - start, dtype=np.float32),
+            )
+        )
+    ok = ok and bool(matrix[first_observed, dtheta_col] == np.float32(0.0))
+
+    for block_name in ("kp_xy", "kp_conf", "bbox_pos"):
+        start, end = _block_range(block_name)
+        ok = ok and bool(np.any(matrix[first_observed, start:end] != 0.0))
+    # Orientação real no quadro observado: sin e cos não podem ser ambos zero.
+    ok = ok and not bool(
+        matrix[first_observed, sin_col] == np.float32(0.0)
+        and matrix[first_observed, cos_col] == np.float32(0.0)
+    )
+
+    for block_name in acceleration_blocks:
+        start, end = _block_range(block_name)
+        ok = ok and bool(
+            np.array_equal(
+                matrix[first_observed + 1, start:end],
+                np.zeros(end - start, dtype=np.float32),
+            )
+        )
+    # Não trivialidade: a partir de f+2 a aceleração volta a ser real.
+    start, end = _block_range("kp_acceleration")
+    ok = ok and bool(np.any(matrix[first_observed + 2, start:end] != 0.0))
+
+    return _check(
+        "build_pose_features: primeira detecção tem derivadas zero e f+1 tem "
+        "aceleração zero, sem zerar posição/confiança/orientação",
+        ok,
+    )
+
+
+def _selftest_all_missing_features_are_zero() -> bool:
+    k = 5
+    person_found = np.zeros((k,), dtype=np.bool_)
+    keypoints, bbox = _synthetic_keypoints_and_bbox(k, seed=13)
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        pose_root = Path(temporary_dir)
+        _write_synthetic_pose(
+            pose_root,
+            "empty_env/video",
+            k,
+            keypoints=keypoints,
+            bbox=bbox,
+            person_found=person_found,
+        )
+        matrix, _ = build_pose_features("empty_env/video", pose_root=pose_root)
+
+    ok = bool(np.array_equal(matrix, np.zeros((k, EXPECTED_D), dtype=np.float32)))
+    return _check(
+        "build_pose_features: vídeo inteiro sem detecção dá matriz [K,134] "
+        "exatamente zerada, inclusive trunk_cos",
+        ok,
+    )
+
+
+def _selftest_gap_after_acquisition_uses_gap_length() -> bool:
+    k = 5
+    height = 200
+    person_found = np.array([False, True, False, False, True], dtype=np.bool_)
+    keypoints, bbox = _synthetic_keypoints_and_bbox(k, seed=17)
+    # bbox_cy = cy / height: 40/200 = 0.2 no quadro 1 e 100/200 = 0.5 no
+    # quadro 4, ou seja, um delta conhecido de 0.3 ao longo de um gap de 3.
+    bbox[1] = np.array([10.0, 20.0, 30.0, 60.0], dtype=np.float32)
+    bbox[4] = np.array([10.0, 80.0, 30.0, 120.0], dtype=np.float32)
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        pose_root = Path(temporary_dir)
+        _write_synthetic_pose(
+            pose_root,
+            "gap_env/video",
+            k,
+            keypoints=keypoints,
+            bbox=bbox,
+            person_found=person_found,
+        )
+        matrix, _ = build_pose_features("gap_env/video", pose_root=pose_root)
+
+    dt = 1.0 / TARGET_FPS
+    velocity_col = _column_index("bbox_vcy")
+    delta = 100.0 / height - 40.0 / height
+    expected_v = delta / (3.0 * dt)
+
+    ok = (
+        bool(np.isclose(matrix[4, velocity_col], expected_v))
+        and not bool(np.isclose(matrix[4, velocity_col], delta / dt))
+        and bool(matrix[1, velocity_col] == np.float32(0.0))
+    )
+    return _check(
+        "build_pose_features: reaparição após gap de 3 usa delta/(3*dt) e a "
+        "primeira detecção continua com velocidade zero",
+        ok,
+    )
+
+
 def run_selftest() -> None:
     checks = [
         _selftest_bbox_constant_velocity(),
@@ -479,6 +789,11 @@ def run_selftest() -> None:
         _selftest_gap_velocity_uses_gap_length(),
         _selftest_output_shape_and_finiteness(),
         _selftest_blocks_cover_range_without_gaps_or_overlaps(),
+        _selftest_prefix_causality(),
+        _selftest_leading_absent_rows_are_fully_zero(),
+        _selftest_first_observation_has_zero_derivatives(),
+        _selftest_all_missing_features_are_zero(),
+        _selftest_gap_after_acquisition_uses_gap_length(),
     ]
     if not all(checks):
         print("\npose kinematics selftest FALHOU", file=sys.stderr)
@@ -491,8 +806,26 @@ def run_report(*, adapter: DatasetAdapter) -> None:
     video_ids = [str(video_id) for video_id in frames["video_id"].unique()]
     group_sizes = cast(pd.Series, frames.groupby("video_id").size())
 
+    derivative_blocks = [
+        _block_range(name)
+        for name in (
+            "kp_velocity",
+            "kp_acceleration",
+            "bbox_velocity",
+            "bbox_acceleration",
+        )
+    ]
+    acceleration_blocks = [
+        _block_range(name) for name in ("kp_acceleration", "bbox_acceleration")
+    ]
+    dtheta_col = _column_index("trunk_dtheta")
+
     matrices: list[np.ndarray] = []
     k_mismatches: list[str] = []
+    prefix_violations: list[str] = []
+    acquisition_violations: list[str] = []
+    videos_with_prefix = 0
+    prefix_rows_total = 0
     for video_id in video_ids:
         matrix = build_pose_features(video_id, pose_root=adapter.pose_root)[0]
         matrices.append(matrix)
@@ -501,6 +834,37 @@ def run_report(*, adapter: DatasetAdapter) -> None:
             k_mismatches.append(
                 f"{video_id} (build_pose_features={matrix.shape[0]}, "
                 f"frames.parquet={expected_rows})"
+            )
+
+        person_found = load_person_found(video_id, pose_root=adapter.pose_root)
+        prefix = first_observed_index(person_found)
+        if prefix > 0:
+            videos_with_prefix += 1
+            prefix_rows_total += prefix
+            leading = matrix[:prefix]
+            if not np.array_equal(
+                leading, np.zeros((prefix, matrix.shape[1]), dtype=np.float32)
+            ):
+                nonzero_rows = int(np.sum(np.any(leading != 0.0, axis=1)))
+                prefix_violations.append(
+                    f"{video_id} (prefixo={prefix}, linhas não zeradas={nonzero_rows})"
+                )
+
+        k = matrix.shape[0]
+        offenders: list[str] = []
+        if prefix < k:
+            for start, end in derivative_blocks:
+                if np.any(matrix[prefix, start:end] != 0.0):
+                    offenders.append(f"f[{start}:{end}]")
+            if matrix[prefix, dtheta_col] != np.float32(0.0):
+                offenders.append("f[trunk_dtheta]")
+        if prefix + 1 < k:
+            for start, end in acceleration_blocks:
+                if np.any(matrix[prefix + 1, start:end] != 0.0):
+                    offenders.append(f"f+1[{start}:{end}]")
+        if offenders:
+            acquisition_violations.append(
+                f"{video_id} (f={prefix}, colunas não zeradas: {', '.join(offenders)})"
             )
 
     all_features = np.concatenate(matrices, axis=0)
@@ -540,10 +904,58 @@ def run_report(*, adapter: DatasetAdapter) -> None:
         len(k_mismatches) == 0,
     )
 
+    print(
+        "\n=== checagem: prefixo anterior à primeira detecção é exatamente zero ==="
+    )
+    print(
+        f"vídeos com prefixo sem detecção: {videos_with_prefix} "
+        f"(esperado {EXPECTED_VIDEOS_WITH_PREFIX}), "
+        f"linhas de prefixo: {prefix_rows_total} "
+        f"(esperado {EXPECTED_PREFIX_ROWS})"
+    )
+    if prefix_violations:
+        print("video_ids com prefixo não zerado:")
+        for violation in prefix_violations:
+            print(f"  {violation}")
+    ok_prefix_zero = _check(
+        "linhas anteriores à primeira detecção são zero nas 134 colunas, "
+        "para todo video_id",
+        len(prefix_violations) == 0,
+    )
+    # Sem estas duas contagens congeladas a checagem acima passaria vazia: um
+    # first_observed_index quebrado que devolvesse 0 pularia todo vídeo.
+    ok_prefix_videos = _check(
+        f"vídeos com prefixo sem detecção == {EXPECTED_VIDEOS_WITH_PREFIX}",
+        videos_with_prefix == EXPECTED_VIDEOS_WITH_PREFIX,
+    )
+    ok_prefix_rows = _check(
+        f"linhas de prefixo == {EXPECTED_PREFIX_ROWS}",
+        prefix_rows_total == EXPECTED_PREFIX_ROWS,
+    )
+
+    print("\n=== checagem: derivadas na aquisição (linhas f e f+1) ===")
+    if acquisition_violations:
+        print("video_ids com derivada não zerada na aquisição:")
+        for violation in acquisition_violations:
+            print(f"  {violation}")
+    ok_acquisition = _check(
+        "linha f tem velocidade, aceleração e trunk_dtheta zero e linha f+1 tem "
+        "aceleração zero, para todo video_id",
+        len(acquisition_violations) == 0,
+    )
+
     ok_rows = _check(f"total de linhas == {EXPECTED_K_SUM}", total_rows == EXPECTED_K_SUM)
     ok_finite = _check("nenhum valor não finito", non_finite == 0)
 
-    if not (ok_rows and ok_finite and ok_k_per_video):
+    if not (
+        ok_rows
+        and ok_finite
+        and ok_k_per_video
+        and ok_prefix_zero
+        and ok_prefix_videos
+        and ok_prefix_rows
+        and ok_acquisition
+    ):
         print("\npose kinematics report FALHOU", file=sys.stderr)
         sys.exit(1)
     print("\npose kinematics report OK: todas as checagens passaram")

@@ -85,6 +85,22 @@ métricas: usa lock exclusivo, journal, arquivos de staging e backups para
 recuperar uma promoção interrompida e manter o par anterior consistente.
 `--force` autoriza substituir saídas locais, nunca as referências.
 
+## Repadronizar após mudar a semântica das features de pose
+
+`standardize build` é idempotente e, sem `--force`, preserva o JSON existente.
+A única guarda de obsolescência do arquivo é o SHA-256 de
+`data/processed/le2i/frames.parquet` (ver [Padronização de features de
+pose](../data/pose-standardization.md)), e uma mudança de semântica das
+features — como a [causalidade do prefixo de
+pose](../data/temporal-contract.md#imputacao-de-pose-e-causalidade-do-prefixo)
+— não toca esse parquet. Um JSON calculado sobre as features antigas passa,
+portanto, por todas as checagens existentes sem reclamar.
+
+Depois de qualquer mudança em `gatefall.pose.loading` ou
+`gatefall.pose.kinematics` que altere valores de coluna, rode a etapa 21 com
+`--force` e a etapa 22 em seguida, e retreine o run local antes de comparar
+métricas com qualquer run anterior.
+
 ## Validação de desenvolvimento e CI
 
 Pyright e documentação não são etapas científicas do pipeline. A workflow
