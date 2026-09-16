@@ -343,15 +343,82 @@ real nem no Ultralytics.
 ### Evidência que motivou a política
 
 A auditoria da extração anterior (`scripts/exploratory/audit_pose_selection.py`)
-mediu 254 quadros multi-pessoa em 30494 (0,8330%) e 39 trocas da track
-selecionada. O volume é pequeno, mas concentrado: as trocas se acumulam nas
-caudas p99 das derivadas temporais de bbox — 21 dos 305 quadros da cauda de
-velocidade de bbox (~53,8x o esperado por acaso) e 19 dos 305 da cauda de
-aceleração (~48,7x). Os números vêm de uma cauda p99 global, calculada sobre
-a concatenação dos 190 vídeos, e não de uma cauda por vídeo. Ou seja, a
-seleção por confiança quadro a quadro produzia justamente o tipo de salto
-espúrio de posição que as features cinemáticas leem como movimento brusco — o
-mesmo argumento que já havia descartado o zero-fill na imputação de pose.
+mediu 254 quadros multi-pessoa em 30494 (0,8330%) e 38 candidatos a troca de
+identidade da pessoa selecionada.
+
+Um candidato é definido assim: sobre a sequência de quadros com
+`person_found` e `track_id >= 0`, em ordem crescente de índice, cada par
+consecutivo em que o `track_id` muda conta como troca — adjacente quando os
+dois quadros são vizinhos na grade, após lacuna caso contrário. A troca vira
+candidata a troca de identidade quando pelo menos um dos dois quadros tem
+`n_detections > 1`, ou seja, quando havia de fato outra pessoa em cena para a
+seleção confundir. Foram 39 trocas adjacentes (34 em contexto multi-pessoa) e
+94 trocas após lacuna (4 em contexto multi-pessoa), somando os 38 candidatos.
+
+O volume é pequeno, mas concentrado: os candidatos se acumulam nas caudas p99
+das derivadas temporais de bbox — 17 dos 305 quadros da cauda de velocidade de
+bbox (44,73x o esperado por acaso) e 28 dos 305 da cauda de aceleração
+(41,78x). Nas quatro caudas p99.9 (velocidade e aceleração, de keypoints e de
+bbox) não cai nenhum candidato: o extremo absoluto das derivadas é dominado
+por movimento real, não por troca de pessoa.
+
+Três convenções de medida importam para reproduzir esses números. A magnitude
+por quadro de cada bloco é a maior componente absoluta do bloco, não a norma
+L2 — a norma diluiria um salto numa única coordenada entre as 34 colunas de
+keypoints. A máscara de candidatos é expandida para `t+1` nos dois blocos de
+aceleração, porque uma descontinuidade de posição em `t` contamina a segunda
+diferença também no quadro seguinte (os 38 candidatos viram 67 quadros
+marcados), e a máscara expandida entra tanto na interseção com a cauda quanto
+na taxa-base do denominador do enriquecimento. E as caudas são globais,
+calculadas sobre a concatenação dos 190 vídeos, não por vídeo.
+
+Ou seja, a seleção por confiança quadro a quadro produzia justamente o tipo de
+salto espúrio de posição que as features cinemáticas leem como movimento
+brusco — o mesmo argumento que já havia descartado o zero-fill na imputação de
+pose.
+
+O script também imprime dois diagnósticos adicionais, subordinados a essa
+métrica: as trocas cruas da track selecionada e o subconjunto em que a bbox
+também descola (IoU abaixo de 0,5). São informativos e não substituem a
+contagem de candidatos.
+
+Números da extração posterior à mudança de política:
+
+A mesma auditoria, com a métrica corrigida, foi aplicada a uma reextração
+isolada em `data/scratch/audit/pose_after`, que não tocou os artefatos
+canônicos de `data/features/le2i/pose`. A grade continua com 30494 quadros,
+27561 com pessoa encontrada (90,3817%) e 254 multi-pessoa (0,8330%): a
+invariante de cobertura se confirma quadro a quadro, com `person_found` e
+`n_detections` idênticos entre as duas raízes. Só muda quem é a pessoa
+selecionada — 89 quadros (0,2919% da grade) em 44 vídeos mudaram de conteúdo,
+31 deles também de `track_id`.
+
+Os candidatos a troca de identidade caíram de 38 (0,1246%) para 14 (0,0459%).
+As trocas adjacentes caíram de 39 (34 em contexto multi-pessoa) para 16 (11
+multi-pessoa) e as trocas após lacuna, de 94 (4 multi-pessoa) para 93 (3
+multi-pessoa) — a política ataca a descontinuidade dentro da sequência
+contínua, não a reaquisição depois de uma lacuna de detecção. A máscara
+expandida de aceleração encolheu de 67 para 28 quadros.
+
+Nas caudas p99 globais (305 quadros cada), a contagem absoluta de candidatos
+caiu em todos os quatro blocos: `bbox_velocity` de 17 para 10,
+`bbox_acceleration` de 28 para 14, `kp_velocity` de 1 para 0 e
+`kp_acceleration` de 4 para 0. Nas caudas p99.9 (31 quadros) continua não
+caindo nenhum candidato, antes e depois.
+
+O enriquecimento relativo exige uma ressalva, porque anda na direção
+contrária: `bbox_velocity` foi de 44,73x para 71,41x e `bbox_acceleration` de
+41,78x para 49,99x, enquanto `kp_velocity` e `kp_acceleration` foram de 2,63x
+e 5,97x para 0,00x. A alta nos dois blocos de bbox não é regressão. O
+enriquecimento é a razão entre a taxa de candidatos na cauda e a taxa de
+candidatos na grade inteira, e o denominador caiu mais rápido (de 0,1246%
+para 0,0459%) do que a contagem na cauda. Com menos candidatos no total, os
+poucos que sobram são proporcionalmente mais concentrados no extremo. A
+leitura que importa é a contagem absoluta na cauda, que cai por volta da
+metade.
+
+A reextração "depois" foi rodada duas vezes, em sessões separadas, e produziu
+artefatos idênticos nas duas.
 
 ## Dataset de janelas de pose
 
