@@ -15,6 +15,7 @@ pesos. Links apontam para o contrato detalhado.
 | `uv run python scripts/fetch_labels.py --verify` | Verifica hashes/proveniência; requer labels baixadas | Labels + `PROVENANCE.json` → stdout; não muta; repetível; sem `--force` | Sim, labels | Não | [OmniFall](../data/omnifall.md) |
 | `uv run python scripts/extract_le2i.py [--zip PATH] [--force]` | Extrai o ZIP obtido manualmente | ZIP → `data/raw/le2i/<ambientes>`; muta; preserva extraídos; `--force` reextrai somente destinos conhecidos | Sim | Não | [Le2i](../data/le2i.md) |
 | `uv run python scripts/exploratory/explore_le2i.py` | Exploração histórica opcional; requer distribuição local | Le2i → stdout; não é etapa produtiva nem muta artefatos canônicos | Sim | Não | [Le2i](../data/le2i.md) |
+| `uv run python scripts/exploratory/audit_pose_selection.py [--pose-root PATH] [--label LABEL] [--json OUT]` | Audita a seleção de pessoa numa extração de pose já feita; compara "antes" e "depois" da política | HDF5 de pose → stdout; não muta o dataset; escreve só o `--json` pedido | Sim | Não | [Contrato temporal](../data/temporal-contract.md#selecao-de-pessoa-na-extracao-de-pose) |
 
 ## Manifesto, tempo e quadros
 
@@ -39,6 +40,7 @@ pesos. Links apontam para o contrato detalhado.
 | `uv run python -m gatefall.pose.extract extract-all [--model MODEL] [--dataset le2i] [--force]` | Extrai pose de todos os vídeos da grade | vídeos + modelo → `data/features/le2i/pose/*.h5`; muta; pula válidos; `--force` reextrai | Sim | Pesos; GPU recomendada | [Contrato temporal](../data/temporal-contract.md#dataset-de-janelas-de-pose) |
 | `uv run python -m gatefall.pose.extract report [--dataset le2i]` | Valida cobertura e arquivos de pose | grade + HDF5 → stdout; não muta; repetível | Sim | Não | [Contrato temporal](../data/temporal-contract.md#dataset-de-janelas-de-pose) |
 | `uv run python -m gatefall.pose.smoke report [--video-id ID] [--model MODEL] [--dataset le2i]` | Diagnóstico visual de um vídeo/modelo | vídeo + modelo → relatório/artefatos de scratch; muta apenas scratch | Sim | Pesos; GPU recomendada | [Contrato temporal](../data/temporal-contract.md#dataset-de-janelas-de-pose) |
+| `uv run python -m gatefall.pose.selection selftest` | Testa a política de seleção contínua da pessoa-alvo | Casos sintéticos → stdout; não muta | Não | Não | [Contrato temporal](../data/temporal-contract.md#selecao-de-pessoa-na-extracao-de-pose) |
 | `uv run python -m gatefall.pose.loading selftest` | Testa carregamento/imputação de pose | Casos sintéticos → stdout; não muta | Não | Não | [Contrato temporal](../data/temporal-contract.md#dataset-de-janelas-de-pose) |
 | `uv run python -m gatefall.pose.kinematics selftest [--dataset le2i]` | Testa as 134 features cinemáticas | Casos sintéticos → stdout; não muta | Não | Não | [Contrato temporal](../data/temporal-contract.md#dataset-de-janelas-de-pose) |
 | `uv run python -m gatefall.pose.kinematics report [--dataset le2i]` | Valida features reais | grade + HDF5 → stdout; não muta | Sim | Não | [Contrato temporal](../data/temporal-contract.md#dataset-de-janelas-de-pose) |

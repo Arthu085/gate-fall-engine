@@ -23,6 +23,7 @@ jobs:
           uv run python -m gatefall.data.timegrid selftest
           uv run python -m gatefall.data.windows selftest
           uv run python -m gatefall.data.frames_io selftest
+          uv run python -m gatefall.pose.selection selftest
           uv run python -m gatefall.pose.loading selftest
           uv run python -m gatefall.pose.kinematics selftest
           uv run python -m gatefall.data.pose_dataset selftest
