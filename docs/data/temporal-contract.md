@@ -254,6 +254,105 @@ seis valores esperados são propriedades do dataset congelado — se o parquet
 mudar, queremos uma falha ruidosa, não um relatório silenciosamente
 diferente.
 
+## Seleção de pessoa na extração de pose { #selecao-de-pessoa-na-extracao-de-pose }
+
+`src/gatefall/pose/selection.py:PersonSelector` decide, a cada quadro, qual
+detecção do YOLO-Pose vira a pose gravada no `.h5`. A política é de
+continuidade primeiro: a pessoa-alvo é seguida pela track do ByteTrack e,
+quando o ID se perde, reancorada espacialmente; a confiança da caixa só
+decide a aquisição inicial e os empates.
+
+O seletor guarda dois estados por vídeo: a track ativa (`active_track_id`) e
+a bbox da última detecção selecionada (`last_bbox`). O estado é por
+instância e não existe `reset` — `run_pose_extract` cria um
+`PersonSelector` novo por vídeo, e é isso que torna estrutural a garantia de
+que nenhum estado vaza entre vídeos, do mesmo jeito que
+`_reset_tracker_state` zera o BYTETracker no início de cada vídeo.
+
+### Ordem de decisão por quadro
+
+1. Sem detecção (`n_det == 0`), devolve `None` e não muta nada: a track
+   ativa e a última bbox sobrevivem a lacunas de qualquer duração.
+2. Se a track ativa está presente entre os IDs do quadro, ela é escolhida,
+   independentemente da confiança das outras detecções. A última bbox é
+   atualizada quando o quadro traz caixas utilizáveis; a track ativa continua
+   a mesma.
+3. Se a track ativa sumiu (ou o tracker não devolveu IDs) e existe uma bbox
+   anterior, calcula o IoU dela contra todas as detecções do quadro e fica
+   com a de maior sobreposição. Empate exato de IoU é desfeito pela maior
+   confiança de caixa e, persistindo, pelo menor índice. IoU máximo igual a
+   zero não conta como evidência de continuidade e cai no passo 4.
+4. Sem bbox anterior utilizável — aquisição inicial, ausência de caixas ou o
+   IoU zerado do passo 3 —, escolhe a detecção de maior confiança de caixa.
+   É a regra antiga, agora restrita à aquisição, com uma única diferença: a
+   regra antiga devolvia `None` quando havia mais de uma detecção e nenhuma
+   confiança de caixa, e aqui esse quadro cai no índice 0. A cobertura, por
+   isso, só pode subir, nunca cair.
+5. Nos passos 3 e 4, a track ativa passa a ser o ID da detecção escolhida e a
+   última bbox é atualizada. Quando o tracker não devolve IDs utilizáveis no
+   quadro, a track ativa sobrevive intacta, do mesmo jeito que a última bbox
+   — nem uma nem outra é apagada.
+
+O IoU é o critério primário porque a pergunta é de identidade, não de
+qualidade: entre 0,1 s de grade, a mesma pessoa se desloca pouco e sobrepõe
+muito a própria caixa anterior, enquanto uma segunda pessoa no mesmo quadro
+pode perfeitamente ter confiança maior. A confiança de caixa continua útil
+onde não há nada a continuar (aquisição) ou onde o IoU não separa os
+candidatos (empate exato).
+
+### As sete transições cobertas
+
+- **Aquisição inicial** — sem estado, vence a maior confiança de caixa.
+- **Continuidade da mesma track** — o ID ativo aparece no quadro e é
+  seguido mesmo contra um distrator de confiança maior.
+- **Perda** — quadro sem detecção; nada é selecionado e nada é esquecido.
+- **Retomada com o mesmo ID** — depois da lacuna, o ByteTrack devolve o
+  mesmo ID e o passo 2 volta a valer.
+- **Reaquisição com ID diferente** — depois da lacuna, o ID mudou; o passo 3
+  reancora pela maior sobreposição com a última bbox, porque um ID novo não
+  é prova de outra pessoa física.
+- **Troca imediata sem lacuna** — o ID ativo desaparece sem que o vídeo
+  passe por um quadro vazio; o passo 3 resolve no mesmo quadro.
+- **Quadro sem IDs** — o tracker devolve detecções sem ID (nenhuma track
+  ativada no quadro); o passo 3 reancora por IoU, a track ativa é preservada
+  e o quadro seguinte em que o ID volta a aparecer retoma o passo 2.
+
+### Invariante de cobertura
+
+`select` devolve `None` se e somente se o quadro não tem nenhuma detecção.
+A seleção nunca recusa um quadro para preservar uma identidade, não há
+limite de validade para a última bbox nem IoU mínimo para aceitar a track
+ativa. Ou seja, `person_found` e a cobertura relatada por `pose extract
+report` dependem só do detector, como antes desta política — com a ressalva
+do passo 4: um quadro multi-pessoa sem confiança de caixa, que a regra antiga
+recusava, agora é aceito, de modo que a cobertura só pode subir. Na prática
+esse quadro não ocorre — o Ultralytics não devolve detecções sem confiança de
+caixa —, e por isso `src/gatefall/pose/report.py` continua exigindo igualdade
+exata com `EXPECTED_PERSON_FOUND_SUM`: a soma congelada segue valendo, e uma
+diferença deve falhar ruidosamente.
+
+```bash
+uv run python -m gatefall.pose.selection selftest
+```
+
+Trava os catorze casos sintéticos da política — as sete transições, os
+fallbacks por confiança, o desempate exato de IoU, o estado por instância, a
+invariante de cobertura e a numérica do `bbox_iou` — sem tocar no dataset
+real nem no Ultralytics.
+
+### Evidência que motivou a política
+
+A auditoria da extração anterior (`scripts/exploratory/audit_pose_selection.py`)
+mediu 254 quadros multi-pessoa em 30494 (0,8330%) e 39 trocas da track
+selecionada. O volume é pequeno, mas concentrado: as trocas se acumulam nas
+caudas p99 das derivadas temporais de bbox — 21 dos 305 quadros da cauda de
+velocidade de bbox (~53,8x o esperado por acaso) e 19 dos 305 da cauda de
+aceleração (~48,7x). Os números vêm de uma cauda p99 global, calculada sobre
+a concatenação dos 190 vídeos, e não de uma cauda por vídeo. Ou seja, a
+seleção por confiança quadro a quadro produzia justamente o tipo de salto
+espúrio de posição que as features cinemáticas leem como movimento brusco — o
+mesmo argumento que já havia descartado o zero-fill na imputação de pose.
+
 ## Dataset de janelas de pose
 
 `src/gatefall/data/pose_dataset.py:PoseWindowDataset` é a camada genérica acima do
