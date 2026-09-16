@@ -173,11 +173,19 @@ esses dois campos.
 Execução registrada em `runs/reference/le2i/baseline_a/metrics.json`, checkpoint na
 última época (30):
 
-Esta referência foi treinada sobre as features de pose anteriores à
-[causalidade do prefixo](../data/temporal-contract.md#imputacao-de-pose-e-causalidade-do-prefixo).
+Esta referência foi treinada sobre features de pose anteriores a duas
+mudanças do pipeline de features: a adoção canônica da [seleção de pessoa por
+continuidade](../data/temporal-contract.md#selecao-de-pessoa-na-extracao-de-pose)
+— cuja política já estava implementada antes, mas só passou a valer nos HDF5
+canônicos em disco na reextração forçada desta entrega — e a [causalidade do
+prefixo](../data/temporal-contract.md#imputacao-de-pose-e-causalidade-do-prefixo).
 Ela segue válida como registro histórico e não foi sobrescrita, mas um
-retreino sob as features atuais não reproduz estes números: o vetor de
-entrada mudou nas linhas anteriores à primeira detecção de cada vídeo.
+retreino sob as features atuais não reproduz estes números.
+
+Qualquer diferença de métrica entre o candidato local atual e esta referência
+histórica é, portanto, o efeito conjunto das duas mudanças. A comparação não é
+uma ablação de nenhuma delas, e nenhuma das duas pode ser creditada
+individualmente a partir dela.
 
 | Split | Macro-F1 restrita |
 | ----- | ------------------ |
