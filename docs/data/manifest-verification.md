@@ -102,7 +102,10 @@ Os relatórios abaixo descrevem o conjunto, mas não determinam sucesso ou falha
 - distribuição de resolução e vídeos fora da resolução modal;
 - distribuição de FPS por ambiente;
 - tabela cruzada entre `cam` e `env` e avaliação da relação entre ambos;
-- estatísticas de duração dos segmentos por classe;
+- estatísticas de duração dos segmentos por classe, em duas seções: uma
+  apenas com `train`, rotulada como evidência de seleção de `WINDOW_FRAMES`,
+  e outra com `val`, `test` e o pool `train+val+test`, rotulada como
+  informativa e explicitamente não válida para seleção de hiperparâmetros;
 - quantidade de segmentos por classe e split, com avisos para combinações
   vazias;
 - duração total e projeção de quadros a 10, 12,5 e 25 fps.

@@ -160,8 +160,10 @@ rotuladas pelo rótulo do último quadro da janela. As constantes vivem em
 `src/gatefall/config.py`:
 
 - `WINDOW_FRAMES = 24` — 2,4 s em `TARGET_FPS`; cobre o p75 da duração dos
-  segmentos `fall` (2,35 s) e dá timesteps suficientes para uma TCN dilatada
-  de 3 níveis, kernel 3, campo receptivo 29.
+  segmentos `fall` medido apenas em train (2,37 s) e dá timesteps suficientes
+  para uma TCN dilatada de 3 níveis, kernel 3, campo receptivo 29. O p75
+  pooled (2,35 s) citado em versões anteriores misturava val/test em uma
+  decisão de hiperparâmetro e está superado para esse fim.
 - `TRAIN_STRIDE = 4` — em stride 1, janelas de treino consecutivas se
   sobrepõem em 96% e viram quase-duplicatas.
 - `EVAL_STRIDE = 1` — uma predição por quadro da grade, o que dá avaliação
