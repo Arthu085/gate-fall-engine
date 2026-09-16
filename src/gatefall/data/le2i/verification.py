@@ -153,23 +153,67 @@ def report_camera_environment_crosstab(manifest: pd.DataFrame) -> None:
         print("conclusão: cam NÃO é uma função 1:1 de env.")
 
 
-def report_segment_duration_by_class(
+# Convenção de label 1 = "fall" definida em gatefall.data.le2i.pose_dataset.LABEL_NAMES.
+FALL_LABEL = 1
+
+
+def compute_segment_duration_stats(dataframe: pd.DataFrame) -> pd.DataFrame:
+    tagged = cast(pd.DataFrame, dataframe.copy())
+    tagged["duration"] = tagged["end"] - tagged["start"]
+    return cast(
+        pd.DataFrame,
+        tagged.groupby("label")["duration"].agg(
+            min="min",
+            p25=lambda series: series.quantile(0.25),
+            median="median",
+            p75=lambda series: series.quantile(0.75),
+            max="max",
+            count="count",
+        ),
+    )
+
+
+def report_train_duration_by_class(splits: dict[str, pd.DataFrame]) -> None:
+    print(
+        "\n=== duração dos segmentos por classe — apenas train "
+        "(evidência de seleção de WINDOW_FRAMES) ==="
+    )
+    stats = compute_segment_duration_stats(splits["train"])
+    print(stats)
+
+    if FALL_LABEL in stats.index:
+        fall_row = stats.loc[FALL_LABEL]
+        print(
+            "fall (train): count={count}, min={min:.4f}, p25={p25:.4f}, "
+            "median={median:.4f}, p75={p75:.4f}, max={max:.4f}".format(
+                count=int(cast(int, fall_row["count"])),
+                min=float(cast(float, fall_row["min"])),
+                p25=float(cast(float, fall_row["p25"])),
+                median=float(cast(float, fall_row["median"])),
+                p75=float(cast(float, fall_row["p75"])),
+                max=float(cast(float, fall_row["max"])),
+            )
+        )
+    else:
+        print("fall (train): nenhum segmento com label fall em train")
+
+
+def report_segment_duration_by_class_other_splits(
     splits: dict[str, pd.DataFrame],
 ) -> None:
-    print("\n=== duração dos segmentos por classe (pooled train+val+test) ===")
+    print(
+        "\n=== duração dos segmentos por classe — val, test e pooled "
+        "(informativo; NÃO válido para seleção de hiperparâmetros) ==="
+    )
+    for split_name in ("val", "test"):
+        print(f"\n--- {split_name} ---")
+        print(compute_segment_duration_stats(splits[split_name]))
+
     pooled = cast(
         pd.DataFrame, pd.concat(splits.values(), ignore_index=True)
-    ).copy()
-    pooled["duration"] = pooled["end"] - pooled["start"]
-    stats = pooled.groupby("label")["duration"].agg(
-        min="min",
-        p25=lambda series: series.quantile(0.25),
-        median="median",
-        p75=lambda series: series.quantile(0.75),
-        max="max",
-        count="count",
     )
-    print(stats)
+    print("\n--- pooled (train+val+test) ---")
+    print(compute_segment_duration_stats(pooled))
 
 
 def report_segment_counts_per_class_per_split(
@@ -244,7 +288,8 @@ def verify_le2i_manifest() -> None:
     report_resolution_distribution(manifest)
     report_fps_distribution(manifest)
     report_camera_environment_crosstab(manifest)
-    report_segment_duration_by_class(splits)
+    report_train_duration_by_class(splits)
+    report_segment_duration_by_class_other_splits(splits)
     report_segment_counts_per_class_per_split(splits)
     report_projected_frame_counts(manifest)
     sha256_ok = report_sha256_integrity(manifest)

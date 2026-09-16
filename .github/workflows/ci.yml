@@ -21,6 +21,7 @@ jobs:
       - name: Rodar selftests sintéticos
         run: |
           uv run python -m gatefall.data.timegrid selftest
+          uv run python -m gatefall.data.ingest selftest
           uv run python -m gatefall.data.windows selftest
           uv run python -m gatefall.data.frames_io selftest
           uv run python -m gatefall.pose.selection selftest
