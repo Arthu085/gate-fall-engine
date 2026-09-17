@@ -27,6 +27,8 @@ jobs:
           uv run python -m gatefall.pose.selection selftest
           uv run python -m gatefall.pose.loading selftest
           uv run python -m gatefall.pose.kinematics selftest
+          uv run python -m gatefall.pose.quality selftest
+          uv run python -m gatefall.pose.quality degradation
           uv run python -m gatefall.data.pose_dataset selftest
           uv run python -m gatefall.features.standardize selftest
           uv run python -m gatefall.train.baseline_a selftest

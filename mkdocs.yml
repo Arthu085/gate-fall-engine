@@ -46,6 +46,7 @@ nav:
       - Manifesto e verificação: data/manifest-verification.md
       - Contrato temporal: data/temporal-contract.md
       - Padronização de features de pose: data/pose-standardization.md
+      - Índice de qualidade de pose: data/pose-quality.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md
