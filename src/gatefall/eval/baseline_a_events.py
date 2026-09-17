@@ -103,6 +103,11 @@ EVENT_SPLIT_FIELDS = {
     "n_detected_events",
     "n_missed_events",
     "sensitivity",
+    "n_events_detected_in_fall",
+    "n_events_detected_in_fall_or_fallen",
+    "fall_sensitivity",
+    "fall_or_fallen_sensitivity",
+    "detected_events_alarm_within_fall_rate",
     "n_alarms_total",
     "n_false_alarms",
     "n_pre_fall_false_alarms",
@@ -119,6 +124,8 @@ EVENT_COUNT_FIELDS = {
     "n_fall_events",
     "n_detected_events",
     "n_missed_events",
+    "n_events_detected_in_fall",
+    "n_events_detected_in_fall_or_fallen",
     "n_alarms_total",
     "n_false_alarms",
     "n_pre_fall_false_alarms",
@@ -196,6 +203,17 @@ def validate_event_metrics(
         ):
             raise ValueError(
                 f"event_metrics.json: contagem de eventos inconsistente em {split}"
+            )
+        if not (
+            0
+            <= split_data["n_events_detected_in_fall"]
+            <= split_data["n_events_detected_in_fall_or_fallen"]
+            <= split_data["n_detected_events"]
+        ):
+            raise ValueError(
+                f"event_metrics.json: n_events_detected_in_fall/"
+                f"n_events_detected_in_fall_or_fallen inconsistentes com "
+                f"n_detected_events em {split}"
             )
         latency = split_data["latency_seconds"]
         if not isinstance(latency, Mapping):

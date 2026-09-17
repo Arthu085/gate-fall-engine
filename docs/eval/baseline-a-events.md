@@ -96,6 +96,14 @@ janela; entre múltiplos matches, a associação usa o de menor
 associado é uma perda (`missed`); um alarme sem nenhum evento associado é
 um falso alarme.
 
+Além de `start_time_s` e `association_end_time_s`, cada `FallEvent` retém
+o fim exato do segmento `fall` (`fall_end_time_s`) e, quando existe um
+`fallen` seguinte, os limites exatos desse segmento
+(`fallen_start_time_s`, `fallen_end_time_s`); no caso fallback (sem
+`fallen` seguinte) os dois ficam `None`. `EventOutcome` retém também todos
+os alarmes associados ao evento, ordenados por `trigger_time_s`
+(`matched_alarms`), não só o mais cedo usado para a latência legada.
+
 ### Inferência sobre a grade completa de janelas
 
 `evaluate` carrega `val`/`test` com `drop_ignored=False`
@@ -167,7 +175,34 @@ execução. `splits.val` e `splits.test` trazem, cada um:
   `false_alarms_per_hour` e `false_alarms_per_hour_labeled_time`,
   respectivamente (ver acima).
 - `n_fall_events`, `n_detected_events`, `n_missed_events`, `sensitivity`
-  (`n_detected_events / n_fall_events`, nível de evento).
+  (`n_detected_events / n_fall_events`, nível de evento) usam a mesma
+  janela de associação legada acima (`[start_time_s,
+  association_end_time_s]`, incluindo o período de graça
+  `association_end_offset_s`).
+- `n_events_detected_in_fall`, `n_events_detected_in_fall_or_fallen`,
+  `fall_sensitivity`, `fall_or_fallen_sensitivity` são métricas mais
+  estritas, calculadas sobre `matched_alarms` de cada evento (não apenas
+  o alarme mais cedo): um evento conta em `n_events_detected_in_fall` se
+  algum alarme associado cai dentro de `[start_time_s,
+  fall_end_time_s]`; conta em `n_events_detected_in_fall_or_fallen` se
+  isso vale, ou se algum alarme associado cai dentro de
+  `[fallen_start_time_s, fallen_end_time_s]` do `fallen` seguinte. A
+  união `fall ∪ fallen` **exclui** o gap entre o fim do segmento `fall` e
+  o início do `fallen` seguinte, e **exclui** também o período de graça
+  `association_end_offset_s` depois do fim do `fallen` — um alarme só no
+  gap ou só no período de graça conta como detecção pela métrica legada
+  (`detected`/`sensitivity`), mas não entra em nenhuma das duas métricas
+  `fall`/`fall_or_fallen`. Quando o evento não tem `fallen` seguinte
+  (caso fallback), `fall_or_fallen` se reduz a `fall`
+  (`fallen_start_time_s`/`fallen_end_time_s` são `None`). As duas taxas
+  usam `n_fall_events` como denominador, como `sensitivity`.
+- `detected_events_alarm_within_fall_rate` é
+  `n_events_detected_in_fall / n_detected_events` — diferente das duas
+  métricas `*_sensitivity` acima, o denominador é `n_detected_events`
+  (eventos detectados pela regra legada), não `n_fall_events`; mede, entre
+  os eventos já detectados, a fração cujo alarme caiu dentro do próprio
+  `fall`. É `0,0` quando `n_detected_events` é zero (nenhum evento
+  detectado no split).
 - `n_alarms_total`, `n_false_alarms`, `n_pre_fall_false_alarms`
   (subconjunto diagnóstico de `n_false_alarms` cujo `trigger_time_s` cai
   em `[event.start_time_s - pre_fall_diagnostic_window_s,
@@ -186,7 +221,11 @@ execução. `splits.val` e `splits.test` trazem, cada um:
   `window_binary_` marca essa diferença de unidade.
 - `latency_seconds`: `per_event` (latência de cada evento detectado, em
   segundos, arredondada a `latency_decimal_places`), mais `mean` e
-  `median` (`null` se nenhum evento foi detectado).
+  `median` (`null` se nenhum evento foi detectado). A latência de cada
+  evento é sempre medida a partir do início do segmento `fall`
+  (`start_time_s`) até o alarme associado mais cedo — semântica inalterada
+  pelas métricas `fall`/`fall_or_fallen` acima, que não afetam
+  `latency_seconds`.
 
 ## Resultado da execução real
 

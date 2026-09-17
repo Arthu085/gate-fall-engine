@@ -643,6 +643,9 @@ def _selftest_matched_alarm_picks_earliest() -> bool:
     event = FallEvent(
         video_id="env/video_k",
         start_time_s=0.0,
+        fall_end_time_s=0.5,
+        fallen_start_time_s=1.0,
+        fallen_end_time_s=1.5,
         association_end_time_s=5.0,
         has_following_fallen=True,
     )

@@ -25,6 +25,9 @@ class Segment:
 class FallEvent:
     video_id: str
     start_time_s: float
+    fall_end_time_s: float
+    fallen_start_time_s: float | None
+    fallen_end_time_s: float | None
     association_end_time_s: float
     has_following_fallen: bool
 
@@ -41,6 +44,7 @@ class EventOutcome:
     event: FallEvent
     detected: bool
     latency_s: float | None
+    matched_alarms: tuple[Alarm, ...]
 
 
 def extract_label_segments(
@@ -92,15 +96,16 @@ def fall_events_for_video(
             default=None,
         )
         start_time_s = fall.start_k / protocol.target_fps
+        fall_end_time_s = fall.end_k / protocol.target_fps
         if following_fallen is not None:
-            association_end_time_s = (
-                following_fallen.end_k / protocol.target_fps + protocol.association_end_offset_s
-            )
+            fallen_start_time_s = following_fallen.start_k / protocol.target_fps
+            fallen_end_time_s = following_fallen.end_k / protocol.target_fps
+            association_end_time_s = fallen_end_time_s + protocol.association_end_offset_s
             has_following_fallen = True
         elif protocol.fallback_association_uses_fall_end:
-            association_end_time_s = (
-                fall.end_k / protocol.target_fps + protocol.association_end_offset_s
-            )
+            fallen_start_time_s = None
+            fallen_end_time_s = None
+            association_end_time_s = fall_end_time_s + protocol.association_end_offset_s
             has_following_fallen = False
         else:
             raise ValueError(
@@ -114,6 +119,9 @@ def fall_events_for_video(
             FallEvent(
                 video_id=video_id,
                 start_time_s=start_time_s,
+                fall_end_time_s=fall_end_time_s,
+                fallen_start_time_s=fallen_start_time_s,
+                fallen_end_time_s=fallen_end_time_s,
                 association_end_time_s=association_end_time_s,
                 has_following_fallen=has_following_fallen,
             )
@@ -186,14 +194,51 @@ def associate_events_and_alarms(
                 earliest_alarm.trigger_time_s - event.start_time_s,
                 ndigits=protocol.latency_decimal_places,
             )
-            outcomes.append(EventOutcome(event=event, detected=True, latency_s=latency_s))
+            matched_alarms = tuple(
+                sorted(
+                    (alarm for _alarm_id, alarm in matches),
+                    key=lambda alarm: alarm.trigger_time_s,
+                )
+            )
+            outcomes.append(
+                EventOutcome(
+                    event=event,
+                    detected=True,
+                    latency_s=latency_s,
+                    matched_alarms=matched_alarms,
+                )
+            )
         else:
-            outcomes.append(EventOutcome(event=event, detected=False, latency_s=None))
+            outcomes.append(
+                EventOutcome(event=event, detected=False, latency_s=None, matched_alarms=())
+            )
 
     false_alarms = [
         alarm for alarm_id, alarm in enumerate(alarms) if alarm_id not in matched_alarm_ids
     ]
     return outcomes, false_alarms
+
+
+def event_detected_in_fall(outcome: EventOutcome) -> bool:
+    event = outcome.event
+    return any(
+        event.start_time_s <= alarm.trigger_time_s <= event.fall_end_time_s
+        for alarm in outcome.matched_alarms
+    )
+
+
+def event_detected_in_fall_or_fallen(outcome: EventOutcome) -> bool:
+    event = outcome.event
+    if event_detected_in_fall(outcome):
+        return True
+    if not event.has_following_fallen:
+        return False
+    assert event.fallen_start_time_s is not None
+    assert event.fallen_end_time_s is not None
+    return any(
+        event.fallen_start_time_s <= alarm.trigger_time_s <= event.fallen_end_time_s
+        for alarm in outcome.matched_alarms
+    )
 
 
 def window_level_binary_metrics(
@@ -275,6 +320,10 @@ def split_event_report(
     n_fall_events = len(all_events)
     n_detected_events = sum(1 for outcome in outcomes if outcome.detected)
     n_missed_events = n_fall_events - n_detected_events
+    n_events_detected_in_fall = sum(1 for outcome in outcomes if event_detected_in_fall(outcome))
+    n_events_detected_in_fall_or_fallen = sum(
+        1 for outcome in outcomes if event_detected_in_fall_or_fallen(outcome)
+    )
 
     total_video_time_hours = total_windows / protocol.target_fps / 3600
     labeled_time_hours = labeled_windows / protocol.target_fps / 3600
@@ -300,6 +349,8 @@ def split_event_report(
         IGNORE_LABEL,
     )
 
+    # latency_s (e, portanto, latency_seconds) é sempre medido a partir de
+    # event.start_time_s (início do segmento fall), não da união fall∪fallen.
     per_event_latency = [
         outcome.latency_s for outcome in outcomes if outcome.detected and outcome.latency_s is not None
     ]
@@ -326,6 +377,17 @@ def split_event_report(
         "n_detected_events": n_detected_events,
         "n_missed_events": n_missed_events,
         "sensitivity": float(n_detected_events / n_fall_events) if n_fall_events else 0.0,
+        "n_events_detected_in_fall": n_events_detected_in_fall,
+        "n_events_detected_in_fall_or_fallen": n_events_detected_in_fall_or_fallen,
+        "fall_sensitivity": (
+            float(n_events_detected_in_fall / n_fall_events) if n_fall_events else 0.0
+        ),
+        "fall_or_fallen_sensitivity": (
+            float(n_events_detected_in_fall_or_fallen / n_fall_events) if n_fall_events else 0.0
+        ),
+        "detected_events_alarm_within_fall_rate": (
+            float(n_events_detected_in_fall / n_detected_events) if n_detected_events else 0.0
+        ),
         "n_alarms_total": len(all_alarms),
         "n_false_alarms": n_false_alarms,
         "n_pre_fall_false_alarms": n_pre_fall_false_alarms,
