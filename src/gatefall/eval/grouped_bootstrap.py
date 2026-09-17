@@ -287,7 +287,7 @@ def _classification_metrics(
         "precision": (binary["precision"], (tp + fp) > 0),
         "recall": (binary["recall"], (tp + fn) > 0),
         "specificity": (binary["specificity"], (tn + fp) > 0),
-        "f1": (binary["f1"], (tp + fp) > 0 and (tp + fn) > 0),
+        "f1": (binary["f1"], (2 * tp + fp + fn) > 0),
         "accuracy": (binary["accuracy"], n_samples > 0),
     }
 
@@ -648,6 +648,7 @@ def run_analyze(
         "checkpoint_sha256": sha256_file(checkpoint_path),
         "training_metrics_path": str(training_metrics_path),
         "training_metrics_sha256": sha256_file(training_metrics_path),
+        "alarm_protocol": BASELINE_A_ALARM_PROTOCOL.to_dict(),
         "method": {
             "cluster_unit": "subject",
             "n_replicates": n_replicates,
@@ -1031,6 +1032,145 @@ def _selftest_undefined_replicates_handling() -> bool:
     return check_no_fall_and_mixed and check_zero_windows
 
 
+def _selftest_binary_f1_validity_rule() -> bool:
+    # Caso (a): existe positivo verdadeiro (fall/fallen), mas nenhuma
+    # predição positiva -> tp=0, fp=0, fn>0. Denominador do F1 próprio
+    # (2*tp+fp+fn) é fn>0, logo é uma réplica VÁLIDA com F1=0.0, não uma
+    # réplica indefinida.
+    n_a = 5
+    video_a = "video_all_predictions_negative"
+    predictions_a = SplitPredictions(
+        video_ids=[video_a] * n_a,
+        k_ends=list(range(n_a)),
+        true_labels=[1, 1, 0, 0, 0],
+        pred_labels=[0, 0, 0, 0, 0],
+        usable_windows=n_a,
+        total_windows=n_a,
+        labeled_windows=n_a,
+    )
+    subject_to_videos_a = {1: [video_a]}
+    rng_a = np.random.default_rng(np.random.SeedSequence(101))
+    result_a = run_grouped_bootstrap_for_split(
+        predictions_a, subject_to_videos_a, BASELINE_A_ALARM_PROTOCOL, 10, 50, 0.95, rng_a
+    )
+    f1_a = result_a["classification"]["f1"]
+    case_a_ok = (
+        f1_a["valid_replicates"] == 50
+        and f1_a["undefined_replicates"] == 0
+        and f1_a["point_estimate"] == 0.0
+        and f1_a["ci_lower"] == 0.0
+        and f1_a["ci_upper"] == 0.0
+    )
+
+    # Caso (b): predições incluem positivos, mas nenhum positivo verdadeiro
+    # -> tp=0, fn=0, fp>0. Denominador do F1 próprio é fp>0, logo também é
+    # uma réplica VÁLIDA com F1=0.0.
+    n_b = 5
+    video_b = "video_no_true_positives"
+    predictions_b = SplitPredictions(
+        video_ids=[video_b] * n_b,
+        k_ends=list(range(n_b)),
+        true_labels=[0, 0, 0, 0, 0],
+        pred_labels=[1, 1, 0, 0, 0],
+        usable_windows=n_b,
+        total_windows=n_b,
+        labeled_windows=n_b,
+    )
+    subject_to_videos_b = {1: [video_b]}
+    rng_b = np.random.default_rng(np.random.SeedSequence(102))
+    result_b = run_grouped_bootstrap_for_split(
+        predictions_b, subject_to_videos_b, BASELINE_A_ALARM_PROTOCOL, 10, 50, 0.95, rng_b
+    )
+    f1_b = result_b["classification"]["f1"]
+    case_b_ok = (
+        f1_b["valid_replicates"] == 50
+        and f1_b["undefined_replicates"] == 0
+        and f1_b["point_estimate"] == 0.0
+        and f1_b["ci_lower"] == 0.0
+        and f1_b["ci_upper"] == 0.0
+    )
+
+    # Caso genuinamente indefinido: nem positivo verdadeiro, nem positivo
+    # predito -> tp=fp=fn=0, denominador do F1 próprio é zero -> réplica
+    # indefinida, limites nulos.
+    n_c = 5
+    video_c = "video_no_positives_at_all"
+    predictions_c = SplitPredictions(
+        video_ids=[video_c] * n_c,
+        k_ends=list(range(n_c)),
+        true_labels=[0, 0, 0, 0, 0],
+        pred_labels=[0, 0, 0, 0, 0],
+        usable_windows=n_c,
+        total_windows=n_c,
+        labeled_windows=n_c,
+    )
+    subject_to_videos_c = {1: [video_c]}
+    rng_c = np.random.default_rng(np.random.SeedSequence(103))
+    result_c = run_grouped_bootstrap_for_split(
+        predictions_c, subject_to_videos_c, BASELINE_A_ALARM_PROTOCOL, 10, 50, 0.95, rng_c
+    )
+    f1_c = result_c["classification"]["f1"]
+    case_c_ok = (
+        f1_c["valid_replicates"] == 0
+        and f1_c["undefined_replicates"] == 50
+        and f1_c["ci_lower"] is None
+        and f1_c["ci_upper"] is None
+    )
+
+    ok = case_a_ok and case_b_ok and case_c_ok
+    return _check(
+        "F1 binário é válido (F1=0.0) sempre que seu próprio denominador "
+        "(2*tp+fp+fn) é não nulo, mesmo quando precision ou recall têm "
+        "denominador zero isoladamente; só é indefinido quando tp=fp=fn=0",
+        ok,
+    )
+
+
+def _selftest_alarm_protocol_recorded_in_report() -> bool:
+    n = 5
+    video_id = "video_alarm_protocol_check"
+    predictions = SplitPredictions(
+        video_ids=[video_id] * n,
+        k_ends=list(range(n)),
+        true_labels=[0] * n,
+        pred_labels=[0] * n,
+        usable_windows=n,
+        total_windows=n,
+        labeled_windows=n,
+    )
+    subject_to_videos = {1: [video_id]}
+    rng = np.random.default_rng(np.random.SeedSequence(104))
+    split_report = run_grouped_bootstrap_for_split(
+        predictions, subject_to_videos, BASELINE_A_ALARM_PROTOCOL, 10, 10, 0.95, rng
+    )
+    report = {
+        "run_name": "selftest_run",
+        "checkpoint_path": "unused",
+        "checkpoint_sha256": "unused",
+        "training_metrics_path": "unused",
+        "training_metrics_sha256": "unused",
+        "alarm_protocol": BASELINE_A_ALARM_PROTOCOL.to_dict(),
+        "method": {
+            "cluster_unit": "subject",
+            "n_replicates": 10,
+            "confidence_level": 0.95,
+            "seed": 104,
+            "ci_method": "percentile",
+            "note": METHOD_NOTE,
+        },
+        "splits": {"val": split_report},
+    }
+    ok = (
+        "alarm_protocol" in report
+        and report["alarm_protocol"] == BASELINE_A_ALARM_PROTOCOL.to_dict()
+    )
+    return _check(
+        "relatório do bootstrap agrupado carrega alarm_protocol == "
+        "BASELINE_A_ALARM_PROTOCOL.to_dict()",
+        ok,
+    )
+
+
 def run_grouped_bootstrap_selftest() -> bool:
     checks = [
         _selftest_replicate_window_counts_are_cluster_multiples(),
@@ -1040,6 +1180,8 @@ def run_grouped_bootstrap_selftest() -> bool:
         _selftest_percentile_bounds_known_array(),
         _selftest_subject_split_mapping_validation(),
         _selftest_undefined_replicates_handling(),
+        _selftest_binary_f1_validity_rule(),
+        _selftest_alarm_protocol_recorded_in_report(),
     ]
     ok = all(checks)
     if not ok:

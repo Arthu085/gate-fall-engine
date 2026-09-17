@@ -107,7 +107,7 @@ cálculo do intervalo:
 | `precision` | `tp + fp == 0` |
 | `recall` | `tp + fn == 0` |
 | `specificity` | `tn + fp == 0` |
-| `f1` | `tp + fp == 0` ou `tp + fn == 0` |
+| `f1` | `2*tp + fp + fn == 0` (o denominador do próprio F1; precision ou recall isoladamente terem denominador zero não torna o F1 indefinido — nesse caso F1=0.0 é um valor válido, não um fallback) |
 | `accuracy` | `n_samples == 0` |
 | `window_binary_sensitivity` | `tp + fn == 0` (mesma máscara/`positive_labels` da métrica) |
 | `window_binary_specificity` | `tn + fp == 0` (mesma máscara/`positive_labels` da métrica) |
@@ -144,6 +144,15 @@ Dois arquivos em `runs/local/{dataset}/{run_name}/`:
 {
   "run_name": "...", "checkpoint_path": "...", "checkpoint_sha256": "...",
   "training_metrics_path": "...", "training_metrics_sha256": "...",
+  "alarm_protocol": {
+    "fall_label": 1, "fallen_label": 2, "positive_labels": [1, 2],
+    "trigger_consecutive": 3, "refractory_period_s": 5.0,
+    "association_end_offset_s": 2.0,
+    "fallback_association_uses_fall_end": true, "eval_stride": 1,
+    "target_fps": "...", "latency_decimal_places": 1,
+    "pre_fall_diagnostic_window_s": 1.0,
+    "pre_fall_alarms_count_as_false_alarms": true
+  },
   "method": {
     "cluster_unit": "subject", "n_replicates": 10000,
     "confidence_level": 0.95, "seed": 42, "ci_method": "percentile",
@@ -177,6 +186,14 @@ Dois arquivos em `runs/local/{dataset}/{run_name}/`:
 }
 ```
 
+  A chave `alarm_protocol` grava `BASELINE_A_ALARM_PROTOCOL.to_dict()`
+  (`src/gatefall/eval/alarm_protocol.py`) por inteiro, tornando o artefato
+  autodescritivo quanto ao protocolo de alarme congelado usado para calcular
+  as métricas de evento — sem essa chave, interpretar
+  `false_alarms_per_hour`/latências exigiria abrir `alarm_protocol.yaml`
+  separadamente. É somente leitura: nenhum arquivo canônico é modificado
+  para produzi-la.
+
 - `grouped_bootstrap.csv`: achatado, uma linha por
   `(split, metric_group, metric)`, colunas `split`, `metric_group`,
   `metric`, `point_estimate`, `ci_lower`, `ci_upper`, `valid_replicates`,
@@ -192,10 +209,26 @@ canônicos foram confirmados byte a byte idênticos antes e depois da
 execução (hash SHA-256). A coluna de test é estritamente descritiva e
 **não foi usada para nenhum ajuste ou seleção**.
 
-O split val do Le2i tem `n_unique_clusters = 1` (um único sujeito), então o
-bootstrap sempre resorteia o mesmo (e único) cluster: o intervalo colapsa no
-próprio ponto de estimativa em toda métrica — comportamento esperado do
-método, não um defeito.
+**Aviso de resolução inferencial — leia antes de interpretar a tabela abaixo.**
+O split val do Le2i real tem apenas **1 sujeito** e o split test real tem
+apenas **2 sujeitos**. Isso não é um detalhe secundário: é a limitação mais
+importante desta execução.
+
+- **Val (n=1 sujeito):** o bootstrap sempre resorteia o mesmo (e único)
+  cluster, então o intervalo colapsa no próprio ponto de estimativa em toda
+  métrica — comportamento esperado do método, não um defeito. **Isso não
+  significa incerteza zero.** Significa que a variabilidade entre sujeitos é
+  matematicamente inestimável a partir de um único cluster; o intervalo
+  colapsado é a ausência de informação sobre essa variabilidade, não a
+  ausência da própria variabilidade.
+- **Test (n=2 sujeitos):** com apenas dois clusters distintos, o bootstrap
+  tem resolução inferencial severamente limitada — só existem poucas
+  combinações possíveis de reamostragem com reposição de 2 elementos. Os
+  intervalos do split test **devem ser lidos como descritivos**, não como um
+  intervalo de confiança de 95% bem calibrado em nível populacional. Eles
+  ilustram a variação por reamostragem observável já com estes dois sujeitos
+  específicos, não uma inferência confiável sobre a população geral de
+  sujeitos com quedas.
 
 | Split | Métrica | Ponto | IC 95% | Válidas/Total |
 | --- | --- | --- | --- | --- |
@@ -238,3 +271,11 @@ evento de queda e pelo menos uma janela rotulada em qualquer combinação de
 sujeitos sorteados nesta amostra. Nenhuma dessas observações constitui
 seleção, ranking ou recomendação de modelo/protocolo — o contrato desta
 ferramenta permanece inalterado.
+
+A regra de validade do F1 binário foi corrigida para considerar indefinida
+apenas a réplica cujo próprio denominador (`2*tp + fp + fn`) é zero (ver
+tabela de réplicas indefinidas acima). Nesta execução real registrada, toda
+métrica — incluindo `f1` em val e test — já tinha `10000/10000` réplicas
+válidas antes da correção, então nenhuma réplica que a regra antiga teria
+descartado existiu de fato nesta amostra: os números de `f1` acima
+permanecem exatos e não foram reexecutados.
