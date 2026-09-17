@@ -103,9 +103,13 @@ distorcendo a métrica agregada sem refletir desempenho real do modelo.
 
 Essa restrição é uma decisão metodológica do GateFall para o cenário
 `le2i-cs` do OmniFall, não uma regra oficial de métrica do OmniFall. O
-código de experimento oficial do OmniFall calcula macro-F1 sobre as 10
-classes com `sklearn.metrics.f1_score(..., average="macro", zero_division=0)`,
-sem a restrição de suporte fixo de treino usada aqui.
+código de experimento oficial do OmniFall chama
+`sklearn.metrics.f1_score(references, predictions, average="macro", zero_division=0)`
+sem passar `labels=`. Com `labels=None`, o scikit-learn deriva o conjunto de
+classes sobre o qual a média é calculada a partir das classes presentes em
+`y_true`/`y_pred`, e não de um denominador fixo de 10 classes. O código
+oficial do OmniFall também não usa a seleção fixa de classes do GateFall
+baseada em suporte positivo de treino.
 
 O conjunto fixo de classes do GateFall (`RESTRICTED_CLASSES`) é escolhido a
 partir do suporte de treino e depois aplicado sem alteração a treino,
