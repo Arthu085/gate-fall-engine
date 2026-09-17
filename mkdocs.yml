@@ -55,3 +55,4 @@ nav:
       - Diagnóstico qualitativo (render): eval/qualitative-render.md
       - Sensibilidade do protocolo de alarme: eval/alarm-protocol-sensitivity.md
       - Bootstrap agrupado por sujeito (IC): eval/grouped-bootstrap.md
+      - Sumário multi-seed: eval/multiseed-summary.md

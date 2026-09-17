@@ -257,7 +257,9 @@ def load_compatible_checkpoint(path: Path, config: TrainConfig) -> TCNClassifier
 
 
 def validate_training_run(
-    run_dir: Path, expected_config: TrainConfig | None = None
+    run_dir: Path,
+    expected_config: TrainConfig | None = None,
+    fields_allowed_to_differ: frozenset[str] = frozenset(),
 ) -> TrainConfig:
     present = [
         name for name in REQUIRED_TRAINING_ARTIFACTS if (run_dir / name).is_file()
@@ -274,10 +276,20 @@ def validate_training_run(
         config = load_config(run_dir / "config.yaml")
     except (OSError, TypeError, ValueError, KeyError) as exc:
         raise RuntimeError(f"config.yaml inválido em {run_dir}: {exc}") from exc
-    if expected_config is not None and config != expected_config:
-        raise RuntimeError(
-            f"config.yaml em {run_dir} não corresponde à configuração solicitada"
+    if expected_config is not None:
+        expected_dict = expected_config.to_dict()
+        actual_dict = config.to_dict()
+        disallowed_diffs = sorted(
+            field
+            for field in expected_dict
+            if field not in fields_allowed_to_differ
+            and actual_dict.get(field) != expected_dict[field]
         )
+        if disallowed_diffs:
+            raise RuntimeError(
+                f"config.yaml em {run_dir} não corresponde à configuração "
+                f"solicitada: campo(s) divergente(s): {', '.join(disallowed_diffs)}"
+            )
 
     try:
         with (run_dir / "metrics.json").open(encoding="utf-8") as stream:

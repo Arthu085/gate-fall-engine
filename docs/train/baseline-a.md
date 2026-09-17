@@ -25,7 +25,10 @@ uv run python -m gatefall.train.baseline_a train --dataset le2i \
 Treina o braço A sobre o Le2i real. O destino padrão é
 `runs/local/le2i/baseline_a/`; `--run-dir` permite explicitar outro diretório
 local. Destinos dentro de `runs/reference/` são rejeitados, inclusive quando o
-comando é chamado fora da raiz do repositório.
+comando é chamado fora da raiz do repositório. `--seed N` sobrepõe a seed
+padrão (42) e é gravada em `config.yaml`; é o único campo de configuração que
+pode variar entre runs comparáveis (ver "Receita de treino congelada" abaixo
+e [Sumário multi-seed](../eval/multiseed-summary.md)).
 
 Um run completo exige `config.yaml`, `metrics.json` e `checkpoint.pt` válidos e
 coerentes. O treino escreve os três artefatos em um diretório de staging irmão
@@ -52,7 +55,10 @@ A receita abaixo é compartilhada, sem alteração, pelos braços B e C
 (`CLAUDE.md`, invariante 1 — só o vetor de feature por passo muda entre A,
 B e C):
 
-- Seed 42.
+- Seed 42 por padrão; `--seed N` da CLI de treino permite variá-la
+  explicitamente. A seed é o único campo experimental que pode divergir
+  entre runs — todo o restante da receita abaixo permanece fixo. Ver
+  [Avaliação — Sumário multi-seed](../eval/multiseed-summary.md).
 - Otimizador AdamW, `lr=1e-3`, `weight_decay=1e-2`.
 - Agendamento de learning rate cosseno.
 - `batch_size=64`, 30 épocas, sem early stopping.

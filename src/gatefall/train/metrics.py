@@ -10,6 +10,10 @@ from gatefall.config import NUM_CLASSES
 # ocorre no Le2i. Ambas ficam fora da média macro.
 RESTRICTED_CLASSES: list[int] = [0, 1, 2, 3, 4, 7, 8, 9]
 
+# 1=fall, 2=fallen: projeção binária "queda em andamento ou já caído",
+# reutilizada pelo treino (arma A) e pelo bootstrap agrupado por sujeito.
+BINARY_POSITIVE_LABELS = frozenset({1, 2})
+
 
 def per_class_counts(
     y_true: np.ndarray, y_pred: np.ndarray, num_classes: int
@@ -128,6 +132,48 @@ def binary_projection_summary(
     fn = int(np.sum(true_positive_mask & ~pred_positive_mask))
     fp = int(np.sum(~true_positive_mask & pred_positive_mask))
     tn = int(np.sum(~true_positive_mask & ~pred_positive_mask))
+
+    precision, recall, f1 = _precision_recall_f1(tp, fp, fn)
+    specificity_denom = tn + fp
+    specificity = tn / specificity_denom if specificity_denom > 0 else 0.0
+    accuracy = (tp + tn) / n_samples if n_samples > 0 else 0.0
+
+    return {
+        "tp": tp,
+        "tn": tn,
+        "fp": fp,
+        "fn": fn,
+        "precision": precision,
+        "recall": recall,
+        "specificity": specificity,
+        "f1": f1,
+        "accuracy": accuracy,
+    }
+
+
+def binary_projection_from_confusion_matrix(
+    matrix: list[list[int]], positive_labels: frozenset[int]
+) -> dict:
+    n_classes = len(matrix)
+    n_samples = sum(sum(row) for row in matrix)
+
+    tp = 0
+    fn = 0
+    fp = 0
+    tn = 0
+    for true_c in range(n_classes):
+        true_positive = true_c in positive_labels
+        for pred_c in range(n_classes):
+            pred_positive = pred_c in positive_labels
+            count = matrix[true_c][pred_c]
+            if true_positive and pred_positive:
+                tp += count
+            elif true_positive and not pred_positive:
+                fn += count
+            elif not true_positive and pred_positive:
+                fp += count
+            else:
+                tn += count
 
     precision, recall, f1 = _precision_recall_f1(tp, fp, fn)
     specificity_denom = tn + fp
