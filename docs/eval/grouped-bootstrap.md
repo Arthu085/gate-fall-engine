@@ -274,8 +274,9 @@ ferramenta permanece inalterado.
 
 A regra de validade do F1 binário foi corrigida para considerar indefinida
 apenas a réplica cujo próprio denominador (`2*tp + fp + fn`) é zero (ver
-tabela de réplicas indefinidas acima). Nesta execução real registrada, toda
-métrica — incluindo `f1` em val e test — já tinha `10000/10000` réplicas
-válidas antes da correção, então nenhuma réplica que a regra antiga teria
-descartado existiu de fato nesta amostra: os números de `f1` acima
-permanecem exatos e não foram reexecutados.
+tabela de réplicas indefinidas acima). A implementação corrigida foi
+reexecutada sobre a execução real local do Arm A após o commit `003d591`,
+com `n_replicates=10000`, `confidence_level=0.95` e `seed=42`. Essa
+reexecução reproduziu os valores de métrica já documentados, incluindo o
+F1 binário, e toda métrica em ambos os splits val e test teve
+`10000/10000` réplicas válidas e zero réplicas indefinidas.
