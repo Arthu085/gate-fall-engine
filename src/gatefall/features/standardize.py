@@ -9,7 +9,7 @@ import numpy as np
 
 from gatefall.config import EVAL_STRIDE, TRAIN_STRIDE
 from gatefall.data.pose_dataset import PoseWindowDataset
-from gatefall.datasets import get_dataset
+from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.features.standardization import (
     TRAIN_SPLIT,
     apply_standardization,
@@ -24,10 +24,24 @@ from gatefall.features.standardization_selftest import run_standardization_selft
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features, feature_blocks
 
-EXPECTED_USABLE_WINDOWS_STRIDE4 = {"train": 5219, "val": 527, "test": 1412}
+EXPECTED_USABLE_WINDOWS_STRIDE4 = {
+    "le2i": {"train": 5219, "val": 527, "test": 1412},
+    "le2i-cv": {"train": 4168, "val": 1483, "test": 1507},
+}
 
 EVAL_SPLITS = ["val", "test"]
-EXPECTED_VIDEOS_LOADED = {"train": 133, "val": 19, "test": 38}
+EXPECTED_VIDEOS_LOADED = {
+    "le2i": {"train": 133, "val": 19, "test": 38},
+    "le2i-cv": {"train": 97, "val": 33, "test": 60},
+}
+
+
+def _expected_counts(table: dict[str, dict[str, int]], identifier: str) -> dict[str, int]:
+    if identifier not in table:
+        raise ValueError(
+            f"contagens esperadas ainda não medidas para {identifier}"
+        )
+    return table[identifier]
 
 
 def _check(name: str, condition: bool) -> bool:
@@ -76,6 +90,12 @@ def run_report(dataset_name: str = "le2i") -> None:
     frames = adapter.load_frames()
     names = stats.feature_names
     excluded_mask = excluded_dimension_mask(names)
+    expected_usable_windows = _expected_counts(
+        EXPECTED_USABLE_WINDOWS_STRIDE4, adapter.identifier
+    )
+    expected_videos_loaded = _expected_counts(
+        EXPECTED_VIDEOS_LOADED, adapter.identifier
+    )
 
     checks: list[bool] = []
     videos_loaded: dict[str, int] = {}
@@ -120,9 +140,9 @@ def run_report(dataset_name: str = "le2i") -> None:
     checks.append(
         _check(
             f"contagem de janelas de treino em stride={TRAIN_STRIDE} == "
-            f"{EXPECTED_USABLE_WINDOWS_STRIDE4[TRAIN_SPLIT]}",
-            len(train_dataset) == EXPECTED_USABLE_WINDOWS_STRIDE4[TRAIN_SPLIT]
-            and stats.window_count == EXPECTED_USABLE_WINDOWS_STRIDE4[TRAIN_SPLIT],
+            f"{expected_usable_windows[TRAIN_SPLIT]}",
+            len(train_dataset) == expected_usable_windows[TRAIN_SPLIT]
+            and stats.window_count == expected_usable_windows[TRAIN_SPLIT],
         )
     )
 
@@ -203,11 +223,11 @@ def run_report(dataset_name: str = "le2i") -> None:
 
     print("\n=== vídeos carregados por split ===")
     total_videos = 0
-    for split, expected in EXPECTED_VIDEOS_LOADED.items():
+    for split, expected in expected_videos_loaded.items():
         loaded = videos_loaded.get(split, 0)
         total_videos += loaded
         print(f"  {split}: {loaded} (esperado {expected})")
-    print(f"  total: {total_videos} (esperado {sum(EXPECTED_VIDEOS_LOADED.values())})")
+    print(f"  total: {total_videos} (esperado {sum(expected_videos_loaded.values())})")
 
     if not all(checks):
         print("\nstandardize report FALHOU", file=sys.stderr)
@@ -225,16 +245,16 @@ def build_cli_parser() -> argparse.ArgumentParser:
     build_parser.add_argument(
         "--force", action="store_true", help="Sobrescreve o arquivo já existente"
     )
-    build_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    build_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     selftest_parser = subparsers.add_parser(
         "selftest", help="Roda checagens sintéticas da padronização"
     )
-    selftest_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    selftest_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     report_parser = subparsers.add_parser(
         "report",
         help="Roda a padronização sobre o dataset real do Le2i e reporta estatísticas",
     )
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     return parser
 
 

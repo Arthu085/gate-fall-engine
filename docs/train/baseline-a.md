@@ -244,6 +244,11 @@ reflete subjects não vistos no treino, não ambientes novos. O split é por
 vídeo/subject justamente para evitar vazamento entre treino e teste
 (`CLAUDE.md`, invariante 2).
 
+Generalização a ambientes não vistos é medida separadamente pelo protocolo
+`le2i-cv`, disjunto por ambiente e câmera; ver [Generalização entre
+ambientes (Le2i-CV)](../eval/le2i-cv-generalization.md) para o run do braço A
+sob esse protocolo e a ressalva de confounding entre os dois.
+
 ## Migração de referência: determinismo de GPU
 
 Antes da correção de determinismo de GPU (PR #35), a referência mantinha um

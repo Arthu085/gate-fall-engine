@@ -8,20 +8,44 @@ import pandas as pd
 
 from gatefall.config import EVAL_STRIDE, IGNORE_LABEL, TRAIN_STRIDE, WINDOW_FRAMES
 from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
 from gatefall.data.windowing import build_window_index, window_frame_indices
+from gatefall.datasets.le2i import LE2I_DATASET, Le2iDatasetAdapter
 
-EXPECTED_TOTAL_WINDOWS_STRIDE1: dict[str, int] = {
-    "train": 22246,
-    "val": 2080,
-    "test": 6168,
+EXPECTED_TOTAL_WINDOWS_STRIDE1: dict[str, dict[str, int]] = {
+    "le2i": {
+        "train": 22246,
+        "val": 2080,
+        "test": 6168,
+    },
+    "le2i-cv": {
+        "train": 17905,
+        "val": 6607,
+        "test": 5982,
+    },
 }
 
-EXPECTED_USABLE_WINDOWS_STRIDE1: dict[str, int] = {
-    "train": 20740,
-    "val": 2079,
-    "test": 5616,
+EXPECTED_USABLE_WINDOWS_STRIDE1: dict[str, dict[str, int]] = {
+    "le2i": {
+        "train": 20740,
+        "val": 2079,
+        "test": 5616,
+    },
+    "le2i-cv": {
+        "train": 16595,
+        "val": 5922,
+        "test": 5918,
+    },
 }
+
+
+def expected_counts_for_identifier(
+    table: dict[str, dict[str, int]], identifier: str
+) -> dict[str, int]:
+    if identifier not in table:
+        raise ValueError(
+            f"contagens esperadas ainda não medidas para {identifier}"
+        )
+    return table[identifier]
 
 
 def _check(name: str, condition: bool) -> bool:
@@ -30,15 +54,18 @@ def _check(name: str, condition: bool) -> bool:
     return condition
 
 
-def load_le2i_frames_for_windows() -> pd.DataFrame:
-    if not FRAMES_PATH.exists():
+def load_le2i_frames_for_windows(
+    adapter: Le2iDatasetAdapter = LE2I_DATASET,
+) -> pd.DataFrame:
+    frames_path = adapter.frames_path
+    if not frames_path.exists():
         print(
-            f"\nwindows report FALHOU: {FRAMES_PATH} não existe — rode "
+            f"\nwindows report FALHOU: {frames_path} não existe — rode "
             "`uv run python -m gatefall.data.timegrid build` primeiro",
             file=sys.stderr,
         )
         sys.exit(1)
-    return read_frames(FRAMES_PATH)
+    return read_frames(frames_path)
 
 
 def report_window_counts_by_stride(frames: pd.DataFrame, stride: int) -> pd.DataFrame:
@@ -104,30 +131,32 @@ def report_context_diagnostics(frames: pd.DataFrame, usable_windows: pd.DataFram
         print(f"  {split}: {padded}/{total} ({pct:.2f}%)")
 
 
-def check_total_window_counts_stride1(frames: pd.DataFrame) -> bool:
+def check_total_window_counts_stride1(frames: pd.DataFrame, identifier: str) -> bool:
+    expected = expected_counts_for_identifier(EXPECTED_TOTAL_WINDOWS_STRIDE1, identifier)
     total_windows = build_window_index(frames, stride=EVAL_STRIDE, drop_ignored=False)
     counts = cast(pd.Series, total_windows.groupby("split").size())
     ok = all(
-        int(cast(int, counts.get(split, -1))) == expected
-        for split, expected in EXPECTED_TOTAL_WINDOWS_STRIDE1.items()
+        int(cast(int, counts.get(split, -1))) == expected_count
+        for split, expected_count in expected.items()
     )
     return _check(
         "stride=1, drop_ignored=False: contagem de janelas por split == "
-        f"{EXPECTED_TOTAL_WINDOWS_STRIDE1}",
+        f"{expected}",
         ok,
     )
 
 
-def check_usable_window_counts_stride1(frames: pd.DataFrame) -> bool:
+def check_usable_window_counts_stride1(frames: pd.DataFrame, identifier: str) -> bool:
+    expected = expected_counts_for_identifier(EXPECTED_USABLE_WINDOWS_STRIDE1, identifier)
     usable_windows = build_window_index(frames, stride=EVAL_STRIDE, drop_ignored=True)
     counts = cast(pd.Series, usable_windows.groupby("split").size())
     ok = all(
-        int(cast(int, counts.get(split, -1))) == expected
-        for split, expected in EXPECTED_USABLE_WINDOWS_STRIDE1.items()
+        int(cast(int, counts.get(split, -1))) == expected_count
+        for split, expected_count in expected.items()
     )
     return _check(
         "stride=1, drop_ignored=True: contagem de janelas por split == "
-        f"{EXPECTED_USABLE_WINDOWS_STRIDE1}",
+        f"{expected}",
         ok,
     )
 
@@ -156,8 +185,8 @@ def check_no_window_end_beyond_n_frames(frames: pd.DataFrame) -> bool:
     return _check("nenhuma janela tem k_end >= n_frames, para ambos os strides", ok)
 
 
-def report_le2i_windows() -> None:
-    frames = load_le2i_frames_for_windows()
+def report_le2i_windows(adapter: Le2iDatasetAdapter = LE2I_DATASET) -> None:
+    frames = load_le2i_frames_for_windows(adapter)
 
     usable_by_stride: dict[int, pd.DataFrame] = {}
     for stride in (TRAIN_STRIDE, EVAL_STRIDE):
@@ -167,8 +196,8 @@ def report_le2i_windows() -> None:
 
     print("\n=== checagens críticas ===")
     checks = [
-        check_total_window_counts_stride1(frames),
-        check_usable_window_counts_stride1(frames),
+        check_total_window_counts_stride1(frames, adapter.identifier),
+        check_usable_window_counts_stride1(frames, adapter.identifier),
         check_window_count_matches_ceil_per_video(frames),
         check_no_window_end_beyond_n_frames(frames),
     ]

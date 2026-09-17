@@ -39,7 +39,7 @@ import torch
 from gatefall.config import EVAL_STRIDE, IGNORE_LABEL
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
-from gatefall.datasets import get_dataset
+from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.eval.alarm_protocol import AlarmProtocol, BASELINE_A_ALARM_PROTOCOL
 from gatefall.eval.events import split_event_report
 from gatefall.features.standardization import (
@@ -1210,7 +1210,7 @@ def main() -> None:
             "produz IC percentil das métricas congeladas da arma A"
         ),
     )
-    analyze_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    analyze_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     analyze_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
     analyze_parser.add_argument(
         "--n-replicates", type=int, default=DEFAULT_N_REPLICATES

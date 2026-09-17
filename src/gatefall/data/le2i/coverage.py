@@ -7,16 +7,17 @@ import pandas as pd
 
 from gatefall.data.intervals import sweep_gaps_and_overlap, tag_gap_positions
 from gatefall.data.le2i.annotations import (
-    LABELS_DIR,
     LE2I_LABELS_FILENAME,
+    PROTOCOL_LABELS_DIR,
     load_annotation_splits,
 )
 from gatefall.data.le2i.path_matching import normalize_annotation_video_path
 from gatefall.data.le2i.verification import load_le2i_manifest
+from gatefall.datasets.le2i import LE2I_DATASET, Le2iDatasetAdapter
 
 
-def load_le2i_labels() -> pd.DataFrame:
-    path = LABELS_DIR / LE2I_LABELS_FILENAME
+def load_le2i_labels(protocol: str = "cs") -> pd.DataFrame:
+    path = PROTOCOL_LABELS_DIR[protocol] / LE2I_LABELS_FILENAME
     if not path.exists():
         print(
             f"erro: {path} não encontrado. Rode "
@@ -354,10 +355,10 @@ def report_annotation_source_agreement(
     return is_identical
 
 
-def audit_le2i_coverage() -> None:
-    manifest = load_le2i_manifest()
-    splits = load_annotation_splits()
-    le2i_labels = load_le2i_labels()
+def audit_le2i_coverage(adapter: Le2iDatasetAdapter = LE2I_DATASET) -> None:
+    manifest = load_le2i_manifest(adapter)
+    splits = load_annotation_splits(protocol=adapter.protocol)
+    le2i_labels = load_le2i_labels(adapter.protocol)
 
     per_video = build_per_video_coverage(manifest, splits)
     total_video_duration_s = float(

@@ -31,7 +31,7 @@ from gatefall.data.pose_dataset import PoseWindowDataset
 # imagem usam Pillow, não OpenCV — cv2.VideoCapture trava em AVIs brutos do
 # Le2i (ver docstring de video_io.py).
 from gatefall.data.video_io import decode_frames
-from gatefall.datasets import get_dataset
+from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, AlarmProtocol, load_alarm_protocol
 from gatefall.eval.events import (
     Alarm,
@@ -727,7 +727,7 @@ def main() -> None:
         "render",
         help="Renderiza PNGs dos quadros reais nos gatilhos de alarme detectados",
     )
-    render_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    render_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     render_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
     render_parser.add_argument(
         "--split", default="both", choices=("val", "test", "both")

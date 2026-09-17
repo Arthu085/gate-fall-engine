@@ -183,6 +183,56 @@ def check_invalid_dataset_and_arm_rejected_before_child() -> bool:
     )
 
 
+def check_cv_step_list() -> bool:
+    steps = build_pipeline(dataset="le2i-cv", arm="A")
+    actual = [_command_signature(step) for step in steps]
+    expected = [
+        ("scripts/fetch_labels.py", "--protocol"),
+        ("scripts/fetch_labels.py", "--verify"),
+        ("scripts/extract_le2i.py",),
+        ("gatefall.data.ingest", "ingest"),
+        ("gatefall.data.ingest", "verify"),
+        ("gatefall.data.coverage", "audit"),
+        ("gatefall.data.timegrid", "selftest"),
+        ("gatefall.data.timegrid", "build"),
+        ("gatefall.data.timegrid", "report"),
+        ("gatefall.data.windows", "selftest"),
+        ("gatefall.data.windows", "report"),
+        ("gatefall.data.frames_io", "selftest"),
+        ("gatefall.data.frames_io", "report"),
+        ("gatefall.pose.extract", "extract-all"),
+        ("gatefall.pose.extract", "report"),
+        ("gatefall.pose.kinematics", "selftest"),
+        ("gatefall.pose.kinematics", "report"),
+        ("gatefall.data.pose_dataset", "selftest"),
+        ("gatefall.data.pose_dataset", "report"),
+        ("gatefall.features.standardize", "selftest"),
+        ("gatefall.features.standardize", "build"),
+        ("gatefall.features.standardize", "report"),
+        ("gatefall.train.baseline_a", "selftest"),
+        ("gatefall.train.baseline_a", "train"),
+        ("gatefall.eval.baseline_a_events", "selftest"),
+        ("gatefall.eval.baseline_a_events", "evaluate"),
+        ("gatefall.eval.generalization_report", "report"),
+    ]
+    run_dir_present = all(
+        "runs/local/le2i_cv/baseline_a" in " ".join(step.command)
+        for step in steps
+        if _command_signature(step)
+        in {
+            ("gatefall.train.baseline_a", "train"),
+            ("gatefall.eval.baseline_a_events", "evaluate"),
+            ("gatefall.eval.generalization_report", "report"),
+        }
+    )
+    no_reference = all("runs/reference" not in " ".join(step.command) for step in steps)
+    return _check(
+        "plano CV: 27 passos incluem geração/verificação de anotações CV, "
+        "run_dir de le2i_cv e relatório de generalização, nunca runs/reference",
+        actual == expected and run_dir_present and no_reference,
+    )
+
+
 def check_standardize_cli_dataset_contract() -> bool:
     parser = build_cli_parser()
     report = parser.parse_args(["report", "--dataset", "le2i"])
@@ -208,6 +258,7 @@ def run_pipeline_selftest() -> None:
         check_force_only_on_supported_producers(),
         check_output_is_always_local(),
         check_invalid_dataset_and_arm_rejected_before_child(),
+        check_cv_step_list(),
         check_standardize_cli_dataset_contract(),
     ]
     if not all(checks):

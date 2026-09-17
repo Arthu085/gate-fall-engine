@@ -13,6 +13,13 @@ interrompe imediatamente a sequência, mostra nome, comando e código de saída 
 confirma que etapas posteriores não rodaram. Uma nova execução retoma pelo
 comportamento idempotente de cada produtor; validações rodam novamente.
 
+`--dataset le2i-cv` executa o mesmo pipeline sobre o protocolo Le2i
+cross-environment, em artefatos isolados (`data/labels/omnifall_cv/`,
+`data/processed/le2i_cv/`, `runs/local/le2i_cv/baseline_a/`) e com uma etapa
+27 adicional que gera o relatório de generalização. Veja [Generalização entre
+ambientes (Le2i-CV)](../eval/le2i-cv-generalization.md) para o que esse
+protocolo mede e suas ressalvas.
+
 Use `--dry-run` para imprimir os 26 comandos sem executá-los. Use `--force`
 somente para uma reconstrução deliberada: ele é propagado aos produtores que
 o suportam, nunca às validações. A extração de pose exige os pesos do

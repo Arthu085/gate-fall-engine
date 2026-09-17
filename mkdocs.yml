@@ -52,6 +52,7 @@ nav:
       - Investigação de determinismo de GPU: train/gpu-determinism.md
   - Avaliação:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
+      - Generalização entre ambientes (Le2i-CV): eval/le2i-cv-generalization.md
       - Diagnóstico qualitativo (render): eval/qualitative-render.md
       - Sensibilidade do protocolo de alarme: eval/alarm-protocol-sensitivity.md
       - Bootstrap agrupado por sujeito (IC): eval/grouped-bootstrap.md

@@ -18,7 +18,8 @@ from gatefall.data.omnifall.provenance import (
 
 DATASET_ID = "simplexsigil2/omnifall"
 LABELS_DIR = Path("data/labels/omnifall")
-PROVENANCE_PATH = LABELS_DIR / "PROVENANCE.json"
+PROVENANCE_FILENAME = "PROVENANCE.json"
+PROVENANCE_PATH = LABELS_DIR / PROVENANCE_FILENAME
 SPLIT_FILES = {"train": "train.csv", "val": "val.csv", "test": "test.csv"}
 OMNIFALL_SPLITS = {"train": "train.csv", "validation": "val.csv", "test": "test.csv"}
 ANNOTATION_CONFIG_NAME = "le2i-cs"
@@ -28,16 +29,35 @@ OMNIFALL_REVISION = "68e5cee56a4bad38cca4aea791cac248f96e79a0"
 LE2I_DATASET_NAME = "le2i"
 LE2I_LABELS_FILENAME = "le2i.csv"
 
+# Nome do config OmniFall que carrega cada protocolo Le2i. A revisão pinada
+# (OMNIFALL_REVISION) serve ambos: `parquet/le2i-cs/*` e `parquet/le2i-cv/*`.
+PROTOCOL_ANNOTATION_CONFIG = {"cs": "le2i-cs", "cv": "le2i-cv"}
+PROTOCOL_LABELS_DIR = {
+    "cs": Path("data/labels/omnifall"),
+    "cv": Path("data/labels/omnifall_cv"),
+}
 
-def fetch_annotations(force: bool) -> None:
-    LABELS_DIR.mkdir(parents=True, exist_ok=True)
+
+def _labels_dir(protocol: str) -> Path:
+    if protocol not in PROTOCOL_LABELS_DIR:
+        raise ValueError(
+            f"protocol não suportado: {protocol!r}; opções disponíveis: "
+            f"{tuple(PROTOCOL_LABELS_DIR)}"
+        )
+    return PROTOCOL_LABELS_DIR[protocol]
+
+
+def fetch_annotations(force: bool, protocol: str = "cs") -> None:
+    labels_dir = _labels_dir(protocol)
+    annotation_config_name = PROTOCOL_ANNOTATION_CONFIG[protocol]
+    labels_dir.mkdir(parents=True, exist_ok=True)
 
     split_config = load_annotation_config(
-        DATASET_ID, ANNOTATION_CONFIG_NAME, OMNIFALL_REVISION
+        DATASET_ID, annotation_config_name, OMNIFALL_REVISION
     )
     for split, filename in OMNIFALL_SPLITS.items():
         dataframe = annotation_split_dataframe(split_config, split)
-        write_annotation_csv(dataframe, LABELS_DIR / filename, force)
+        write_annotation_csv(dataframe, labels_dir / filename, force)
 
     labels_config = load_annotation_config(
         DATASET_ID, LABEL_CONFIG_NAME, OMNIFALL_REVISION
@@ -47,30 +67,32 @@ def fetch_annotations(force: bool) -> None:
         pd.DataFrame, labels[labels["dataset"] == LE2I_DATASET_NAME]
     )
     write_annotation_csv(
-        le2i_labels, LABELS_DIR / LE2I_LABELS_FILENAME, force
+        le2i_labels, labels_dir / LE2I_LABELS_FILENAME, force
     )
 
     write_annotation_provenance(
-        provenance_path=PROVENANCE_PATH,
-        files_directory=LABELS_DIR,
+        provenance_path=labels_dir / PROVENANCE_FILENAME,
+        files_directory=labels_dir,
         filenames=[*OMNIFALL_SPLITS.values(), LE2I_LABELS_FILENAME],
         dataset_repo_id=DATASET_ID,
         revision=OMNIFALL_REVISION,
-        configs=OMNIFALL_CONFIGS,
+        configs=[annotation_config_name, LABEL_CONFIG_NAME],
     )
 
 
-def verify_annotations() -> None:
-    if not PROVENANCE_PATH.exists():
+def verify_annotations(protocol: str = "cs") -> None:
+    labels_dir = _labels_dir(protocol)
+    provenance_path = labels_dir / PROVENANCE_FILENAME
+    if not provenance_path.exists():
         print(
-            f"erro: {PROVENANCE_PATH} não encontrado. "
+            f"erro: {provenance_path} não encontrado. "
             "Rode `uv run python scripts/fetch_labels.py` antes de verificar.",
             file=sys.stderr,
         )
         sys.exit(1)
 
     problems, file_count = verify_annotation_provenance(
-        PROVENANCE_PATH, LABELS_DIR
+        provenance_path, labels_dir
     )
     if problems:
         print("verificação falhou:", file=sys.stderr)
@@ -82,11 +104,13 @@ def verify_annotations() -> None:
 
 
 def load_annotation_splits(
-    fetch_command: str = "`uv run python scripts/fetch_labels.py`"
+    fetch_command: str = "`uv run python scripts/fetch_labels.py`",
+    protocol: str = "cs",
 ) -> dict[str, pd.DataFrame]:
+    labels_dir = _labels_dir(protocol)
     splits: dict[str, pd.DataFrame] = {}
     for split, filename in SPLIT_FILES.items():
-        path = LABELS_DIR / filename
+        path = labels_dir / filename
         if not path.exists():
             print(
                 f"erro: {path} não encontrado. Rode "

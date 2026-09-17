@@ -12,6 +12,7 @@ from gatefall.data.le2i.annotations import load_annotation_splits
 from gatefall.data.le2i.path_matching import normalize_annotation_video_path
 from gatefall.data.le2i.verification import load_le2i_manifest
 from gatefall.data.resampling import build_time_grid, labels_for_grid
+from gatefall.datasets.le2i import LE2I_DATASET, Le2iDatasetAdapter
 
 
 def build_grid_frames(
@@ -438,9 +439,9 @@ def report_split_env_list(per_video: pd.DataFrame) -> None:
         print(f"  {split}: {envs}")
 
 
-def report_le2i_timegrid() -> None:
-    manifest = load_le2i_manifest()
-    splits = load_annotation_splits()
+def report_le2i_timegrid(adapter: Le2iDatasetAdapter = LE2I_DATASET) -> None:
+    manifest = load_le2i_manifest(adapter)
+    splits = load_annotation_splits(protocol=adapter.protocol)
     grid_frames, per_video, skipped_segments = build_grid_frames(manifest, splits)
 
     report_total_grid_frames(per_video)

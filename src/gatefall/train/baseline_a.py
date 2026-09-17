@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 
 from gatefall.config import EVAL_STRIDE, TRAIN_STRIDE
 from gatefall.data.pose_dataset import PoseWindowDataset
-from gatefall.datasets import get_dataset
+from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.features.standardization import load_stats, validate_stats_layout
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
@@ -319,7 +319,7 @@ def main() -> None:
     train_parser.add_argument(
         "--force", action="store_true", help="Sobrescreve o run_dir já existente"
     )
-    train_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    train_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     train_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
     train_parser.add_argument("--seed", type=int, default=BASELINE_A_CONFIG.seed)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas da TCN e das métricas")
@@ -335,7 +335,7 @@ def main() -> None:
     report_parser.add_argument(
         "--force", action="store_true", help="Sobrescreve o --output já existente"
     )
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     report_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
     report_parser.add_argument("--output", type=Path, default=None)
 

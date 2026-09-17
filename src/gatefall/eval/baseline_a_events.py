@@ -18,7 +18,7 @@ import torch
 from gatefall.config import EVAL_STRIDE
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
-from gatefall.datasets import get_dataset
+from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.eval.alarm_protocol import (
     BASELINE_A_ALARM_PROTOCOL,
     load_alarm_protocol,
@@ -685,7 +685,7 @@ def main() -> None:
     evaluate_parser.add_argument(
         "--force", action="store_true", help="Sobrescreve o event_metrics.json já existente"
     )
-    evaluate_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    evaluate_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     evaluate_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas do protocolo de eventos")
 

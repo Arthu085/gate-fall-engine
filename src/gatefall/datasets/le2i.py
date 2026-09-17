@@ -1,6 +1,6 @@
 """Adapter mínimo do Le2i para as camadas genéricas do GateFall."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
@@ -22,15 +22,44 @@ LE2I_LABEL_NAMES = (
 )
 
 
+PROTOCOL_IDENTIFIERS = {"cs": "le2i", "cv": "le2i-cv"}
+PROTOCOL_PROCESSED_DIRS = {"cs": Path("data/processed/le2i"), "cv": Path("data/processed/le2i_cv")}
+PROTOCOL_POSE_STATS_PATHS = {
+    "cs": Path("src/gatefall/features/stats/pose_le2i_cs.json"),
+    "cv": Path("src/gatefall/features/stats/pose_le2i_cv.json"),
+}
+
+
 @dataclass(frozen=True)
 class Le2iDatasetAdapter:
-    identifier: str = "le2i"
+    protocol: str = "cs"
     raw_dir: Path = Path("data/raw/le2i")
-    manifest_path: Path = Path("data/processed/le2i/manifest.parquet")
-    frames_path: Path = Path("data/processed/le2i/frames.parquet")
     pose_root: Path = Path("data/features/le2i/pose")
-    pose_stats_path: Path = Path("src/gatefall/features/stats/pose_le2i_cs.json")
     label_names: tuple[str, ...] = LE2I_LABEL_NAMES
+    identifier: str = field(init=False, default="le2i")
+    manifest_path: Path = field(
+        init=False, default=Path("data/processed/le2i/manifest.parquet")
+    )
+    frames_path: Path = field(
+        init=False, default=Path("data/processed/le2i/frames.parquet")
+    )
+    pose_stats_path: Path = field(
+        init=False, default=Path("src/gatefall/features/stats/pose_le2i_cs.json")
+    )
+
+    def __post_init__(self) -> None:
+        if self.protocol not in PROTOCOL_IDENTIFIERS:
+            raise ValueError(
+                f"protocol não suportado: {self.protocol!r}; opções disponíveis: "
+                f"{tuple(PROTOCOL_IDENTIFIERS)}"
+            )
+        processed_dir = PROTOCOL_PROCESSED_DIRS[self.protocol]
+        object.__setattr__(self, "identifier", PROTOCOL_IDENTIFIERS[self.protocol])
+        object.__setattr__(self, "manifest_path", processed_dir / "manifest.parquet")
+        object.__setattr__(self, "frames_path", processed_dir / "frames.parquet")
+        object.__setattr__(
+            self, "pose_stats_path", PROTOCOL_POSE_STATS_PATHS[self.protocol]
+        )
 
     def load_manifest(self) -> pd.DataFrame:
         if not self.manifest_path.exists():

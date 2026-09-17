@@ -48,7 +48,7 @@ class PoseWindowDataset:
 def main() -> None:
     from gatefall.data.le2i.pose_dataset import report_pose_dataset
     from gatefall.data.le2i.pose_dataset_selftest import run_pose_dataset_selftest
-    from gatefall.datasets import get_dataset
+    from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -56,11 +56,11 @@ def main() -> None:
     report_parser = subparsers.add_parser(
         "report", help="Relata as contagens reais de janelas do PoseWindowDataset"
     )
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     selftest_parser = subparsers.add_parser(
         "selftest", help="Verifica o PoseWindowDataset contra entradas sintéticas"
     )
-    selftest_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    selftest_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     args = parser.parse_args()
     adapter = get_dataset(args.dataset)

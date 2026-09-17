@@ -35,7 +35,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from gatefall.datasets import get_dataset
+from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.datasets.base import DatasetAdapter
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.eval.alarm_protocol import (
@@ -1202,7 +1202,7 @@ def main() -> None:
             "runs (seeds) já treinados e avaliados da arma A"
         ),
     )
-    summarize_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    summarize_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     summarize_parser.add_argument(
         "--run-dir",
         type=Path,

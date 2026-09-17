@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from gatefall.config import TARGET_FPS
-from gatefall.datasets import DatasetAdapter, get_dataset
+from gatefall.datasets import DatasetAdapter, SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.pose.loading import (
     _write_synthetic_pose,
     bbox_descriptors,
@@ -985,12 +985,12 @@ def main() -> None:
         "selftest",
         help="Roda checagens sintéticas dos descritores cinemáticos",
     )
-    selftest_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    selftest_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     report_parser = subparsers.add_parser(
         "report",
         help="Roda build_pose_features sobre todos os vídeos e reporta estatísticas",
     )
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     args = parser.parse_args()
     if args.command == "selftest":

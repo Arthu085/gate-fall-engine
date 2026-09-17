@@ -13,6 +13,13 @@ Le2i](le2i.md), execute:
 uv run python -m gatefall.data.ingest ingest
 ```
 
+`ingest`, `verify` e `selftest` aceitam `--dataset {le2i,le2i-cv}`; com
+`le2i-cv`, o comando lê `data/labels/omnifall_cv/` e grava em
+`data/processed/le2i_cv/manifest.parquet`, isolado do protocolo `cs` descrito
+nesta página. A disjunção de ambiente e câmera entre splits — a propriedade
+da qual a validade do `le2i-cv` depende — não é verificada aqui; ela é
+tratada pelo [relatório de generalização](../eval/le2i-cv-generalization.md).
+
 A ingestão:
 
 1. reúne os segmentos dos três splits em um índice com uma linha por path de
