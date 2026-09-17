@@ -65,6 +65,45 @@ def support_by_name(
     return {label_names[c]: counts[c] for c in range(num_classes)}
 
 
+def class_support_table(
+    label_names: tuple[str, ...],
+    train_support: dict[int, int],
+    val_support: dict[int, int],
+    test_support: dict[int, int],
+    restricted_classes: list[int] = RESTRICTED_CLASSES,
+    num_classes: int = NUM_CLASSES,
+) -> list[dict]:
+    restricted_set = set(restricted_classes)
+    return [
+        {
+            "id": c,
+            "label": label_names[c],
+            "train_support": train_support[c],
+            "val_support": val_support[c],
+            "test_support": test_support[c],
+            "included_in_macro_f1": c in restricted_set,
+        }
+        for c in range(num_classes)
+    ]
+
+
+def macro_f1_policy_summary(
+    train_support: dict[int, int],
+    restricted_classes: list[int] = RESTRICTED_CLASSES,
+    num_classes: int = NUM_CLASSES,
+) -> dict:
+    classes_with_positive_train_support = [
+        c for c in range(num_classes) if train_support[c] > 0
+    ]
+    return {
+        "restricted_classes": list(restricted_classes),
+        "excluded_classes": [c for c in range(num_classes) if c not in restricted_classes],
+        "classes_with_positive_train_support": classes_with_positive_train_support,
+        "matches_configured_restriction": set(restricted_classes)
+        == set(classes_with_positive_train_support),
+    }
+
+
 def _precision_recall_f1(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
     precision_denom = tp + fp
     recall_denom = tp + fn
