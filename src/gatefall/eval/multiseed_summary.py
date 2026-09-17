@@ -11,10 +11,13 @@ Cada `--run-dir` deve ser um run local já treinado e avaliado da arma A
 (config.yaml/metrics.json/checkpoint.pt/alarm_protocol.yaml/event_metrics.json
 completos e íntegros), diferindo apenas na seed. O módulo valida que toda a
 configuração fora do campo `seed` é idêntica entre os runs (via um fingerprint
-sha256 normalizado) e agrega estatísticas descritivas (n/mean/std/min/max)
-sobre `macro_f1_restricted` (splits train/val/test) e um subconjunto de
-métricas de evento (splits val/test). Não seleciona, ranqueia nem promove
-nenhum run.
+sha256 normalizado), guarda por seed os blocos de classificação e de evento
+validados na íntegra (confusion_matrix, per_class, latências por evento) e
+agrega estatísticas descritivas (n/mean/std/min/max) sobre `macro_f1_restricted`
+e `f1_by_class` (splits train/val/test), `per_class` (splits train/val/test),
+a projeção binária queda/caído derivada da confusion_matrix (splits
+train/val/test) e todo campo escalar das métricas de evento (splits val/test).
+Não seleciona, ranqueia nem promove nenhum run.
 """
 
 import argparse
@@ -28,21 +31,30 @@ import uuid
 from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 
 from gatefall.datasets import get_dataset
+from gatefall.datasets.base import DatasetAdapter
+from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.eval.alarm_protocol import (
     BASELINE_A_ALARM_PROTOCOL,
     load_alarm_protocol,
     save_alarm_protocol,
 )
-from gatefall.eval.baseline_a_events import validate_event_metrics
+from gatefall.eval.baseline_a_events import EVENT_SPLIT_FIELDS, validate_event_metrics
 from gatefall.hashing import sha256_file
 from gatefall.runs import validate_local_run_dir
 from gatefall.train.artifacts import validate_training_run
 from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig, save_config
-from gatefall.train.metrics import RESTRICTED_CLASSES
+from gatefall.train.metrics import (
+    BINARY_POSITIVE_LABELS,
+    RESTRICTED_CLASSES,
+    binary_projection_from_confusion_matrix,
+    classification_summary,
+    restricted_macro_f1,
+)
 from gatefall.train.tcn import TCNClassifier
 
 MULTISEED_SUMMARY_JSON_FILE = "multiseed_summary.json"
@@ -52,17 +64,42 @@ MIN_SEEDS = 2
 
 CLASSIFICATION_SPLITS: tuple[str, ...] = ("train", "val", "test")
 EVENT_SPLITS: tuple[str, ...] = ("val", "test")
-EVENT_METRIC_NAMES: tuple[str, ...] = (
-    "sensitivity",
-    "fall_sensitivity",
-    "fall_or_fallen_sensitivity",
-    "false_alarms_per_hour",
-    "n_false_alarms",
-    "latency_seconds_mean",
-    "latency_seconds_median",
+
+# Todo campo escalar de `event_metrics.json[splits][split]` é agregado;
+# `latency_seconds` não é escalar (é um objeto com `per_event`/`mean`/`median`)
+# e é substituído por `latency_seconds_mean`/`latency_seconds_median`. A
+# regra é "todo campo escalar", não uma lista escolhida a dedo — por isso a
+# derivação a partir de `EVENT_SPLIT_FIELDS` em vez de uma tupla própria.
+EVENT_SCALAR_FIELDS: tuple[str, ...] = tuple(
+    sorted(EVENT_SPLIT_FIELDS - {"latency_seconds"})
+) + ("latency_seconds_mean", "latency_seconds_median")
+
+PER_CLASS_METRIC_FIELDS: tuple[str, ...] = (
+    "precision",
+    "recall",
+    "f1",
+    "tp",
+    "tn",
+    "fp",
+    "fn",
+    "support",
 )
 
-CSV_COLUMNS = ["split", "metric_group", "metric", "n", "mean", "std", "min", "max"]
+# Ordem de campos de `binary_projection_from_confusion_matrix`/
+# `binary_projection_summary`.
+BINARY_FIELDS: tuple[str, ...] = (
+    "tp",
+    "tn",
+    "fp",
+    "fn",
+    "precision",
+    "recall",
+    "specificity",
+    "f1",
+    "accuracy",
+)
+
+CSV_COLUMNS = ["split", "metric_group", "entity", "metric", "n", "mean", "std", "min", "max"]
 
 
 def _config_fingerprint(config: TrainConfig) -> str:
@@ -72,12 +109,12 @@ def _config_fingerprint(config: TrainConfig) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _extract_event_metric(split_data: dict, metric: str) -> float | int | None:
-    if metric == "latency_seconds_mean":
+def _extract_event_scalar(split_data: dict, field: str) -> float | int | None:
+    if field == "latency_seconds_mean":
         return split_data["latency_seconds"]["mean"]
-    if metric == "latency_seconds_median":
+    if field == "latency_seconds_median":
         return split_data["latency_seconds"]["median"]
-    return split_data[metric]
+    return split_data[field]
 
 
 def _aggregate_stats(values: list[float]) -> dict:
@@ -93,45 +130,153 @@ def _aggregate_stats(values: list[float]) -> dict:
     }
 
 
-def _aggregate_all(seed_reports: list[dict]) -> dict:
+def _aggregate_all(seed_reports: list[dict], adapter: DatasetAdapter) -> dict:
+    label_names = adapter.label_names
+    restricted_label_names = [label_names[c] for c in RESTRICTED_CLASSES]
+
     classification = {
         split: {
             "macro_f1_restricted": _aggregate_stats(
                 [
-                    report["classification"][split]
+                    report["classification"][split]["macro_f1_restricted"]
                     for report in seed_reports
-                    if report["classification"][split] is not None
+                    if report["classification"][split]["macro_f1_restricted"] is not None
                 ]
-            )
+            ),
+            "f1_by_class": {
+                name: _aggregate_stats(
+                    [
+                        report["classification"][split]["f1_by_class"][str(class_id)]
+                        for report in seed_reports
+                        if report["classification"][split]["f1_by_class"][str(class_id)]
+                        is not None
+                    ]
+                )
+                for class_id, name in zip(RESTRICTED_CLASSES, restricted_label_names)
+            },
         }
         for split in CLASSIFICATION_SPLITS
     }
-    events = {
+
+    per_class = {
         split: {
-            metric: _aggregate_stats(
+            name: {
+                metric: _aggregate_stats(
+                    [
+                        report["classification"][split]["per_class"][name][metric]
+                        for report in seed_reports
+                        if report["classification"][split]["per_class"][name][metric]
+                        is not None
+                    ]
+                )
+                for metric in PER_CLASS_METRIC_FIELDS
+            }
+            for name in label_names
+        }
+        for split in CLASSIFICATION_SPLITS
+    }
+
+    binary_fall_fallen = {
+        split: {
+            field: _aggregate_stats(
                 [
-                    report["events"][split][metric]
+                    report["binary_fall_fallen"][split][field]
                     for report in seed_reports
-                    if report["events"][split][metric] is not None
+                    if report["binary_fall_fallen"][split][field] is not None
                 ]
             )
-            for metric in EVENT_METRIC_NAMES
+            for field in BINARY_FIELDS
+        }
+        for split in CLASSIFICATION_SPLITS
+    }
+
+    events = {
+        split: {
+            field: _aggregate_stats(
+                [
+                    value
+                    for report in seed_reports
+                    if (value := _extract_event_scalar(report["events"][split], field))
+                    is not None
+                ]
+            )
+            for field in EVENT_SCALAR_FIELDS
         }
         for split in EVENT_SPLITS
     }
-    return {"classification": classification, "events": events}
+
+    return {
+        "classification": classification,
+        "per_class": per_class,
+        "binary_fall_fallen": binary_fall_fallen,
+        "events": events,
+    }
 
 
-def _csv_rows_from_aggregate(aggregate: dict) -> list[dict]:
+def _csv_rows_from_aggregate(aggregate: dict, adapter: DatasetAdapter) -> list[dict]:
+    label_names = adapter.label_names
+    restricted_label_names = [label_names[c] for c in RESTRICTED_CLASSES]
     rows: list[dict] = []
-    for split, metrics in aggregate["classification"].items():
-        for metric, stats in metrics.items():
+
+    for split in CLASSIFICATION_SPLITS:
+        split_aggregate = aggregate["classification"][split]
+        rows.append(
+            {
+                "split": split,
+                "metric_group": "classification",
+                "entity": "",
+                "metric": "macro_f1_restricted",
+                **split_aggregate["macro_f1_restricted"],
+            }
+        )
+        for name in restricted_label_names:
             rows.append(
-                {"split": split, "metric_group": "classification", "metric": metric, **stats}
+                {
+                    "split": split,
+                    "metric_group": "classification",
+                    "entity": name,
+                    "metric": "f1_by_class",
+                    **split_aggregate["f1_by_class"][name],
+                }
             )
-    for split, metrics in aggregate["events"].items():
-        for metric, stats in metrics.items():
-            rows.append({"split": split, "metric_group": "events", "metric": metric, **stats})
+
+    for split in CLASSIFICATION_SPLITS:
+        for name in label_names:
+            for metric in PER_CLASS_METRIC_FIELDS:
+                rows.append(
+                    {
+                        "split": split,
+                        "metric_group": "per_class",
+                        "entity": name,
+                        "metric": metric,
+                        **aggregate["per_class"][split][name][metric],
+                    }
+                )
+
+    for split in CLASSIFICATION_SPLITS:
+        for field in BINARY_FIELDS:
+            rows.append(
+                {
+                    "split": split,
+                    "metric_group": "binary",
+                    "entity": "",
+                    "metric": field,
+                    **aggregate["binary_fall_fallen"][split][field],
+                }
+            )
+
+    for split in EVENT_SPLITS:
+        for field in EVENT_SCALAR_FIELDS:
+            rows.append(
+                {
+                    "split": split,
+                    "metric_group": "events",
+                    "entity": "",
+                    "metric": field,
+                    **aggregate["events"][split][field],
+                }
+            )
+
     return rows
 
 
@@ -160,7 +305,18 @@ def _reject_duplicate_run_dirs(run_dirs: list[Path]) -> None:
         )
 
 
-def _summarize(run_dirs: list[Path], shared_expected: TrainConfig) -> tuple[dict, list[dict]]:
+def _require_classification_diagnostics(final_split: dict, run_dir: Path, split: str) -> None:
+    if "confusion_matrix" not in final_split or "per_class" not in final_split:
+        raise RuntimeError(
+            f"metrics.json em {run_dir}: final.{split} sem confusion_matrix/"
+            "per_class, necessários para o sumário multi-seed de fidelidade "
+            "completa"
+        )
+
+
+def _summarize(
+    run_dirs: list[Path], shared_expected: TrainConfig, adapter: DatasetAdapter
+) -> tuple[dict, list[dict]]:
     if len(run_dirs) < MIN_SEEDS:
         raise ValueError(
             f"são necessárias ao menos {MIN_SEEDS} seeds distintas (--run-dir "
@@ -231,16 +387,18 @@ def _summarize(run_dirs: list[Path], shared_expected: TrainConfig) -> tuple[dict
         except (ValueError, OSError) as exc:
             raise RuntimeError(f"event_metrics.json inválido em {run_dir}: {exc}") from exc
 
-        classification = {
-            split: metrics["final"][split]["macro_f1_restricted"]
-            for split in CLASSIFICATION_SPLITS
-        }
+        classification: dict[str, dict] = {}
+        binary_fall_fallen: dict[str, dict] = {}
+        for split in CLASSIFICATION_SPLITS:
+            final_split = metrics["final"][split]
+            _require_classification_diagnostics(final_split, run_dir, split)
+            classification[split] = final_split
+            binary_fall_fallen[split] = binary_projection_from_confusion_matrix(
+                final_split["confusion_matrix"], BINARY_POSITIVE_LABELS
+            )
+
         events = {
-            split: {
-                metric: _extract_event_metric(event_metrics["splits"][split], metric)
-                for metric in EVENT_METRIC_NAMES
-            }
-            for split in EVENT_SPLITS
+            split: event_metrics["splits"][split] for split in EVENT_SPLITS
         }
 
         seed_reports.append(
@@ -249,12 +407,13 @@ def _summarize(run_dirs: list[Path], shared_expected: TrainConfig) -> tuple[dict
                 "run_dir": str(run_dir),
                 "checkpoint_sha256": sha256_file(checkpoint_path),
                 "classification": classification,
+                "binary_fall_fallen": binary_fall_fallen,
                 "events": events,
             }
         )
 
     assert fingerprint is not None
-    aggregate = _aggregate_all(seed_reports)
+    aggregate = _aggregate_all(seed_reports, adapter)
 
     report = {
         "arm": shared_expected.arm,
@@ -263,7 +422,7 @@ def _summarize(run_dirs: list[Path], shared_expected: TrainConfig) -> tuple[dict
         "seeds": seed_reports,
         "aggregate": aggregate,
     }
-    csv_rows = _csv_rows_from_aggregate(aggregate)
+    csv_rows = _csv_rows_from_aggregate(aggregate, adapter)
     return report, csv_rows
 
 
@@ -306,8 +465,9 @@ def run_summarize(
     output_dir: Path,
     force: bool,
 ) -> bool:
+    adapter = get_dataset(dataset_name)
     shared_expected = _resolve_shared_expected(dataset_name)
-    report, csv_rows = _summarize(run_dirs, shared_expected)
+    report, csv_rows = _summarize(run_dirs, shared_expected, adapter)
     return _write_multiseed_summary_outputs(output_dir, report, csv_rows, force)
 
 
@@ -362,10 +522,28 @@ def _build_event_split(
     }
 
 
+def _synthetic_classification_arrays(offset: int) -> tuple[np.ndarray, np.ndarray]:
+    # 16 amostras cobrindo as 8 classes restritas com suporte 2 cada; as
+    # classes 5 (lie_down) e 6 (lying) ficam sem suporte real, replicando o
+    # cenário real do Le2i em stride 4.
+    y_true = np.array(
+        [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 7, 7, 8, 8, 9, 9], dtype=np.int64
+    )
+    y_pred = y_true.copy()
+    for i in range(offset):
+        idx = (2 * i) % len(y_true)
+        true_class = int(y_true[idx])
+        position = RESTRICTED_CLASSES.index(true_class)
+        wrong_class = RESTRICTED_CLASSES[(position + 1) % len(RESTRICTED_CLASSES)]
+        y_pred[idx] = wrong_class
+    return y_true, y_pred
+
+
 def _write_synthetic_seed_run(
     run_dir: Path,
     seed: int,
-    macro_f1: float,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
     val_event: dict,
     test_event: dict,
     epochs: int = 1,
@@ -391,10 +569,17 @@ def _write_synthetic_seed_run(
     )
     torch.save(model.state_dict(), checkpoint_path)
 
+    macro_f1, f1_by_class = restricted_macro_f1(y_true, y_pred, config.num_classes)
+    summary = classification_summary(y_true, y_pred, LE2I_LABEL_NAMES, config.num_classes)
+
     split = {
         "macro_f1_restricted": macro_f1,
-        "f1_by_class": {str(index): macro_f1 for index in RESTRICTED_CLASSES},
-        "support": {str(index): 0 for index in range(config.num_classes)},
+        "f1_by_class": {str(index): f1_by_class[index] for index in RESTRICTED_CLASSES},
+        "support": {
+            name: summary["per_class"][name]["support"] for name in LE2I_LABEL_NAMES
+        },
+        "confusion_matrix": summary["confusion_matrix"],
+        "per_class": summary["per_class"],
     }
     metrics = {
         "run_name": config.run_name,
@@ -462,10 +647,20 @@ def _selftest_aggregate_stats_known_array() -> bool:
 
 
 def _selftest_two_valid_seed_runs_aggregate() -> bool:
+    adapter = get_dataset("le2i")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         run1 = root / "seed1"
         run2 = root / "seed2"
+
+        y_true_1, y_pred_1 = _synthetic_classification_arrays(offset=1)
+        y_true_2, y_pred_2 = _synthetic_classification_arrays(offset=3)
+        expected_macro_f1_1, _ = restricted_macro_f1(y_true_1, y_pred_1)
+        expected_macro_f1_2, _ = restricted_macro_f1(y_true_2, y_pred_2)
+        expected_summary_1 = classification_summary(y_true_1, y_pred_1, LE2I_LABEL_NAMES)
+        expected_binary_1 = binary_projection_from_confusion_matrix(
+            expected_summary_1["confusion_matrix"], BINARY_POSITIVE_LABELS
+        )
 
         val_event_1 = _build_event_split(
             n_fall_events=2,
@@ -479,7 +674,9 @@ def _selftest_two_valid_seed_runs_aggregate() -> bool:
             latency_median=1.0,
         )
         test_event_1 = val_event_1
-        config1 = _write_synthetic_seed_run(run1, seed=1, macro_f1=0.4, val_event=val_event_1, test_event=test_event_1)
+        config1 = _write_synthetic_seed_run(
+            run1, seed=1, y_true=y_true_1, y_pred=y_pred_1, val_event=val_event_1, test_event=test_event_1
+        )
 
         val_event_2 = _build_event_split(
             n_fall_events=2,
@@ -493,10 +690,15 @@ def _selftest_two_valid_seed_runs_aggregate() -> bool:
             latency_median=3.0,
         )
         test_event_2 = val_event_2
-        _write_synthetic_seed_run(run2, seed=2, macro_f1=0.6, val_event=val_event_2, test_event=test_event_2)
+        _write_synthetic_seed_run(
+            run2, seed=2, y_true=y_true_2, y_pred=y_pred_2, val_event=val_event_2, test_event=test_event_2
+        )
 
         shared_expected = replace(config1, seed=BASELINE_A_CONFIG.seed)
-        report, csv_rows = _summarize([run1, run2], shared_expected)
+        report, csv_rows = _summarize([run1, run2], shared_expected, adapter)
+
+        expected_macro_f1_values = [expected_macro_f1_1, expected_macro_f1_2]
+        expected_stats = _aggregate_stats(expected_macro_f1_values)
 
         macro_f1_val = report["aggregate"]["classification"]["val"]["macro_f1_restricted"]
         sensitivity_val = report["aggregate"]["events"]["val"]["sensitivity"]
@@ -506,11 +708,11 @@ def _selftest_two_valid_seed_runs_aggregate() -> bool:
         ok = (
             report["n_seeds"] == 2
             and len(report["seeds"]) == 2
-            and macro_f1_val["n"] == 2
-            and abs(macro_f1_val["mean"] - 0.5) < 1e-12
-            and abs(macro_f1_val["std"] - statistics.stdev([0.4, 0.6])) < 1e-12
-            and macro_f1_val["min"] == 0.4
-            and macro_f1_val["max"] == 0.6
+            and macro_f1_val["n"] == expected_stats["n"]
+            and abs(macro_f1_val["mean"] - expected_stats["mean"]) < 1e-12
+            and abs(macro_f1_val["std"] - expected_stats["std"]) < 1e-12
+            and macro_f1_val["min"] == expected_stats["min"]
+            and macro_f1_val["max"] == expected_stats["max"]
             and sensitivity_val["n"] == 2
             and abs(sensitivity_val["mean"] - 0.75) < 1e-12
             and false_alarms_val["n"] == 2
@@ -526,11 +728,90 @@ def _selftest_two_valid_seed_runs_aggregate() -> bool:
         )
 
 
-def _selftest_duplicate_seed_raises() -> bool:
+def _selftest_seed_blocks_round_trip_and_new_aggregates_exist() -> bool:
+    adapter = get_dataset("le2i")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        run1 = root / "run_a"
-        run2 = root / "run_b"
+        run1 = root / "seed1"
+        run2 = root / "seed2"
+
+        y_true_1, y_pred_1 = _synthetic_classification_arrays(offset=1)
+        y_true_2, y_pred_2 = _synthetic_classification_arrays(offset=3)
+        expected_summary_1 = classification_summary(y_true_1, y_pred_1, LE2I_LABEL_NAMES)
+
+        val_event_1 = _build_event_split(
+            n_fall_events=2,
+            n_detected_events=1,
+            sensitivity=0.5,
+            fall_sensitivity=0.5,
+            fall_or_fallen_sensitivity=0.5,
+            false_alarms_per_hour=0.0,
+            n_false_alarms=0,
+            latency_mean=1.0,
+            latency_median=1.0,
+        )
+        test_event_1 = val_event_1
+        config1 = _write_synthetic_seed_run(
+            run1, seed=1, y_true=y_true_1, y_pred=y_pred_1, val_event=val_event_1, test_event=test_event_1
+        )
+
+        val_event_2 = _build_event_split(
+            n_fall_events=2,
+            n_detected_events=2,
+            sensitivity=1.0,
+            fall_sensitivity=1.0,
+            fall_or_fallen_sensitivity=1.0,
+            false_alarms_per_hour=2.0,
+            n_false_alarms=2,
+            latency_mean=3.0,
+            latency_median=3.0,
+        )
+        test_event_2 = val_event_2
+        _write_synthetic_seed_run(
+            run2, seed=2, y_true=y_true_2, y_pred=y_pred_2, val_event=val_event_2, test_event=test_event_2
+        )
+
+        shared_expected = replace(config1, seed=BASELINE_A_CONFIG.seed)
+        report, _csv_rows = _summarize([run1, run2], shared_expected, adapter)
+
+        seed1_report = next(r for r in report["seeds"] if r["seed"] == 1)
+        round_trip_ok = (
+            seed1_report["classification"]["train"]["confusion_matrix"]
+            == expected_summary_1["confusion_matrix"]
+            and seed1_report["classification"]["train"]["per_class"]
+            == expected_summary_1["per_class"]
+            and seed1_report["events"]["val"]["latency_seconds"]["per_event"]
+            == val_event_1["latency_seconds"]["per_event"]
+        )
+
+        aggregate = report["aggregate"]
+        new_leaves_ok = (
+            "per_class" in aggregate
+            and all(
+                label in aggregate["per_class"]["val"] for label in LE2I_LABEL_NAMES
+            )
+            and "binary_fall_fallen" in aggregate
+            and all(field in aggregate["binary_fall_fallen"]["val"] for field in BINARY_FIELDS)
+            and all(field in aggregate["events"]["val"] for field in EVENT_SCALAR_FIELDS)
+        )
+
+        return _check(
+            "blocos por seed (confusion_matrix, per_class, latência per_event) "
+            "chegam verbatim no relatório e as novas folhas de agregado "
+            "(per_class, binary_fall_fallen, campos de evento ampliados) existem",
+            round_trip_ok and new_leaves_ok,
+        )
+
+
+def _selftest_binary_fall_fallen_matches_independent_recomputation() -> bool:
+    adapter = get_dataset("le2i")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        run1 = root / "seed1"
+        run2 = root / "seed2"
+
+        y_true_1, y_pred_1 = _synthetic_classification_arrays(offset=1)
+        y_true_2, y_pred_2 = _synthetic_classification_arrays(offset=3)
         event = _build_event_split(
             n_fall_events=1,
             n_detected_events=1,
@@ -542,13 +823,175 @@ def _selftest_duplicate_seed_raises() -> bool:
             latency_mean=1.0,
             latency_median=1.0,
         )
-        config1 = _write_synthetic_seed_run(run1, seed=5, macro_f1=0.4, val_event=event, test_event=event)
-        _write_synthetic_seed_run(run2, seed=5, macro_f1=0.6, val_event=event, test_event=event)
+        config1 = _write_synthetic_seed_run(
+            run1, seed=1, y_true=y_true_1, y_pred=y_pred_1, val_event=event, test_event=event
+        )
+        _write_synthetic_seed_run(
+            run2, seed=2, y_true=y_true_2, y_pred=y_pred_2, val_event=event, test_event=event
+        )
+
+        shared_expected = replace(config1, seed=BASELINE_A_CONFIG.seed)
+        report, _csv_rows = _summarize([run1, run2], shared_expected, adapter)
+
+        ok = True
+        for seed_report in report["seeds"]:
+            for split in CLASSIFICATION_SPLITS:
+                matrix = seed_report["classification"][split]["confusion_matrix"]
+                expected = binary_projection_from_confusion_matrix(matrix, BINARY_POSITIVE_LABELS)
+                ok = ok and seed_report["binary_fall_fallen"][split] == expected
+
+        return _check(
+            "binary_fall_fallen[split] armazenado é idêntico a uma "
+            "recomputação independente a partir da confusion_matrix armazenada",
+            ok,
+        )
+
+
+def _selftest_missing_diagnostics_raises() -> bool:
+    adapter = get_dataset("le2i")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        run_ok = root / "run_ok"
+        run_missing_diagnostics = root / "run_missing_diagnostics"
+        y_true, y_pred = _synthetic_classification_arrays(offset=0)
+        event = _build_event_split(
+            n_fall_events=1,
+            n_detected_events=1,
+            sensitivity=1.0,
+            fall_sensitivity=1.0,
+            fall_or_fallen_sensitivity=1.0,
+            false_alarms_per_hour=0.0,
+            n_false_alarms=0,
+            latency_mean=1.0,
+            latency_median=1.0,
+        )
+        config1 = _write_synthetic_seed_run(
+            run_ok, seed=1, y_true=y_true, y_pred=y_pred, val_event=event, test_event=event
+        )
+        _write_synthetic_seed_run(
+            run_missing_diagnostics, seed=2, y_true=y_true, y_pred=y_pred, val_event=event, test_event=event
+        )
+
+        metrics_path = run_missing_diagnostics / "metrics.json"
+        with metrics_path.open(encoding="utf-8") as stream:
+            metrics = json.load(stream)
+        del metrics["final"]["val"]["confusion_matrix"]
+        del metrics["final"]["val"]["per_class"]
+        with metrics_path.open("w", encoding="utf-8") as stream:
+            json.dump(metrics, stream)
+
+        event_metrics_path = run_missing_diagnostics / "event_metrics.json"
+        with event_metrics_path.open(encoding="utf-8") as stream:
+            event_metrics = json.load(stream)
+        event_metrics["training_metrics_sha256"] = sha256_file(metrics_path)
+        with event_metrics_path.open("w", encoding="utf-8") as stream:
+            json.dump(event_metrics, stream)
 
         shared_expected = replace(config1, seed=BASELINE_A_CONFIG.seed)
         raised = False
         try:
-            _summarize([run1, run2], shared_expected)
+            _summarize([run_ok, run_missing_diagnostics], shared_expected, adapter)
+        except RuntimeError as exc:
+            raised = str(run_missing_diagnostics) in str(exc) and "val" in str(exc)
+        return _check(
+            "final.<split> sem confusion_matrix/per_class levanta RuntimeError "
+            "nomeando o run_dir e o split",
+            raised,
+        )
+
+
+def _selftest_csv_row_inventory_matches_schema() -> bool:
+    adapter = get_dataset("le2i")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        run1 = root / "seed1"
+        run2 = root / "seed2"
+        y_true_1, y_pred_1 = _synthetic_classification_arrays(offset=1)
+        y_true_2, y_pred_2 = _synthetic_classification_arrays(offset=3)
+        event = _build_event_split(
+            n_fall_events=1,
+            n_detected_events=1,
+            sensitivity=1.0,
+            fall_sensitivity=1.0,
+            fall_or_fallen_sensitivity=1.0,
+            false_alarms_per_hour=0.0,
+            n_false_alarms=0,
+            latency_mean=1.0,
+            latency_median=1.0,
+        )
+        config1 = _write_synthetic_seed_run(
+            run1, seed=1, y_true=y_true_1, y_pred=y_pred_1, val_event=event, test_event=event
+        )
+        _write_synthetic_seed_run(
+            run2, seed=2, y_true=y_true_2, y_pred=y_pred_2, val_event=event, test_event=event
+        )
+
+        shared_expected = replace(config1, seed=BASELINE_A_CONFIG.seed)
+        _report, csv_rows = _summarize([run1, run2], shared_expected, adapter)
+
+        n_restricted = len(RESTRICTED_CLASSES)
+        n_labels = len(LE2I_LABEL_NAMES)
+        expected_n_rows = (
+            len(CLASSIFICATION_SPLITS) * (1 + n_restricted)
+            + len(CLASSIFICATION_SPLITS) * n_labels * len(PER_CLASS_METRIC_FIELDS)
+            + len(CLASSIFICATION_SPLITS) * len(BINARY_FIELDS)
+            + len(EVENT_SPLITS) * len(EVENT_SCALAR_FIELDS)
+        )
+        count_ok = len(csv_rows) == expected_n_rows
+
+        rows_by_key = {
+            (row["split"], row["metric_group"], row["entity"], row["metric"]): row
+            for row in csv_rows
+        }
+        expected_present = [
+            ("val", "classification", "", "macro_f1_restricted"),
+            ("val", "classification", "fall", "f1_by_class"),
+            ("val", "per_class", "fall", "precision"),
+            ("val", "binary", "", "tp"),
+            ("val", "events", "", "sensitivity"),
+            ("val", "events", "", "latency_seconds_mean"),
+        ]
+        presence_ok = all(key in rows_by_key for key in expected_present)
+        n_ok = all(rows_by_key[key]["n"] == 2 for key in expected_present)
+
+        return _check(
+            "inventário de linhas do CSV bate com a regra do esquema "
+            "(contagem derivada da regra, independente do número de seeds) "
+            "e tuplas (split, metric_group, entity, metric) esperadas estão "
+            "presentes com n==2",
+            count_ok and presence_ok and n_ok,
+        )
+
+
+def _selftest_duplicate_seed_raises() -> bool:
+    adapter = get_dataset("le2i")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        run1 = root / "run_a"
+        run2 = root / "run_b"
+        y_true, y_pred = _synthetic_classification_arrays(offset=0)
+        event = _build_event_split(
+            n_fall_events=1,
+            n_detected_events=1,
+            sensitivity=1.0,
+            fall_sensitivity=1.0,
+            fall_or_fallen_sensitivity=1.0,
+            false_alarms_per_hour=0.0,
+            n_false_alarms=0,
+            latency_mean=1.0,
+            latency_median=1.0,
+        )
+        config1 = _write_synthetic_seed_run(
+            run1, seed=5, y_true=y_true, y_pred=y_pred, val_event=event, test_event=event
+        )
+        _write_synthetic_seed_run(
+            run2, seed=5, y_true=y_true, y_pred=y_pred, val_event=event, test_event=event
+        )
+
+        shared_expected = replace(config1, seed=BASELINE_A_CONFIG.seed)
+        raised = False
+        try:
+            _summarize([run1, run2], shared_expected, adapter)
         except RuntimeError as exc:
             raised = "seed" in str(exc) and str(run1) in str(exc) and str(run2) in str(exc)
         return _check(
@@ -559,10 +1002,12 @@ def _selftest_duplicate_seed_raises() -> bool:
 
 
 def _selftest_non_seed_config_divergence_raises() -> bool:
+    adapter = get_dataset("le2i")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         run1 = root / "run_a"
         run2 = root / "run_b"
+        y_true, y_pred = _synthetic_classification_arrays(offset=0)
         event = _build_event_split(
             n_fall_events=1,
             n_detected_events=1,
@@ -575,16 +1020,16 @@ def _selftest_non_seed_config_divergence_raises() -> bool:
             latency_median=1.0,
         )
         config1 = _write_synthetic_seed_run(
-            run1, seed=1, macro_f1=0.4, val_event=event, test_event=event, epochs=1
+            run1, seed=1, y_true=y_true, y_pred=y_pred, val_event=event, test_event=event, epochs=1
         )
         _write_synthetic_seed_run(
-            run2, seed=2, macro_f1=0.6, val_event=event, test_event=event, epochs=2
+            run2, seed=2, y_true=y_true, y_pred=y_pred, val_event=event, test_event=event, epochs=2
         )
 
         shared_expected = replace(config1, seed=BASELINE_A_CONFIG.seed)
         raised = False
         try:
-            _summarize([run1, run2], shared_expected)
+            _summarize([run1, run2], shared_expected, adapter)
         except RuntimeError as exc:
             raised = str(run2) in str(exc)
         return _check(
@@ -595,10 +1040,12 @@ def _selftest_non_seed_config_divergence_raises() -> bool:
 
 
 def _selftest_malformed_run_dir_raises() -> bool:
+    adapter = get_dataset("le2i")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         run_ok = root / "run_ok"
         run_missing_event_metrics = root / "run_missing_event_metrics"
+        y_true, y_pred = _synthetic_classification_arrays(offset=0)
         event = _build_event_split(
             n_fall_events=1,
             n_detected_events=1,
@@ -611,17 +1058,22 @@ def _selftest_malformed_run_dir_raises() -> bool:
             latency_median=1.0,
         )
         config1 = _write_synthetic_seed_run(
-            run_ok, seed=1, macro_f1=0.4, val_event=event, test_event=event
+            run_ok, seed=1, y_true=y_true, y_pred=y_pred, val_event=event, test_event=event
         )
         _write_synthetic_seed_run(
-            run_missing_event_metrics, seed=2, macro_f1=0.6, val_event=event, test_event=event
+            run_missing_event_metrics,
+            seed=2,
+            y_true=y_true,
+            y_pred=y_pred,
+            val_event=event,
+            test_event=event,
         )
         (run_missing_event_metrics / "event_metrics.json").unlink()
 
         shared_expected = replace(config1, seed=BASELINE_A_CONFIG.seed)
         raised = False
         try:
-            _summarize([run_ok, run_missing_event_metrics], shared_expected)
+            _summarize([run_ok, run_missing_event_metrics], shared_expected, adapter)
         except RuntimeError as exc:
             raised = str(run_missing_event_metrics) in str(exc)
         return _check(
@@ -632,9 +1084,11 @@ def _selftest_malformed_run_dir_raises() -> bool:
 
 
 def _selftest_fewer_than_min_seeds_raises() -> bool:
+    adapter = get_dataset("le2i")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         run1 = root / "run_a"
+        y_true, y_pred = _synthetic_classification_arrays(offset=0)
         event = _build_event_split(
             n_fall_events=1,
             n_detected_events=1,
@@ -647,12 +1101,12 @@ def _selftest_fewer_than_min_seeds_raises() -> bool:
             latency_median=1.0,
         )
         config1 = _write_synthetic_seed_run(
-            run1, seed=1, macro_f1=0.4, val_event=event, test_event=event
+            run1, seed=1, y_true=y_true, y_pred=y_pred, val_event=event, test_event=event
         )
         shared_expected = replace(config1, seed=BASELINE_A_CONFIG.seed)
         raised = False
         try:
-            _summarize([run1], shared_expected)
+            _summarize([run1], shared_expected, adapter)
         except ValueError:
             raised = True
         return _check(
@@ -714,6 +1168,10 @@ def run_multiseed_summary_selftest() -> bool:
     checks = [
         _selftest_aggregate_stats_known_array(),
         _selftest_two_valid_seed_runs_aggregate(),
+        _selftest_seed_blocks_round_trip_and_new_aggregates_exist(),
+        _selftest_binary_fall_fallen_matches_independent_recomputation(),
+        _selftest_missing_diagnostics_raises(),
+        _selftest_csv_row_inventory_matches_schema(),
         _selftest_duplicate_seed_raises(),
         _selftest_non_seed_config_divergence_raises(),
         _selftest_malformed_run_dir_raises(),

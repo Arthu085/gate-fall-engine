@@ -26,6 +26,7 @@ from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig
 from gatefall.train.engine import _StandardizedTorchDataset, _predict, run_training
 from gatefall.train.engine_selftest import run_engine_selftest
 from gatefall.train.metrics import (
+    BINARY_POSITIVE_LABELS,
     RESTRICTED_CLASSES,
     binary_projection_summary,
     classification_summary,
@@ -43,7 +44,6 @@ PROTECTED_ARTIFACT_NAMES = (
     "alarm_protocol.yaml",
     "event_metrics.json",
 )
-BINARY_POSITIVE_LABELS = frozenset({1, 2})
 
 
 def _resolve_config(seed: int, stats_path: Path, stats_sha256: str) -> TrainConfig:

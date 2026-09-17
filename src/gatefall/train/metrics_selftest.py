@@ -9,8 +9,10 @@ from gatefall.config import NUM_CLASSES
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.train.metrics import (
     RESTRICTED_CLASSES,
+    binary_projection_from_confusion_matrix,
     binary_projection_summary,
     classification_summary,
+    confusion_matrix,
     restricted_macro_f1,
     support,
 )
@@ -197,6 +199,37 @@ def check_binary_projection_fall_fallen() -> bool:
     )
 
 
+def check_binary_projection_from_confusion_matrix_agrees() -> bool:
+    # Mesmos y_true/y_pred de check_binary_projection_fall_fallen(): 1=fall,
+    # 2=fallen em LE2I_LABEL_NAMES.
+    y_true = np.array([0, 1, 1, 2, 2, 3, 4, 7, 8, 9], dtype=np.int64)
+    y_pred = np.array([0, 1, 2, 2, 3, 3, 4, 7, 1, 9], dtype=np.int64)
+    positive_labels = frozenset({1, 2})
+
+    from_arrays = binary_projection_summary(y_true, y_pred, positive_labels)
+    matrix: list[list[int]] = confusion_matrix(y_true, y_pred).tolist()
+    from_matrix = binary_projection_from_confusion_matrix(matrix, positive_labels)
+    ok = from_arrays == from_matrix
+
+    # Segundo caso: classe 6 (lying) sem suporte real, mas presente na predição
+    # (falso positivo puro), exercitando a soma sobre linha de suporte zero.
+    y_true_zero_support = np.array([0, 0, 1, 1, 2, 2, 3, 3, 4, 4], dtype=np.int64)
+    y_pred_zero_support = np.array([0, 6, 1, 6, 2, 2, 3, 3, 4, 4], dtype=np.int64)
+    from_arrays_zero = binary_projection_summary(
+        y_true_zero_support, y_pred_zero_support, positive_labels
+    )
+    matrix_zero = confusion_matrix(y_true_zero_support, y_pred_zero_support).tolist()
+    from_matrix_zero = binary_projection_from_confusion_matrix(matrix_zero, positive_labels)
+    ok_zero = from_arrays_zero == from_matrix_zero
+
+    return _check(
+        "binary_projection_from_confusion_matrix() concorda campo a campo com "
+        "binary_projection_summary() sobre a matriz de confusão persistida, "
+        "inclusive com uma classe de suporte real zero",
+        ok and ok_zero,
+    )
+
+
 def run_metrics_selftest() -> bool:
     checks = [
         check_restricted_classes_set(),
@@ -206,6 +239,7 @@ def run_metrics_selftest() -> bool:
         check_classification_summary_zero_support_class(),
         check_classification_summary_matches_restricted_f1(),
         check_binary_projection_fall_fallen(),
+        check_binary_projection_from_confusion_matrix_agrees(),
     ]
     ok = all(checks)
     if not ok:
