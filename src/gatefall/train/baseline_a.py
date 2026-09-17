@@ -22,7 +22,7 @@ from gatefall.runs import REFERENCE_RUN_ROOT, validate_local_run_dir
 from gatefall.train.artifacts import load_compatible_checkpoint, validate_training_run
 from gatefall.train.artifacts_selftest import run_artifacts_selftest
 from gatefall.train.baseline_a_selftest import run_baseline_a_selftest
-from gatefall.train.config import BASELINE_A_CONFIG
+from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig
 from gatefall.train.engine import _StandardizedTorchDataset, _predict, run_training
 from gatefall.train.engine_selftest import run_engine_selftest
 from gatefall.train.metrics import (
@@ -46,15 +46,27 @@ PROTECTED_ARTIFACT_NAMES = (
 BINARY_POSITIVE_LABELS = frozenset({1, 2})
 
 
-def run_train(force: bool, dataset_name: str = "le2i", run_dir: Path = RUN_DIR) -> None:
+def _resolve_config(seed: int, stats_path: Path, stats_sha256: str) -> TrainConfig:
+    return replace(
+        BASELINE_A_CONFIG,
+        seed=seed,
+        standardization_stats_path=str(stats_path),
+        standardization_stats_sha256=stats_sha256,
+    )
+
+
+def run_train(
+    force: bool,
+    dataset_name: str = "le2i",
+    run_dir: Path = RUN_DIR,
+    seed: int = BASELINE_A_CONFIG.seed,
+) -> None:
     validate_local_run_dir(run_dir)
     adapter = get_dataset(dataset_name)
     stats = load_stats(adapter.pose_stats_path)
     validate_stats_layout(stats)
-    config = replace(
-        BASELINE_A_CONFIG,
-        standardization_stats_path=str(adapter.pose_stats_path),
-        standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
+    config = _resolve_config(
+        seed, adapter.pose_stats_path, sha256_file(adapter.pose_stats_path)
     )
     frames = adapter.load_frames()
     loader = lambda video_id: build_pose_features(
@@ -112,12 +124,14 @@ def run_report(
     adapter = get_dataset(dataset_name)
     stats = load_stats(adapter.pose_stats_path)
     validate_stats_layout(stats)
-    expected_config = replace(
-        BASELINE_A_CONFIG,
-        standardization_stats_path=str(adapter.pose_stats_path),
-        standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
+    expected_config = _resolve_config(
+        BASELINE_A_CONFIG.seed, adapter.pose_stats_path, sha256_file(adapter.pose_stats_path)
     )
-    config = validate_training_run(run_dir, expected_config=expected_config)
+    config = validate_training_run(
+        run_dir,
+        expected_config=expected_config,
+        fields_allowed_to_differ=frozenset({"seed"}),
+    )
 
     checkpoint_path = run_dir / "checkpoint.pt"
     model = load_compatible_checkpoint(checkpoint_path, config)
@@ -249,6 +263,7 @@ def main() -> None:
     )
     train_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
     train_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    train_parser.add_argument("--seed", type=int, default=BASELINE_A_CONFIG.seed)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas da TCN e das métricas")
 
     report_parser = subparsers.add_parser(
@@ -268,7 +283,9 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command == "train":
-        run_train(force=args.force, dataset_name=args.dataset, run_dir=args.run_dir)
+        run_train(
+            force=args.force, dataset_name=args.dataset, run_dir=args.run_dir, seed=args.seed
+        )
     elif args.command == "selftest":
         run_selftest()
     elif args.command == "report":

@@ -504,7 +504,11 @@ def _run_evaluate_locked(
         standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
     )
     try:
-        config = validate_training_run(run_dir, expected_config=expected_config)
+        config = validate_training_run(
+            run_dir,
+            expected_config=expected_config,
+            fields_allowed_to_differ=frozenset({"seed"}),
+        )
     except RuntimeError as exc:
         raise RuntimeError(
             f"run de treino inválido em {run_dir}: {exc}"

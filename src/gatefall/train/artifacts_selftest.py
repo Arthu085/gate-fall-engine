@@ -1,11 +1,18 @@
 """Selftest sintético da validação per_class vs confusion_matrix (`artifacts.py`). Não toca em dados reais."""
 
+import json
 import sys
+import tempfile
 from dataclasses import replace
+from pathlib import Path
 
-from gatefall.train.artifacts import validate_training_metrics
-from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig
+import torch
+
+from gatefall.hashing import sha256_file
+from gatefall.train.artifacts import validate_training_metrics, validate_training_run
+from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig, save_config
 from gatefall.train.metrics import RESTRICTED_CLASSES
+from gatefall.train.tcn import TCNClassifier
 
 
 def _check(name: str, condition: bool) -> bool:
@@ -149,9 +156,116 @@ def check_per_class_rejected_when_matrix_inconsistent() -> bool:
     )
 
 
+def _write_valid_run(run_dir: Path, config: TrainConfig) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    config_path = run_dir / "config.yaml"
+    checkpoint_path = run_dir / "checkpoint.pt"
+    save_config(config, config_path, force=True)
+    model = TCNClassifier(
+        input_dim=config.input_dim,
+        channels=config.channels,
+        kernel_size=config.kernel_size,
+        dilations=config.dilations,
+        dropout=config.dropout,
+        num_classes=config.num_classes,
+    )
+    torch.save(model.state_dict(), checkpoint_path)
+
+    split = {
+        "macro_f1_restricted": 0.0,
+        "f1_by_class": {str(index): 0.0 for index in RESTRICTED_CLASSES},
+        "support": {str(index): 0 for index in range(config.num_classes)},
+    }
+    metrics = {
+        "run_name": config.run_name,
+        "epochs_trained": config.epochs,
+        "history": [
+            {"epoch": epoch, "train_loss": 0.0, "val_macro_f1_restricted": 0.0}
+            for epoch in range(1, config.epochs + 1)
+        ],
+        "final": {name: dict(split) for name in ("train", "val", "test")},
+        "restricted_classes": RESTRICTED_CLASSES,
+        "excluded_classes": [
+            index for index in range(config.num_classes) if index not in RESTRICTED_CLASSES
+        ],
+        "config_sha256": sha256_file(config_path),
+        "checkpoint_sha256": sha256_file(checkpoint_path),
+    }
+    with (run_dir / "metrics.json").open("w", encoding="utf-8") as stream:
+        json.dump(metrics, stream)
+
+
+def check_seed_diff_rejected_by_default() -> bool:
+    with tempfile.TemporaryDirectory() as tmp:
+        run_dir = Path(tmp) / "run"
+        config = replace(BASELINE_A_CONFIG, seed=1, epochs=1)
+        _write_valid_run(run_dir, config)
+
+        expected = replace(config, seed=2)
+        raised = False
+        try:
+            validate_training_run(run_dir, expected_config=expected)
+        except RuntimeError as exc:
+            raised = "seed" in str(exc)
+        return _check(
+            "validate_training_run rejeita divergência de seed por padrão "
+            "(fields_allowed_to_differ vazio)",
+            raised,
+        )
+
+
+def check_seed_diff_accepted_when_opted_in() -> bool:
+    with tempfile.TemporaryDirectory() as tmp:
+        run_dir = Path(tmp) / "run"
+        config = replace(BASELINE_A_CONFIG, seed=1, epochs=1)
+        _write_valid_run(run_dir, config)
+
+        expected = replace(config, seed=2)
+        accepted = True
+        try:
+            validate_training_run(
+                run_dir,
+                expected_config=expected,
+                fields_allowed_to_differ=frozenset({"seed"}),
+            )
+        except RuntimeError:
+            accepted = False
+        return _check(
+            "validate_training_run aceita divergência de seed quando "
+            "fields_allowed_to_differ=={'seed'}",
+            accepted,
+        )
+
+
+def check_non_seed_diff_still_rejected_with_seed_opt_in() -> bool:
+    with tempfile.TemporaryDirectory() as tmp:
+        run_dir = Path(tmp) / "run"
+        config = replace(BASELINE_A_CONFIG, seed=1, epochs=1)
+        _write_valid_run(run_dir, config)
+
+        expected = replace(config, seed=2, epochs=2)
+        raised = False
+        try:
+            validate_training_run(
+                run_dir,
+                expected_config=expected,
+                fields_allowed_to_differ=frozenset({"seed"}),
+            )
+        except RuntimeError as exc:
+            raised = "campo(s) divergente(s): epochs" in str(exc)
+        return _check(
+            "validate_training_run rejeita divergência não relacionada à "
+            "seed (epochs) mesmo com fields_allowed_to_differ=={'seed'}",
+            raised,
+        )
+
+
 def run_artifacts_selftest() -> bool:
     checks = [
         check_per_class_rejected_when_matrix_inconsistent(),
+        check_seed_diff_rejected_by_default(),
+        check_seed_diff_accepted_when_opted_in(),
+        check_non_seed_diff_still_rejected_with_seed_opt_in(),
     ]
     ok = all(checks)
     if not ok:
