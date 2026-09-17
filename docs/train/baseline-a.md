@@ -93,12 +93,24 @@ Implementada em NumPy puro em `gatefall/train/metrics.py`, sem adicionar
 scikit-learn como dependência. A macro-F1 é calculada apenas sobre as
 classes `{0, 1, 2, 3, 4, 7, 8, 9}`, excluindo:
 
-- `5` (`lie_down`): suporte quase nulo no Le2i.
-- `6` (`lying`): nunca ocorre no Le2i.
+- `5` (`lie_down`): suporte de treino 0, suporte de validação 5, suporte de
+  teste 0.
+- `6` (`lying`): suporte 0 nos três splits (treino, validação e teste).
 
 Incluir essas duas classes no macro-F1 faria o denominador da média ser
 dominado por F1 indefinido ou instável sobre poucas ou nenhuma amostra,
 distorcendo a métrica agregada sem refletir desempenho real do modelo.
+
+Essa restrição é uma decisão metodológica do GateFall para o cenário
+`le2i-cs` do OmniFall, não uma regra oficial de métrica do OmniFall. O
+código de experimento oficial do OmniFall calcula macro-F1 sobre as 10
+classes com `sklearn.metrics.f1_score(..., average="macro", zero_division=0)`,
+sem a restrição de suporte fixo de treino usada aqui.
+
+O conjunto fixo de classes do GateFall (`RESTRICTED_CLASSES`) é escolhido a
+partir do suporte de treino e depois aplicado sem alteração a treino,
+validação e teste — o suporte de validação ou de teste não pode, por
+construção, alterar silenciosamente quais classes entram no macro-F1.
 
 ## Diagnóstico de classificação: `report`
 
@@ -143,6 +155,27 @@ gravado em `metrics.json`. O relatório completo é sempre persistido em
 `--output`, mesmo quando há divergência, mas o processo sai com código 1 se
 qualquer campo recalculado não bater com o valor histórico — um sinal de que
 `metrics.json` foi produzido por código diferente do atual.
+
+O relatório também traz, como chaves de topo (irmãs de `splits`):
+
+- `class_support_table`: uma linha por classe (`id` 0..9, `label`,
+  `train_support`, `val_support`, `test_support`,
+  `included_in_macro_f1`), construída por `class_support_table()` a partir
+  do mesmo `support` reconstruído por split usado por
+  `verification_against_metrics_json` — nunca de contagens fixas no código.
+- `macro_f1_policy`: `restricted_classes`, `excluded_classes`, `classes_with_positive_train_support`
+  e `matches_configured_restriction`, construída por `macro_f1_policy_summary()`
+  a partir do suporte de treino reconstruído. Ela apenas relata um eventual
+  descasamento entre `RESTRICTED_CLASSES` e o suporte de treino observado —
+  nunca redefine a restrição usada pelo macro-F1.
+
+As mesmas informações são impressas no stdout como uma tabela de largura
+fixa, logo após a linha "relatório de classificação gravado", seguida de
+uma linha em português informando as classes restritas/excluídas
+configuradas, as classes com suporte de treino positivo e se os dois
+conjuntos coincidem. Em caso de descasamento, essa linha o torna explícito
+e visível, mas isso é apenas relato: não altera o código de saída nem a
+semântica de `verification_against_metrics_json`.
 
 ## Artefatos locais e referência histórica
 
