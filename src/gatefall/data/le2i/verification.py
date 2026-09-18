@@ -81,7 +81,9 @@ def report_split_disjointness(splits: dict[str, pd.DataFrame]) -> bool:
     return is_disjoint
 
 
-def report_subject_disjointness(splits: dict[str, pd.DataFrame]) -> None:
+def report_subject_disjointness(
+    splits: dict[str, pd.DataFrame], protocol: str = "cs"
+) -> None:
     print("\n=== disjunção de subjects entre splits ===")
     any_overlap = False
     split_names = list(splits)
@@ -97,10 +99,19 @@ def report_subject_disjointness(splits: dict[str, pd.DataFrame]) -> None:
                     f"{sorted(overlap)}"
                 )
     if any_overlap:
-        print(
-            "conclusão: os conjuntos de subjects se sobrepõem entre splits — "
-            "le2i-cs, portanto, não é verdadeiramente cross-subject."
-        )
+        if protocol == "cv":
+            print(
+                "conclusão: os conjuntos de subjects se sobrepõem entre splits — "
+                "isso é esperado no protocolo le2i-cv, cujo critério de "
+                "disjunção é ambiente/câmera, não subject (os ids de subject do "
+                "Le2i não são globalmente únicos entre ambientes). Overlap é "
+                "apenas informativo, não indica defeito de split."
+            )
+        else:
+            print(
+                "conclusão: os conjuntos de subjects se sobrepõem entre splits — "
+                "le2i-cs, portanto, não é verdadeiramente cross-subject."
+            )
     else:
         print(
             "conclusão: os conjuntos de subjects são disjuntos entre todos os splits."
@@ -173,11 +184,20 @@ def compute_segment_duration_stats(dataframe: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def report_train_duration_by_class(splits: dict[str, pd.DataFrame]) -> None:
-    print(
-        "\n=== duração dos segmentos por classe — apenas train "
-        "(evidência de seleção de WINDOW_FRAMES) ==="
-    )
+def report_train_duration_by_class(
+    splits: dict[str, pd.DataFrame], protocol: str = "cs"
+) -> None:
+    if protocol == "cv":
+        print(
+            "\n=== duração dos segmentos por classe — apenas train "
+            "(diagnóstico apenas; WINDOW_FRAMES=24 é congelado do baseline "
+            "Arm A e NÃO é re-selecionado a partir do train do le2i-cv) ==="
+        )
+    else:
+        print(
+            "\n=== duração dos segmentos por classe — apenas train "
+            "(evidência de seleção de WINDOW_FRAMES) ==="
+        )
     stats = compute_segment_duration_stats(splits["train"])
     print(stats)
 
@@ -284,11 +304,11 @@ def verify_le2i_manifest(adapter: Le2iDatasetAdapter = LE2I_DATASET) -> None:
 
     bijection_ok = report_bijection(adapter.raw_dir, splits)
     disjointness_ok = report_split_disjointness(splits)
-    report_subject_disjointness(splits)
+    report_subject_disjointness(splits, protocol=adapter.protocol)
     report_resolution_distribution(manifest)
     report_fps_distribution(manifest)
     report_camera_environment_crosstab(manifest)
-    report_train_duration_by_class(splits)
+    report_train_duration_by_class(splits, protocol=adapter.protocol)
     report_segment_duration_by_class_other_splits(splits)
     report_segment_counts_per_class_per_split(splits)
     report_projected_frame_counts(manifest)

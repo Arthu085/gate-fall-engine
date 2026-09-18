@@ -16,6 +16,7 @@ import pandas as pd
 from gatefall.data.le2i.verification import (
     compute_segment_duration_stats,
     report_segment_duration_by_class_other_splits,
+    report_subject_disjointness,
     report_train_duration_by_class,
 )
 
@@ -150,6 +151,123 @@ def check_other_splits_report_runs_without_raising() -> bool:
     )
 
 
+def check_cs_overlap_reports_cross_subject_undercut() -> bool:
+    train = _make_segments(labels=[_FALL_LABEL], starts=[0.0], ends=[1.0])
+    test = _make_segments(labels=[_FALL_LABEL], starts=[0.0], ends=[1.0])
+    splits = {"train": train, "test": test}
+
+    with contextlib.redirect_stdout(io.StringIO()) as buffer:
+        report_subject_disjointness(splits, protocol="cs")
+    output = buffer.getvalue()
+
+    ok = (
+        "não é verdadeiramente cross-subject" in output
+        and "esperado no protocolo le2i-cv" not in output
+    )
+    return _check(
+        "le2i-cs com subjects sobrepostos: conclusão aponta violação de "
+        "cross-subject",
+        ok,
+    )
+
+
+def check_cv_overlap_reports_expected_and_informative() -> bool:
+    train = _make_segments(labels=[_FALL_LABEL], starts=[0.0], ends=[1.0])
+    test = _make_segments(labels=[_FALL_LABEL], starts=[0.0], ends=[1.0])
+    splits = {"train": train, "test": test}
+
+    with contextlib.redirect_stdout(io.StringIO()) as buffer:
+        report_subject_disjointness(splits, protocol="cv")
+    output = buffer.getvalue()
+
+    ok = (
+        "esperado no protocolo le2i-cv" in output
+        and "informativo" in output
+        and "não é verdadeiramente cross-subject" not in output
+    )
+    return _check(
+        "le2i-cv com subjects sobrepostos: conclusão indica overlap "
+        "esperado e informativo, sem alegar quebra do protocolo",
+        ok,
+    )
+
+
+def check_disjoint_subjects_report_identical_across_protocols() -> bool:
+    train = _make_segments(labels=[_FALL_LABEL], starts=[0.0], ends=[1.0])
+    test = cast(pd.DataFrame, train.copy(deep=True))
+    test["subject"] = test["subject"] + 100
+    splits = {"train": train, "test": test}
+
+    with contextlib.redirect_stdout(io.StringIO()) as buffer_cs:
+        report_subject_disjointness(splits, protocol="cs")
+    with contextlib.redirect_stdout(io.StringIO()) as buffer_cv:
+        report_subject_disjointness(splits, protocol="cv")
+
+    expected = "conclusão: os conjuntos de subjects são disjuntos entre todos os splits."
+    ok = expected in buffer_cs.getvalue() and expected in buffer_cv.getvalue()
+    return _check(
+        "sem overlap de subjects: cs e cv produzem a mesma conclusão de "
+        "disjunção",
+        ok,
+    )
+
+
+def check_train_duration_heading_differs_by_protocol() -> bool:
+    splits = {
+        "train": _make_segments(
+            labels=[_FALL_LABEL], starts=[0.0], ends=[2.0]
+        )
+    }
+
+    with contextlib.redirect_stdout(io.StringIO()) as buffer_cs:
+        report_train_duration_by_class(splits, protocol="cs")
+    with contextlib.redirect_stdout(io.StringIO()) as buffer_cv:
+        report_train_duration_by_class(splits, protocol="cv")
+
+    output_cs = buffer_cs.getvalue()
+    output_cv = buffer_cv.getvalue()
+
+    ok = (
+        "evidência de seleção de WINDOW_FRAMES" in output_cs
+        and "diagnóstico apenas" not in output_cs
+        and "diagnóstico apenas" in output_cv
+        and "WINDOW_FRAMES=24" in output_cv
+        and "congelado" in output_cv
+        and "evidência de seleção de WINDOW_FRAMES" not in output_cv
+    )
+    return _check(
+        "cabeçalho de duração train difere entre cs (evidência de seleção) "
+        "e cv (diagnóstico/WINDOW_FRAMES congelado)",
+        ok,
+    )
+
+
+def check_train_duration_numbers_identical_across_protocols() -> bool:
+    splits = {
+        "train": _make_segments(
+            labels=[_FALL_LABEL] * 4,
+            starts=[0.0, 0.0, 0.0, 0.0],
+            ends=[1.0, 2.0, 3.0, 4.0],
+        )
+    }
+
+    with contextlib.redirect_stdout(io.StringIO()) as buffer_cs:
+        report_train_duration_by_class(splits, protocol="cs")
+    with contextlib.redirect_stdout(io.StringIO()) as buffer_cv:
+        report_train_duration_by_class(splits, protocol="cv")
+
+    expected_line = (
+        "fall (train): count=4, min=1.0000, p25=1.7500, median=2.5000, "
+        "p75=3.2500, max=4.0000"
+    )
+    ok = expected_line in buffer_cs.getvalue() and expected_line in buffer_cv.getvalue()
+    return _check(
+        "estatísticas de duração idênticas entre cs e cv para o mesmo "
+        "insumo (cálculo não passou a depender do protocolo)",
+        ok,
+    )
+
+
 def run_verification_selftest() -> None:
     checks = [
         check_known_value_quantiles(),
@@ -157,6 +275,11 @@ def run_verification_selftest() -> None:
         check_empty_dataframe_returns_without_raising(),
         check_absent_fall_label_returns_without_raising(),
         check_other_splits_report_runs_without_raising(),
+        check_cs_overlap_reports_cross_subject_undercut(),
+        check_cv_overlap_reports_expected_and_informative(),
+        check_disjoint_subjects_report_identical_across_protocols(),
+        check_train_duration_heading_differs_by_protocol(),
+        check_train_duration_numbers_identical_across_protocols(),
     ]
     if not all(checks):
         print("\nverification selftest FALHOU", file=sys.stderr)
