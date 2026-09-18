@@ -138,10 +138,13 @@ contado no numerador de `false_alarms_per_hour` (que cobre toda a grade),
 mas excluído do numerador de `false_alarms_per_hour_labeled_time`. Por
 isso os dois valores podem divergir de forma não trivial quando parte dos
 falsos alarmes cai em trechos `IGNORE_LABEL`: no split de teste da
-execução real (ver tabela abaixo), 4 dos 12 falsos
+execução real (ver tabela abaixo), 2 dos 10 falsos
 alarmes disparam em janelas `IGNORE_LABEL` e são excluídos apenas do
 numerador da taxa secundária, o que basta para separar as duas taxas
-mesmo com denominadores próximos.
+mesmo com denominadores próximos. Como os dois numeradores são contagens
+distintas, as duas taxas também se movem de forma independente entre runs:
+`n_false_alarms_labeled` não é persistido no JSON e só pode ser recuperado
+de `false_alarms_per_hour_labeled_time * labeled_time_hours`.
 
 ## Schema de `alarm_protocol.yaml`
 
@@ -238,27 +241,39 @@ checkpoint da última época treinado em [Treino — Braço A
 
 | Split | Eventos | Detectados | Sensibilidade (evento) | Falsos alarmes/h (total) | Falsos alarmes/h (tempo rotulado) | Falsos alarmes pré-queda | Sensibilidade (janela) | Especificidade (janela) | Latência média |
 | ----- | ------- | ---------- | ----------------------- | ------------------ | ------------------------- | ------------------------- | ------------------------ | -------------------------- | --------------- |
-| Validação | 13 | 13 | 100,0% | 0,0 | 0,0 | 0 | 91,8% | 97,4% | 0,4 s |
-| Teste | 22 | 20 | 90,9% | 70,0 | 51,3 | 1 | 89,1% | 97,0% | 0,4 s |
+| Validação | 13 | 13 | 100,0% | 0,0 | 0,0 | 0 | 93,3% | 97,3% | 0,4 s |
+| Teste | 22 | 22 | 100,0% | 58,4 | 51,3 | 0 | 89,5% | 96,8% | 0,5 s |
+
+As métricas estritas por posição do alarme, disponíveis nesta referência
+(ver "Schema de `event_metrics.json`" acima): na validação, os 13 eventos
+detectados têm alarme dentro do próprio segmento `fall`
+(`fall_sensitivity` e `fall_or_fallen_sensitivity` iguais a 1,0000,
+`detected_events_alarm_within_fall_rate` 1,0000). No teste, 21 dos 22
+eventos têm alarme dentro do `fall` (`fall_sensitivity` 0,9545,
+`detected_events_alarm_within_fall_rate` 0,9545) e os 22 têm alarme dentro
+de `fall ∪ fallen` (`fall_or_fallen_sensitivity` 1,0000) — o evento
+restante só é alcançado dentro do segmento `fallen` seguinte.
 
 A taxa de falsos alarmes por hora é maior no teste que na validação
-(70,0 vs. 0,0 no denominador de tempo total), consistente com a queda de
+(58,4 vs. 0,0 no denominador de tempo total), consistente com a queda de
 macro-F1 do treino para o teste já documentada em [Treino — Braço A
 (TCN)](../train/baseline-a.md): o split de
 teste é cross-subject, então mais confusões entre classes próximas de
 `fall`/`fallen` viram alarmes espúrios sobre subjects não vistos.
 
 No split de teste, `false_alarms_per_hour_labeled_time` (51,3) fica
-sensivelmente abaixo de `false_alarms_per_hour` (70,0): apesar de
+sensivelmente abaixo de `false_alarms_per_hour` (58,4): apesar de
 `labeled_time_hours` (0,156 h) já ser menor que `total_video_time_hours`
-(0,171 h), 4 dos 12 falsos alarmes do split disparam
+(0,171 h), 2 dos 10 falsos alarmes do split disparam
 dentro de trechos `IGNORE_LABEL` e são excluídos do numerador da taxa
 secundária (ver "Denominador de falsos alarmes por hora" acima) — por
 isso a taxa secundária não sobe proporcionalmente à redução do
 denominador. Na validação não há nenhum falso alarme, então as duas taxas
 são igualmente 0,0.
 
-Para o histórico completo da mudança de referência (run anterior ao PR
-#35 vs. este run) e a justificativa metodológica da migração, ver
-"Migração de referência: determinismo de GPU" em [Treino — Braço A
-(TCN)](../train/baseline-a.md#migracao-de-referencia-determinismo-de-gpu).
+Para o histórico completo das mudanças de referência — o retreino sob o
+pipeline de features atual que produziu os números acima e, antes dele, a
+migração da referência (PR #36) para o regime determinístico introduzido pelo
+PR #35 — e a justificativa metodológica de cada uma, ver "Migração de
+referência: pipeline de features atual" em [Treino — Braço A
+(TCN)](../train/baseline-a.md#migracao-de-referencia-pipeline-de-features-atual).
