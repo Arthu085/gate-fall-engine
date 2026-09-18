@@ -253,14 +253,14 @@ sob esse protocolo e a ressalva de confounding entre os dois.
 
 ## Migração de referência: pipeline de features atual
 
-A referência do PR #35 (ver "Migração de referência: determinismo de GPU"
+A referência do PR #36 (ver "Migração de referência: determinismo de GPU"
 abaixo) foi treinada sobre features de pose anteriores a duas mudanças do
 pipeline: a seleção de pessoa por continuidade de track (PR #39) e a
 construção causal do prefixo (PR #40). Esta entrega retreina a referência do
 zero sob a metodologia corrente de `main` e a promove, eliminando essa
 defasagem.
 
-Referência anterior (PR #35, preservada no histórico do Git — não há
+Referência anterior (PR #36, preservada no histórico do Git — não há
 diretório legado): checkpoint sha256 `264f4997…`; macro-F1 restrita 0,8565
 (treino) / 0,6656 (validação) / 0,6201 (teste); 13/13 eventos detectados em
 validação e 20/22 em teste; 12 falsos alarmes em teste.
@@ -326,15 +326,16 @@ sob as guardas atuais): macro-F1 de teste 0,6212 (0.6211639593563492); 12/13
 eventos de queda detectados em validação; 21/22 em teste; 10 falsos alarmes
 em teste.
 
-Referência promovida por aquela migração (PR #35), hoje superada: macro-F1 de
+Referência promovida por aquela migração (PR #36), hoje superada: macro-F1 de
 teste 0,6201 (0.6201067209256219); 13/13 em validação; 20/22 em teste; 12
 falsos alarmes em teste. Checkpoint sha256
 `264f4997f0875881f35e20f64a370c955b3488759d5f3714816c6771f12f0ff7`,
 reproduzido de forma idêntica em retreinos independentes sob as guardas de
-determinismo corrigidas (ver [determinismo de GPU](gpu-determinism.md)). Todos
-os números desta seção são os do PR #35 e não descrevem a referência vigente,
-retreinada depois sob o pipeline de features atual — ver "Migração de
-referência: pipeline de features atual" acima.
+determinismo corrigidas (ver [determinismo de GPU](gpu-determinism.md)).
+Nenhum número desta seção descreve a referência vigente: são os do run
+anterior às guardas de determinismo corrigidas e os da referência promovida
+pelo PR #36, retreinada depois sob o pipeline de features atual — ver
+"Migração de referência: pipeline de features atual" acima.
 
 Esta é uma migração metodológica de referência, para reprodutibilidade sob
 o regime determinístico congelado e compartilhado com os braços B e C

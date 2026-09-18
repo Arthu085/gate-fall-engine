@@ -273,7 +273,7 @@ são igualmente 0,0.
 
 Para o histórico completo das mudanças de referência — o retreino sob o
 pipeline de features atual que produziu os números acima e, antes dele, a
-migração para o regime determinístico do PR #35 — e a justificativa
-metodológica de cada uma, ver "Migração de referência: pipeline de features
-atual" em [Treino — Braço A
+migração da referência (PR #36) para o regime determinístico introduzido pelo
+PR #35 — e a justificativa metodológica de cada uma, ver "Migração de
+referência: pipeline de features atual" em [Treino — Braço A
 (TCN)](../train/baseline-a.md#migracao-de-referencia-pipeline-de-features-atual).
