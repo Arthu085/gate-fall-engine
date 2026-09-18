@@ -16,7 +16,7 @@ from ultralytics import YOLO
 
 from gatefall.config import TARGET_FPS
 from gatefall.data.video_io import decode_frames
-from gatefall.datasets import DatasetAdapter, get_dataset
+from gatefall.datasets import DatasetAdapter, SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.pose.loading import pose_path
 from gatefall.pose.selection import PersonSelector
 from gatefall.pose.smoke import DEFAULT_MODEL
@@ -440,7 +440,7 @@ def main() -> None:
     extract_parser.add_argument("--video-id", required=True)
     extract_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_parser.add_argument("--force", action="store_true")
-    extract_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    extract_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     extract_all_parser = subparsers.add_parser(
         "extract-all",
@@ -448,13 +448,13 @@ def main() -> None:
     )
     extract_all_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_all_parser.add_argument("--force", action="store_true")
-    extract_all_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    extract_all_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     report_parser = subparsers.add_parser(
         "report",
         help="Relata a cobertura de pose e sua interação com o contrato de janelamento",
     )
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     args = parser.parse_args()
     adapter = get_dataset(args.dataset)

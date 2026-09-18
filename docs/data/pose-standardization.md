@@ -148,4 +148,7 @@ treino fica em `[0, 1]` com mínimo exatamente `0.0`; e o hash persistido de
 `frames.parquet` bate com o arquivo atual. Também imprime, informativamente:
 p50/p99/p99.9/máximo de `|valor padronizado|` por bloco de feature, os
 nomes das dimensões guardadas, e quantos vídeos distintos foram carregados
-por split (esperado 133/19/38, total 190).
+por split. Essa contagem é específica do protocolo: 133/19/38 (total 190)
+para `le2i` (cross-subject); para `le2i-cv` (cross-environment), 97/33/60
+(total 190, o mesmo corpus de vídeos, dividido de outra forma — ver
+[relatório de generalização](../eval/le2i-cv-generalization.md)).

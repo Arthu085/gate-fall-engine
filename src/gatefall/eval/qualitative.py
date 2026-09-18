@@ -393,7 +393,7 @@ def run_render(
     force: bool,
     include_false_alarms: bool = False,
 ) -> None:
-    validate_local_run_dir(run_dir)
+    validate_local_run_dir(run_dir, dataset_name)
     adapter = get_dataset(dataset_name)
 
     expected_config = replace(

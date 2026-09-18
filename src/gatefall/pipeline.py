@@ -7,6 +7,9 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS
+from gatefall.runs import default_run_dir
+
 
 @dataclass(frozen=True)
 class PipelineStep:
@@ -35,15 +38,24 @@ def _module_step(
 def build_pipeline(
     dataset: str = "le2i", arm: str = "A", force: bool = False
 ) -> list[PipelineStep]:
-    if dataset != "le2i":
+    if dataset not in ("le2i", "le2i-cv"):
         raise ValueError(f"dataset não suportado: {dataset!r}")
     if arm != "A":
         raise ValueError(f"braço não suportado: {arm!r}")
 
-    run_dir = "runs/local/le2i/baseline_a"
+    is_cv = dataset == "le2i-cv"
+    run_dir = str(default_run_dir(dataset))
+    fetch_labels_args = ("--protocol", "cv") if is_cv else ()
     steps = [
-        PipelineStep("Baixar anotações", (sys.executable, "scripts/fetch_labels.py"), True),
-        PipelineStep("Verificar anotações", (sys.executable, "scripts/fetch_labels.py", "--verify")),
+        PipelineStep(
+            "Baixar anotações",
+            (sys.executable, "scripts/fetch_labels.py", *fetch_labels_args),
+            True,
+        ),
+        PipelineStep(
+            "Verificar anotações",
+            (sys.executable, "scripts/fetch_labels.py", "--verify", *fetch_labels_args),
+        ),
         PipelineStep("Extrair arquivo Le2i", (sys.executable, "scripts/extract_le2i.py"), True),
         _module_step("Construir manifesto", "gatefall.data.ingest", "ingest", "--dataset", dataset, supports_force=True),
         _module_step("Verificar manifesto", "gatefall.data.ingest", "verify", "--dataset", dataset),
@@ -69,6 +81,18 @@ def build_pipeline(
         _module_step("Validar protocolo de eventos", "gatefall.eval.baseline_a_events", "selftest"),
         _module_step("Avaliar eventos", "gatefall.eval.baseline_a_events", "evaluate", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
     ]
+    if is_cv:
+        steps.append(
+            _module_step(
+                "Relatar generalização",
+                "gatefall.eval.generalization_report",
+                "report",
+                "--dataset",
+                dataset,
+                "--output",
+                f"{run_dir}/generalization_report.json",
+            )
+        )
     if not force:
         return steps
     return [
@@ -112,7 +136,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     run_parser = subparsers.add_parser("run", help="Executa o pipeline completo")
-    run_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    run_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
     run_parser.add_argument("--arm", default="A", choices=("A",))
     run_parser.add_argument("--dry-run", action="store_true")
     run_parser.add_argument("--force", action="store_true")

@@ -22,7 +22,7 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from gatefall.datasets import DatasetAdapter, get_dataset
+from gatefall.datasets import DatasetAdapter, SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.pose.kinematics import COCO17_SKELETON_EDGES, EXPECTED_K_SUM
 from gatefall.pose.loading import load_pose, normalize_keypoints
 
@@ -258,7 +258,7 @@ def main() -> None:
         "report",
         help="Roda o índice de qualidade de pose sobre todos os vídeos e reporta estatísticas",
     )
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     args = parser.parse_args()
     if args.command == "selftest":

@@ -24,7 +24,6 @@ from gatefall.datasets.le2i import LE2I_DATASET, Le2iDatasetAdapter
 from gatefall.hashing import sha256_file
 
 RAW_DIR = LE2I_DATASET.raw_dir
-MANIFEST_PATH = LE2I_DATASET.manifest_path
 
 
 def build_le2i_manifest(
@@ -86,14 +85,17 @@ def build_le2i_manifest(
     )
 
 
-def ingest_le2i_dataset(force: bool) -> None:
-    if MANIFEST_PATH.exists() and not force:
+def ingest_le2i_dataset(
+    force: bool, adapter: Le2iDatasetAdapter = LE2I_DATASET
+) -> None:
+    manifest_path = adapter.manifest_path
+    if manifest_path.exists() and not force:
         print(
-            f"skip {MANIFEST_PATH} (já existe, use --force para sobrescrever)"
+            f"skip {manifest_path} (já existe, use --force para sobrescrever)"
         )
         return
 
-    annotation_splits = load_annotation_splits()
+    annotation_splits = load_annotation_splits(protocol=adapter.protocol)
     annotation_index = build_video_annotation_index(annotation_splits)
-    manifest = build_le2i_manifest(RAW_DIR, annotation_index)
-    write_manifest(manifest, MANIFEST_PATH, force)
+    manifest = build_le2i_manifest(adapter.raw_dir, annotation_index)
+    write_manifest(manifest, manifest_path, force)

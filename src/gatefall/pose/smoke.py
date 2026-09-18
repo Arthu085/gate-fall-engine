@@ -12,7 +12,7 @@ import torch
 from ultralytics import YOLO
 
 from gatefall.data.video_io import decode_frames
-from gatefall.datasets import DatasetAdapter, get_dataset
+from gatefall.datasets import DatasetAdapter, SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.pose.selection import PersonSelector
 
 DEFAULT_VIDEO_ID = "coffee_room_01/video_1"
@@ -182,7 +182,7 @@ def main() -> None:
     )
     report_parser.add_argument("--video-id", default=DEFAULT_VIDEO_ID)
     report_parser.add_argument("--model", default=DEFAULT_MODEL)
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     args = parser.parse_args()
     if args.command == "report":

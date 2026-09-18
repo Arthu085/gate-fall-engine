@@ -330,7 +330,7 @@ def _summarize(
     fingerprint_run_dir: Path | None = None
 
     for run_dir in run_dirs:
-        validate_local_run_dir(run_dir)
+        validate_local_run_dir(run_dir, adapter.identifier)
         config = validate_training_run(
             run_dir,
             expected_config=shared_expected,

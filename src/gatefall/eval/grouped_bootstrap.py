@@ -553,7 +553,7 @@ def run_analyze(
         raise ValueError(f"--n-replicates deve ser positivo: {n_replicates!r}")
     if not (0.0 < confidence_level < 1.0):
         raise ValueError(f"--confidence-level deve estar em (0, 1): {confidence_level!r}")
-    validate_local_run_dir(run_dir)
+    validate_local_run_dir(run_dir, dataset_name)
 
     adapter = get_dataset(dataset_name)
     checkpoint_path = run_dir / "checkpoint.pt"

@@ -1,8 +1,11 @@
 """CLI de auditoria de cobertura das anotações sobre o manifesto Le2i."""
 
 import argparse
+from typing import cast
 
 from gatefall.data.le2i.coverage import audit_le2i_coverage
+from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
+from gatefall.datasets.le2i import Le2iDatasetAdapter
 
 
 def main() -> None:
@@ -13,11 +16,11 @@ def main() -> None:
         "audit",
         help="Audita a cobertura dos segmentos anotados sobre a duração dos vídeos",
     )
-    audit_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    audit_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     args = parser.parse_args()
     if args.command == "audit":
-        audit_le2i_coverage()
+        audit_le2i_coverage(adapter=cast(Le2iDatasetAdapter, get_dataset(args.dataset)))
 
 
 if __name__ == "__main__":

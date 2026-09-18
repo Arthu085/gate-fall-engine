@@ -294,7 +294,7 @@ def run_analyze(
     refractory_grid_s: Sequence[float] = DEFAULT_REFRACTORY_GRID_S,
 ) -> None:
     _validate_refractory_grid_s(refractory_grid_s)
-    validate_local_run_dir(run_dir)
+    validate_local_run_dir(run_dir, dataset_name)
 
     adapter = get_dataset(dataset_name)
     checkpoint_path = run_dir / "checkpoint.pt"

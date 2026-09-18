@@ -22,10 +22,14 @@ uv run python -m gatefall.train.baseline_a train --dataset le2i \
   --run-dir runs/local/le2i/baseline_a
 ```
 
-Treina o braço A sobre o Le2i real. O destino padrão é
-`runs/local/le2i/baseline_a/`; `--run-dir` permite explicitar outro diretório
-local. Destinos dentro de `runs/reference/` são rejeitados, inclusive quando o
-comando é chamado fora da raiz do repositório. `--seed N` sobrepõe a seed
+Treina o braço A sobre o Le2i real. O destino padrão depende de `--dataset`:
+`runs/local/le2i/baseline_a/` para `le2i`, `runs/local/le2i_cv/baseline_a/`
+para `le2i-cv`; `--run-dir` permite explicitar outro diretório local.
+Destinos dentro de `runs/reference/` são rejeitados, inclusive quando o
+comando é chamado fora da raiz do repositório, assim como um `--run-dir` que
+caia sob o diretório local canônico do *outro* protocolo (por exemplo,
+`--dataset le2i` com `--run-dir` sob `runs/local/le2i_cv/`). `--seed N`
+sobrepõe a seed
 padrão (42) e é gravada em `config.yaml`; é o único campo de configuração que
 pode variar entre runs comparáveis (ver "Receita de treino congelada" abaixo
 e [Sumário multi-seed](../eval/multiseed-summary.md)).
@@ -243,6 +247,11 @@ ambientes do Le2i, mudam apenas os subjects — então a queda para teste
 reflete subjects não vistos no treino, não ambientes novos. O split é por
 vídeo/subject justamente para evitar vazamento entre treino e teste
 (`CLAUDE.md`, invariante 2).
+
+Generalização a ambientes não vistos é medida separadamente pelo protocolo
+`le2i-cv`, disjunto por ambiente e câmera; ver [Generalização entre
+ambientes (Le2i-CV)](../eval/le2i-cv-generalization.md) para o run do braço A
+sob esse protocolo e a ressalva de confounding entre os dois.
 
 ## Migração de referência: determinismo de GPU
 

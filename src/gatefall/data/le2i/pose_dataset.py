@@ -14,7 +14,10 @@ from gatefall.config import (
     WINDOW_FRAMES,
 )
 from gatefall.data.pose_dataset import PoseWindowDataset
-from gatefall.data.le2i.windows import EXPECTED_USABLE_WINDOWS_STRIDE1
+from gatefall.data.le2i.windows import (
+    EXPECTED_USABLE_WINDOWS_STRIDE1,
+    expected_counts_for_identifier,
+)
 from gatefall.data.windowing import build_window_index, window_frame_indices
 from gatefall.datasets import DatasetAdapter
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
@@ -47,22 +50,42 @@ if len(LABEL_NAMES) != NUM_CLASSES:
 # sobreposições).
 EXPECTED_FEATURE_DIM = POSE_FEATURE_DIM
 
-EXPECTED_USABLE_WINDOWS_STRIDE4: dict[str, int] = {
-    "train": 5219,
-    "val": 527,
-    "test": 1412,
+EXPECTED_USABLE_WINDOWS_STRIDE4: dict[str, dict[str, int]] = {
+    "le2i": {
+        "train": 5219,
+        "val": 527,
+        "test": 1412,
+    },
+    "le2i-cv": {
+        "train": 4168,
+        "val": 1483,
+        "test": 1507,
+    },
 }
 
-EXPECTED_USABLE_WINDOWS_BY_LABEL_STRIDE4: dict[str, dict[str, int]] = {
-    "walk": {"train": 1547, "val": 179, "test": 608},
-    "fall": {"train": 499, "val": 63, "test": 115},
-    "fallen": {"train": 624, "val": 52, "test": 108},
-    "sit_down": {"train": 159, "val": 31, "test": 69},
-    "sitting": {"train": 696, "val": 73, "test": 181},
-    "lie_down": {"train": 0, "val": 1, "test": 0},
-    "stand_up": {"train": 351, "val": 97, "test": 103},
-    "standing": {"train": 173, "val": 23, "test": 12},
-    "other": {"train": 1170, "val": 8, "test": 216},
+EXPECTED_USABLE_WINDOWS_BY_LABEL_STRIDE4: dict[str, dict[str, dict[str, int]]] = {
+    "le2i": {
+        "walk": {"train": 1547, "val": 179, "test": 608},
+        "fall": {"train": 499, "val": 63, "test": 115},
+        "fallen": {"train": 624, "val": 52, "test": 108},
+        "sit_down": {"train": 159, "val": 31, "test": 69},
+        "sitting": {"train": 696, "val": 73, "test": 181},
+        "lie_down": {"train": 0, "val": 1, "test": 0},
+        "stand_up": {"train": 351, "val": 97, "test": 103},
+        "standing": {"train": 173, "val": 23, "test": 12},
+        "other": {"train": 1170, "val": 8, "test": 216},
+    },
+    "le2i-cv": {
+        "walk": {"train": 1626, "val": 330, "test": 378},
+        "fall": {"train": 415, "val": 85, "test": 177},
+        "fallen": {"train": 501, "val": 130, "test": 153},
+        "sit_down": {"train": 72, "val": 73, "test": 114},
+        "sitting": {"train": 333, "val": 281, "test": 336},
+        "lie_down": {"train": 0, "val": 0, "test": 1},
+        "stand_up": {"train": 174, "val": 99, "test": 278},
+        "standing": {"train": 130, "val": 59, "test": 19},
+        "other": {"train": 917, "val": 426, "test": 51},
+    },
 }
 
 
@@ -94,6 +117,19 @@ def load_le2i_pose_window_dataset(
 def report_pose_dataset(*, adapter: DatasetAdapter) -> None:
     frames = adapter.load_frames()
     splits = sorted(cast(list[str], frames["split"].unique().tolist()))
+    expected_windows_stride4 = expected_counts_for_identifier(
+        EXPECTED_USABLE_WINDOWS_STRIDE4, adapter.identifier
+    )
+    expected_windows_stride1 = expected_counts_for_identifier(
+        EXPECTED_USABLE_WINDOWS_STRIDE1, adapter.identifier
+    )
+    expected_windows_by_label_stride4 = EXPECTED_USABLE_WINDOWS_BY_LABEL_STRIDE4.get(
+        adapter.identifier
+    )
+    if expected_windows_by_label_stride4 is None:
+        raise ValueError(
+            f"contagens esperadas ainda não medidas para {adapter.identifier}"
+        )
 
     def feature_loader(video_id: str) -> np.ndarray:
         return build_pose_features(video_id, pose_root=adapter.pose_root)[0]
@@ -121,10 +157,10 @@ def report_pose_dataset(*, adapter: DatasetAdapter) -> None:
     checks.append(
         _check(
             f"stride={TRAIN_STRIDE}: contagem de janelas úteis por split == "
-            f"{EXPECTED_USABLE_WINDOWS_STRIDE4}",
+            f"{expected_windows_stride4}",
             all(
                 len(datasets_stride4[split]) == expected
-                for split, expected in EXPECTED_USABLE_WINDOWS_STRIDE4.items()
+                for split, expected in expected_windows_stride4.items()
             ),
         )
     )
@@ -139,10 +175,10 @@ def report_pose_dataset(*, adapter: DatasetAdapter) -> None:
     checks.append(
         _check(
             f"stride={EVAL_STRIDE}: contagem de janelas úteis por split == "
-            f"{EXPECTED_USABLE_WINDOWS_STRIDE1}",
+            f"{expected_windows_stride1}",
             all(
                 len(datasets_stride1[split]) == expected
-                for split, expected in EXPECTED_USABLE_WINDOWS_STRIDE1.items()
+                for split, expected in expected_windows_stride1.items()
             ),
         )
     )
@@ -162,9 +198,9 @@ def report_pose_dataset(*, adapter: DatasetAdapter) -> None:
         print(f"  {split}: {counts_by_split_label[split]}")
 
     for label_index, label_name in enumerate(LABEL_NAMES):
-        if label_name not in EXPECTED_USABLE_WINDOWS_BY_LABEL_STRIDE4:
+        if label_name not in expected_windows_by_label_stride4:
             continue
-        expected_by_split = EXPECTED_USABLE_WINDOWS_BY_LABEL_STRIDE4[label_name]
+        expected_by_split = expected_windows_by_label_stride4[label_name]
         ok = all(
             counts_by_split_label.get(split, {}).get(label_index, 0) == expected
             for split, expected in expected_by_split.items()
