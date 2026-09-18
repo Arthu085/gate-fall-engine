@@ -33,13 +33,12 @@ from gatefall.features.standardization import (
     validate_stats_layout,
 )
 from gatefall.pose.kinematics import build_pose_features
-from gatefall.runs import validate_local_run_dir
+from gatefall.runs import default_run_dir, validate_local_run_dir
 from gatefall.hashing import sha256_file
 from gatefall.train.artifacts import load_compatible_checkpoint, validate_training_run
 from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig
 from gatefall.train.tcn import TCNClassifier
 
-RUN_DIR = Path("runs/local/le2i/baseline_a")
 EVENT_LOCK_FILE = ".event-evaluation.lock"
 
 
@@ -662,9 +661,11 @@ def _run_evaluate_locked(
 
 
 def run_evaluate(
-    force: bool, dataset_name: str = "le2i", run_dir: Path = RUN_DIR
+    force: bool, dataset_name: str = "le2i", run_dir: Path | None = None
 ) -> None:
-    validate_local_run_dir(run_dir)
+    if run_dir is None:
+        run_dir = default_run_dir(dataset_name)
+    validate_local_run_dir(run_dir, dataset_name)
     with EventEvaluationLock(run_dir) as lock:
         _run_evaluate_locked(force, dataset_name, run_dir, lock)
 
@@ -686,7 +687,7 @@ def main() -> None:
         "--force", action="store_true", help="Sobrescreve o event_metrics.json já existente"
     )
     evaluate_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
-    evaluate_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    evaluate_parser.add_argument("--run-dir", type=Path, default=None)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas do protocolo de eventos")
 
     args = parser.parse_args()

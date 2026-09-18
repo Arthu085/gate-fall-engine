@@ -18,7 +18,7 @@ from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.features.standardization import load_stats, validate_stats_layout
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
-from gatefall.runs import REFERENCE_RUN_ROOT, validate_local_run_dir
+from gatefall.runs import REFERENCE_RUN_ROOT, default_run_dir, validate_local_run_dir
 from gatefall.train.artifacts import load_compatible_checkpoint, validate_training_run
 from gatefall.train.artifacts_selftest import run_artifacts_selftest
 from gatefall.train.baseline_a_selftest import run_baseline_a_selftest
@@ -38,7 +38,6 @@ from gatefall.train.metrics import (
 from gatefall.train.metrics_selftest import run_metrics_selftest
 from gatefall.train.tcn_selftest import run_tcn_selftest
 
-RUN_DIR = Path("runs/local/le2i/baseline_a")
 PROTECTED_ARTIFACT_NAMES = (
     "config.yaml",
     "metrics.json",
@@ -60,10 +59,12 @@ def _resolve_config(seed: int, stats_path: Path, stats_sha256: str) -> TrainConf
 def run_train(
     force: bool,
     dataset_name: str = "le2i",
-    run_dir: Path = RUN_DIR,
+    run_dir: Path | None = None,
     seed: int = BASELINE_A_CONFIG.seed,
 ) -> None:
-    validate_local_run_dir(run_dir)
+    if run_dir is None:
+        run_dir = default_run_dir(dataset_name)
+    validate_local_run_dir(run_dir, dataset_name)
     adapter = get_dataset(dataset_name)
     stats = load_stats(adapter.pose_stats_path)
     validate_stats_layout(stats)
@@ -154,11 +155,13 @@ def _print_macro_f1_policy_summary(policy_summary: dict) -> None:
 
 def run_report(
     dataset_name: str,
-    run_dir: Path,
+    run_dir: Path | None,
     output_path: Path,
     force: bool,
 ) -> bool:
-    validate_local_run_dir(run_dir)
+    if run_dir is None:
+        run_dir = default_run_dir(dataset_name)
+    validate_local_run_dir(run_dir, dataset_name)
     _guard_protected_output(run_dir, output_path)
     if output_path.exists() and not force:
         raise RuntimeError(
@@ -320,7 +323,7 @@ def main() -> None:
         "--force", action="store_true", help="Sobrescreve o run_dir já existente"
     )
     train_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
-    train_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    train_parser.add_argument("--run-dir", type=Path, default=None)
     train_parser.add_argument("--seed", type=int, default=BASELINE_A_CONFIG.seed)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas da TCN e das métricas")
 
@@ -336,10 +339,12 @@ def main() -> None:
         "--force", action="store_true", help="Sobrescreve o --output já existente"
     )
     report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
-    report_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    report_parser.add_argument("--run-dir", type=Path, default=None)
     report_parser.add_argument("--output", type=Path, default=None)
 
     args = parser.parse_args()
+    if args.command in ("train", "report") and args.run_dir is None:
+        args.run_dir = default_run_dir(args.dataset)
     if args.command == "train":
         run_train(
             force=args.force, dataset_name=args.dataset, run_dir=args.run_dir, seed=args.seed

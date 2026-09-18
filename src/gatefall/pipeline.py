@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS
+from gatefall.runs import default_run_dir
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,7 @@ def build_pipeline(
         raise ValueError(f"braço não suportado: {arm!r}")
 
     is_cv = dataset == "le2i-cv"
-    run_dir = "runs/local/le2i_cv/baseline_a" if is_cv else "runs/local/le2i/baseline_a"
+    run_dir = str(default_run_dir(dataset))
     fetch_labels_args = ("--protocol", "cv") if is_cv else ()
     steps = [
         PipelineStep(

@@ -80,7 +80,7 @@ idênticos ao `cs`; estatísticas de padronização calculadas somente no
 `train` do `cv`; protocolo de alarme congelado; sem early stopping,
 adaptação ou seleção guiada pelo teste. 30 épocas.
 
-| Split | Macro-F1 restrito (CV) | Macro-F1 restrito (CS, referência) |
+| Split | Macro-F1 restrito (CV) | Macro-F1 restrito (CS, referência — pipeline de features anterior, ver nota abaixo) |
 | --- | ---: | ---: |
 | Treino | 0,8869 | 0,8565 |
 | Validação | 0,5645 | 0,6656 |
@@ -92,12 +92,29 @@ Eventos:
 | --- | ---: | ---: | ---: | ---: |
 | CV val | 0,8824 (17 eventos) | 24 | 130,77 | 0,5s |
 | CV test | 0,9459 (37 eventos) | 15 | 90,27 | 0,6s |
-| CS val (referência) | 1,0 (13 eventos) | 0 | 0,00 | 0,4s |
-| CS test (referência) | 0,9091 (22 eventos) | 12 | 70,04 | 0,4s |
+| CS val (referência — pipeline de features anterior) | 1,0 (13 eventos) | 0 | 0,00 | 0,4s |
+| CS test (referência — pipeline de features anterior) | 0,9091 (22 eventos) | 12 | 70,04 | 0,4s |
 
-A comparação entre os números CV e CS acima é ela mesma confundida — splits
-diferentes, dados de treino diferentes — e deve ser lida como contexto, nunca
-como uma ablação controlada.
+A comparação entre os números CV e CS acima é confundida por **dois fatores
+independentes**, não apenas um:
+
+1. Protocolo e splits diferentes — como já discutido, ambiente/câmera,
+   resolução, fps e qualidade de pose co-variam entre os splits do `cv`, e o
+   `cs` responde uma pergunta diferente (cross-subject, não cross-domain).
+2. **Geração de pipeline de features diferente.** O run de referência do `cs`
+   em `runs/reference/le2i/baseline_a/` foi promovido em 2026-09-04
+   (`74437d3`, "fix(train): promote deterministic baseline_a retrain to
+   reference") e **não foi regenerado** desde duas mudanças de pipeline
+   posteriores, ambas de 2026-09-16: a seleção de pessoa por continuidade de
+   track em vez de confiança (`74d7f50`, PR #39) e a construção causal do
+   prefixo das features de pose (PR #40, merge `0cce3ae`). Os números CS
+   acima vêm portanto de um pipeline de features **mais antigo**, enquanto o
+   run `cv` acima já usa o pipeline atual.
+
+Por isso, a comparação CV-vs-CS não deve ser lida como uma ablação, nem como
+o efeito isolado do domain shift — nem sequer os dois runs foram produzidos
+pelo mesmo pipeline de extração de pose/features. Ela é contexto histórico,
+não uma comparação controlada.
 
 ## Interpretação científica
 
@@ -113,7 +130,10 @@ efeito.
 O resultado cross-subject do Le2i-CS **não** deve ser descrito como evidência
 cross-domain: o treino do Le2i-CS já contém os seis ambientes do Le2i, então
 ele não testa generalização a um ambiente não visto. Os dois protocolos
-respondem perguntas diferentes e não são substitutos um do outro.
+respondem perguntas diferentes e não são substitutos um do outro. Some-se a
+isso que o run de referência do CS citado nesta página vem de uma geração
+anterior do pipeline de features (ver nota na seção "Resultados" acima), o
+que por si só já impede comparar magnitudes entre CS e CV.
 
 ## Como executar
 

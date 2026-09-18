@@ -34,7 +34,7 @@ import torch
 from gatefall.config import EVAL_STRIDE
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
-from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
+from gatefall.datasets import get_dataset
 from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
 from gatefall.eval.events import extract_label_segments, split_event_report
 from gatefall.features.standardization import (
@@ -294,7 +294,7 @@ def run_analyze(
     refractory_grid_s: Sequence[float] = DEFAULT_REFRACTORY_GRID_S,
 ) -> None:
     _validate_refractory_grid_s(refractory_grid_s)
-    validate_local_run_dir(run_dir)
+    validate_local_run_dir(run_dir, dataset_name)
 
     adapter = get_dataset(dataset_name)
     checkpoint_path = run_dir / "checkpoint.pt"
@@ -776,7 +776,7 @@ def main() -> None:
             "o checkpoint treinado; nunca seleciona/ranqueia/promove protocolo"
         ),
     )
-    analyze_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
+    analyze_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
     analyze_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
     analyze_parser.add_argument(
         "--refractory-grid",

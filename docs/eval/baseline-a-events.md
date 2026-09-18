@@ -24,8 +24,11 @@ uv run python -m gatefall.eval.baseline_a_events evaluate --dataset le2i \
 
 Carrega `checkpoint.pt`, `config.yaml` e `metrics.json` do run local completo,
 roda o protocolo sobre `val` e `test` e publica `alarm_protocol.yaml` e
-`event_metrics.json` no mesmo diretório. Destinos em `runs/reference/` são
-rejeitados.
+`event_metrics.json` no mesmo diretório. Sem `--run-dir`, o destino padrão
+depende de `--dataset`: `runs/local/le2i/baseline_a/` para `le2i`,
+`runs/local/le2i_cv/baseline_a/` para `le2i-cv`. Destinos em
+`runs/reference/` são rejeitados, assim como um `--run-dir` que caia sob o
+diretório local canônico do outro protocolo.
 
 A avaliação usa lock exclusivo entre processos implementado com
 `fcntl.flock`, journal, temporários, hashes do config, checkpoint, métricas de
