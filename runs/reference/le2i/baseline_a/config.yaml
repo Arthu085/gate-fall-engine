@@ -28,4 +28,4 @@ epochs: 30
 loss_name: cross_entropy
 class_weighted: true
 standardization_stats_path: src/gatefall/features/stats/pose_le2i_cs.json
-standardization_stats_sha256: 15de9ed0c1a83828b1a4d6a24035f5ab5485f6a9bfc3293dcbf8464bbe5e2fa8
+standardization_stats_sha256: 9604b8a60c403f4da3eb750508e0cc1192c158dfeff189ce2692a8be45dff47e

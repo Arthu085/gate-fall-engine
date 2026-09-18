@@ -13,6 +13,11 @@ em [Treino — Braço A (TCN)](baseline-a.md).
   foi regenerado sob o regime determinístico corrigido — ver "Migração de
   referência: determinismo de GPU" em
   [Treino — Braço A (TCN)](baseline-a.md#migracao-de-referencia-determinismo-de-gpu).
+  A referência foi depois retreinada de novo, sob o pipeline de features
+  atual; os números desta página são os da verificação original do PR #35 e
+  não descrevem a referência vigente — ver "Migração de referência: pipeline
+  de features atual" em
+  [Treino — Braço A (TCN)](baseline-a.md#migracao-de-referencia-pipeline-de-features-atual).
 
 ## Hipóteses descartadas
 

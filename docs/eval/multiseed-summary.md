@@ -143,14 +143,18 @@ desta execução real; os checkpoints sha256 por seed são:
 | 46 | `6ebe278ce22da41afed26d22c061c4b86919e43efb0511c02607276e135e1265` |
 
 O run da seed 42 desta execução reproduziu, checkpoint sha256 idêntico ao
-acima, o checkpoint do candidato local já existente — checagem de
-determinismo nesta mesma máquina/stack, não uma garantia portável entre
-máquinas/GPUs/drivers. Como verificação adicional: para a seed 42, o
-`binary_fall_fallen` derivado da `confusion_matrix` (sem rodar inferência
-de novo) é idêntico, campo a campo e nos três splits, ao `binary_fall_fallen`
-medido por inferência no `classification_report.json` pré-existente do
-candidato local que compartilha esse mesmo checkpoint — evidência de que a
-derivação algébrica reproduz uma medição real.
+acima, o checkpoint da referência congelada
+`runs/reference/le2i/baseline_a/` — checagem de determinismo nesta mesma
+máquina/stack, não uma garantia portável entre máquinas/GPUs/drivers. Como
+verificação adicional: para a seed 42, o `binary_fall_fallen` derivado da
+`confusion_matrix` (sem rodar inferência de novo) é idêntico, campo a campo
+e nos três splits, ao `binary_fall_fallen` medido por inferência no
+`classification_report.json` do run local que compartilha esse mesmo
+checkpoint — evidência de que a derivação algébrica reproduz uma medição
+real. Esse `classification_report.json` foi regenerado junto com o retreino
+da referência e hoje traz também `class_support_table` e `macro_f1_policy`
+(ver [Treino — Braço A (TCN)](../train/baseline-a.md)), campos que não
+participam dessa conferência.
 
 ### Classificação multiclasse — `macro_f1_restricted`
 

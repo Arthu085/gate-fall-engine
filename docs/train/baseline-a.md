@@ -72,8 +72,9 @@ B e C):
   `torch.use_deterministic_algorithms(True)` e `CUBLAS_WORKSPACE_CONFIG=:4096:8` —
   retreinos com a mesma seed produzem checkpoint idêntico na mesma
   máquina/GPU/driver/cuDNN. `runs/reference/le2i/baseline_a` já foi
-  regenerado sob esse regime determinístico (ver "Migração de referência:
-  determinismo de GPU" abaixo). Ver [investigação de determinismo de
+  regenerado sob esse regime determinístico e, depois dele, retreinado do
+  zero sob o pipeline de features atual (ver "Migração de referência:
+  pipeline de features atual" abaixo). Ver [investigação de determinismo de
   GPU](gpu-determinism.md) para o diagnóstico completo.
 
 As 30 épocas são um orçamento fixo pré-registrado, definido antes de rodar
@@ -188,10 +189,10 @@ semântica de `verification_against_metrics_json`.
 ## Artefatos locais e referência histórica
 
 `runs/reference/le2i/baseline_a/config.yaml` e `metrics.json` são evidência
-histórica versionada. Desde a migração de referência para o regime
-determinístico de GPU (ver "Migração de referência: determinismo de GPU"
-abaixo), o conteúdo desses arquivos é a saída real e regenerada do run
-determinístico, não apenas conteúdo movido de um caminho legado. O
+histórica versionada. Desde o retreino sob o pipeline de features atual (ver
+"Migração de referência: pipeline de features atual" abaixo), o conteúdo
+desses arquivos é a saída real e regenerada do run determinístico corrente,
+não apenas conteúdo movido de um caminho legado. O
 checkpoint não é versionado. Uma reprodução grava os três artefatos em
 `runs/local/le2i/baseline_a/`, ignorado pelo Git.
 
@@ -220,25 +221,22 @@ esses dois campos.
 Execução registrada em `runs/reference/le2i/baseline_a/metrics.json`, checkpoint na
 última época (30):
 
-Esta referência foi treinada sobre features de pose anteriores a duas
-mudanças do pipeline de features: a adoção canônica da [seleção de pessoa por
+Esta referência foi retreinada do zero sob o pipeline de features atual — já
+com a [seleção de pessoa por
 continuidade](../data/temporal-contract.md#selecao-de-pessoa-na-extracao-de-pose)
-— cuja política já estava implementada antes, mas só passou a valer nos HDF5
-canônicos em disco na reextração forçada desta entrega — e a [causalidade do
-prefixo](../data/temporal-contract.md#imputacao-de-pose-e-causalidade-do-prefixo).
-Ela segue válida como registro histórico e não foi sobrescrita, mas um
-retreino sob as features atuais não reproduz estes números.
-
-Qualquer diferença de métrica entre o candidato local atual e esta referência
-histórica é, portanto, o efeito conjunto das duas mudanças. A comparação não é
-uma ablação de nenhuma delas, e nenhuma das duas pode ser creditada
-individualmente a partir dela.
+e a [causalidade do
+prefixo](../data/temporal-contract.md#imputacao-de-pose-e-causalidade-do-prefixo)
+valendo nos HDF5 canônicos em disco — e promovida nesta entrega (ver
+"Migração de referência: pipeline de features atual" abaixo). Não há mais
+defasagem entre a referência versionada e o que a metodologia corrente
+produz: um retreino com a mesma seed na mesma máquina/GPU/driver/cuDNN
+reproduz exatamente estes números.
 
 | Split | Macro-F1 restrita |
 | ----- | ------------------ |
-| Treino | 0,8565 |
-| Validação | 0,6656 |
-| Teste | 0,6201 |
+| Treino | 0,8674 |
+| Validação | 0,6584 |
+| Teste | 0,6231 |
 
 A queda de treino para validação/teste é esperada: o split de validação é
 pequeno e enviesado (19 vídeos concentrados em três ambientes, ver acima) e
@@ -253,6 +251,70 @@ Generalização a ambientes não vistos é medida separadamente pelo protocolo
 ambientes (Le2i-CV)](../eval/le2i-cv-generalization.md) para o run do braço A
 sob esse protocolo e a ressalva de confounding entre os dois.
 
+## Migração de referência: pipeline de features atual
+
+A referência do PR #35 (ver "Migração de referência: determinismo de GPU"
+abaixo) foi treinada sobre features de pose anteriores a duas mudanças do
+pipeline: a seleção de pessoa por continuidade de track (PR #39) e a
+construção causal do prefixo (PR #40). Esta entrega retreina a referência do
+zero sob a metodologia corrente de `main` e a promove, eliminando essa
+defasagem.
+
+Referência anterior (PR #35, preservada no histórico do Git — não há
+diretório legado): checkpoint sha256 `264f4997…`; macro-F1 restrita 0,8565
+(treino) / 0,6656 (validação) / 0,6201 (teste); 13/13 eventos detectados em
+validação e 20/22 em teste; 12 falsos alarmes em teste.
+
+Referência nova (esta migração): checkpoint sha256
+`78278b1a6a6eb929c27ae071ebf364a2032877eb0adbcb4e4efd2a6a26787ab8`;
+macro-F1 restrita 0,8674 / 0,6584 / 0,6231; 13/13 eventos detectados em
+validação e 22/22 em teste; 0 falsos alarmes em validação e 10 em teste.
+
+Contabilidade do que mudou e do que permaneceu idêntico:
+
+- **Mudou:** o checkpoint, `config_sha256` (`f032ed11…` → `3c487416…`),
+  `training_metrics_sha256` (`aa3c7e59…` → `7094b56d…`), as macro-F1 dos três
+  splits, as F1 por classe, as métricas binárias de janela, as contagens de
+  eventos detectados e de falsos alarmes no teste e as latências. Em
+  `config.yaml` mudou exatamente uma linha: `standardization_stats_sha256`
+  (`15de9ed0…` → `9604b8a6…`).
+- **Permaneceu idêntico:** todo o restante da receita congelada em
+  `config.yaml`; `alarm_protocol.yaml`, reescrito byte a byte igual
+  (`alarm_protocol_sha256` `6952abea…`); o `support` por classe nos três
+  splits, pois os dados não mudaram, só o modelo; e, no teste,
+  `false_alarms_per_hour_labeled_time` (51,2821 — ver [Avaliação — Braço
+  A](../eval/baseline-a-events.md#resultado-da-execucao-real)). Esta última
+  igualdade é coincidência, não invariante: os falsos alarmes em tempo
+  rotulado continuaram sendo 8, enquanto o total de falsos alarmes no teste
+  caiu de 12 para 10.
+- **Proveniência dos artefatos finais:** `features.standardize build --force`
+  reproduziu `src/gatefall/features/stats/pose_le2i_cs.json` byte a byte,
+  confirmando que estatísticas, HDF5 de pose, parquets e janelas já estavam
+  correntes — nada a montante do treino precisou ser regenerado. O checkpoint
+  recém-treinado tem o mesmo sha256 do candidato local pré-existente e do run
+  independente de seed 42 do [sumário
+  multi-seed](../eval/multiseed-summary.md), e `metrics.json`,
+  `event_metrics.json`, `alarm_protocol.yaml`,
+  `alarm_protocol_sensitivity.csv`, `grouped_bootstrap.csv` e
+  `multiseed_summary.csv` saíram byte a byte idênticos aos do candidato local.
+  Na promoção, `checkpoint_path` e `alarm_protocol_path` dentro de
+  `event_metrics.json` foram reescritos de `runs/local/…` para
+  `runs/reference/le2i/baseline_a/…`, como em `74437d3`. Nenhum artefato
+  `le2i-cv` foi escrito ou regenerado.
+
+`metrics.json` desta referência passa a trazer `confusion_matrix` e
+`per_class` nos três splits, ausentes na referência anterior (ver "Artefatos
+locais e referência histórica" acima), e `event_metrics.json` passa a trazer
+`n_events_detected_in_fall`, `n_events_detected_in_fall_or_fallen`,
+`fall_sensitivity`, `fall_or_fallen_sensitivity` e
+`detected_events_alarm_within_fall_rate` por split.
+
+A macro-F1 de teste sobe de 0,6201 para 0,6231. Essa diferença é consequência
+da correção do pipeline de features, não de uma seleção: o checkpoint continua
+sendo o da última época de um orçamento fixo de 30 épocas (ver "Seleção de
+checkpoint" acima), nunca uma época escolhida por desempenho, e a macro-F1 de
+validação cai no mesmo movimento (0,6656 → 0,6584).
+
 ## Migração de referência: determinismo de GPU
 
 Antes da correção de determinismo de GPU (PR #35), a referência mantinha um
@@ -264,27 +326,30 @@ sob as guardas atuais): macro-F1 de teste 0,6212 (0.6211639593563492); 12/13
 eventos de queda detectados em validação; 21/22 em teste; 10 falsos alarmes
 em teste.
 
-Referência nova (esta migração): macro-F1 de teste 0,6201 (0.6201067209256219);
-13/13 em validação; 20/22 em teste; 12 falsos alarmes em teste. Checkpoint
-sha256 `264f4997f0875881f35e20f64a370c955b3488759d5f3714816c6771f12f0ff7`,
+Referência promovida por aquela migração (PR #35), hoje superada: macro-F1 de
+teste 0,6201 (0.6201067209256219); 13/13 em validação; 20/22 em teste; 12
+falsos alarmes em teste. Checkpoint sha256
+`264f4997f0875881f35e20f64a370c955b3488759d5f3714816c6771f12f0ff7`,
 reproduzido de forma idêntica em retreinos independentes sob as guardas de
-determinismo corrigidas (ver [determinismo de GPU](gpu-determinism.md)).
+determinismo corrigidas (ver [determinismo de GPU](gpu-determinism.md)). Todos
+os números desta seção são os do PR #35 e não descrevem a referência vigente,
+retreinada depois sob o pipeline de features atual — ver "Migração de
+referência: pipeline de features atual" acima.
 
 Esta é uma migração metodológica de referência, para reprodutibilidade sob
 o regime determinístico congelado e compartilhado com os braços B e C
 (`CLAUDE.md`, invariante 1) — não uma seleção do checkpoint de melhor
-desempenho. O novo macro-F1 de teste (0,6201) não é maior que o antigo
-(0,6212), o que é evidência contra cherry-picking.
+desempenho. O macro-F1 de teste promovido então (0,6201) não é maior que o
+anterior (0,6212), o que é evidência contra cherry-picking.
 
 ## Limitações
 
 Nesta execução de seed único, `val_macro_f1_restricted` não é monotônica
 ao longo do treino: pelo histórico em `runs/reference/le2i/baseline_a/metrics.json`, ela
-atinge um pico de 0,6686 na época 27 e termina em 0,6656 na época 30 (o
+atinge um pico de 0,6662 na época 16 e termina em 0,6584 na época 30 (o
 checkpoint salvo, ver "Seleção de checkpoint" acima). Como o orçamento de
 30 épocas é fixo e pré-registrado (ver "Receita de treino congelada"), o
 checkpoint final não é o de melhor macro-F1 de validação observada — a
-diferença entre pico e final (~0,0030) é bem menor que na execução anterior
-(~0,0249), mas segue sendo um lembrete de que essa métrica de validação é
-ruidosa (19 vídeos, três ambientes) e não deve ser lida como uma curva
-estável.
+diferença entre pico e final (~0,0079) é pequena, mas o pico ocorrer quase na
+metade do orçamento é um lembrete de que essa métrica de validação é ruidosa
+(19 vídeos, três ambientes) e não deve ser lida como uma curva estável.

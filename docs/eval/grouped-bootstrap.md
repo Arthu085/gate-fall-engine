@@ -202,7 +202,13 @@ Dois arquivos em `runs/local/{dataset}/{run_name}/`:
 ## Resultado da execução real
 
 Execução sobre `runs/local/le2i/baseline_a` com os parâmetros padrão
-(`n_replicates=10000`, `confidence_level=0.95`, `seed=42`). Val e test vêm
+(`n_replicates=10000`, `confidence_level=0.95`, `seed=42`). Esse run local é o
+que foi promovido a referência congelada `runs/reference/le2i/baseline_a/`:
+`config.yaml`, `metrics.json` e `alarm_protocol.yaml` são byte a byte
+idênticos entre os dois, `event_metrics.json` difere apenas em
+`checkpoint_path` e `alarm_protocol_path`, reescritos na promoção, e o
+`checkpoint_sha256` registrado é `78278b1a…` em ambos, de modo que os pontos
+de estimativa abaixo são os valores canônicos da referência. Val e test vêm
 de uma única passada de inferência por split; `checkpoint.pt`,
 `config.yaml`, `metrics.json`, `event_metrics.json` e `alarm_protocol.yaml`
 canônicos foram confirmados byte a byte idênticos antes e depois da

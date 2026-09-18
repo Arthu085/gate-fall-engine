@@ -108,7 +108,13 @@ sempre registrado no JSON de saída independentemente da grade de
 ## Resultado da execução real
 
 Execução sobre `runs/local/le2i/baseline_a` (grade padrão, `trigger_consecutive`
-1..5 x `refractory_period_s` 0.0/1.0/2.0/5.0/10.0). Val e test vêm de uma
+1..5 x `refractory_period_s` 0.0/1.0/2.0/5.0/10.0). Esse run local é o que foi
+promovido a referência congelada `runs/reference/le2i/baseline_a/`:
+`config.yaml`, `metrics.json` e `alarm_protocol.yaml` são byte a byte
+idênticos entre os dois, `event_metrics.json` difere apenas em
+`checkpoint_path` e `alarm_protocol_path`, reescritos na promoção, e o
+`checkpoint_sha256` registrado é `78278b1a…` em ambos. Os números abaixo
+descrevem a referência, não um candidato local à parte. Val e test vêm de uma
 única passada de inferência por split; cada célula da tabela reusa
 `split_event_report` variando só `trigger_consecutive`/`refractory_period_s`
 — o modelo nunca é reexecutado por célula. A coluna `Split=test` é
