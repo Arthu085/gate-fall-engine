@@ -111,9 +111,25 @@ A gravação é atômica (escreve em `.tmp` e usa `os.replace`) e, depois do
 `replace`, relê o arquivo do disco e compara dataset e atributos com o
 conteúdo em memória byte a byte antes de considerar a gravação bem-sucedida.
 
-Nenhuma estatística de padronização (z-score) é calculada nesta etapa;
-`dinov3_stats_path` é apenas reservado no contrato do adapter para uma etapa
-futura de padronização, análoga à de pose.
+Nenhuma estatística de padronização (z-score) é calculada nesta etapa, e o
+contrato do adapter não reserva caminho algum para ela — a padronização das
+features DINOv3, análoga à de pose, entra em uma etapa posterior.
+
+### Somente o protocolo cs
+
+Todos os comandos de `gatefall.dinov3.extract` aceitam apenas `--dataset le2i`,
+isto é, o Le2i sob o protocolo `cs`. Um adapter `le2i-cv` passado
+programaticamente é rejeitado com `ValueError` pelos seis pontos de entrada
+(`extract`, `extract-all`, `report`, `audit`, `verify-determinism` e
+`verify-frame-alignment`), antes de qualquer efeito colateral.
+
+O motivo é que `dinov3_root` não é derivado do protocolo: os dois adapters
+apontam para o mesmo `data/features/le2i/dinov3/`. Uma extração sob `cv`
+sobrescreveria os `.h5` do `cs` gravando `env`, `split` e `subject` vindos do
+manifesto `cv`, e o `report` compararia as contagens de quadros do `cv` contra
+os totais por split do `cs`. A contaminação seria silenciosa. O braço DINOv3,
+portanto, não participa do [relatório de
+generalização](../eval/le2i-cv-generalization.md).
 
 ## Como executar
 
@@ -121,8 +137,11 @@ futura de padronização, análoga à de pose.
 uv run python -m gatefall.dinov3.extract selftest
 ```
 
-Roda checagens sintéticas de pré-processamento e armazenamento, sem tocar no
-repositório do DINOv3, nos pesos ou no dataset real.
+Roda checagens sintéticas de pré-processamento e armazenamento, as fixtures
+sintéticas de `verify-frame-alignment` (caminho feliz, deslocamento de quadro,
+`K` divergente, manifesto sem o vídeo e `.h5` ausente) e a guarda que restringe
+o braço ao protocolo `cs`, sem tocar no repositório do DINOv3, nos pesos ou no
+dataset real.
 
 ```bash
 uv run python -m gatefall.dinov3.extract extract --video-id ID [--repo-dir DIR] [--weights PATH] [--batch-size N] [--force] [--dataset le2i]
@@ -189,9 +208,12 @@ determinismo descrita acima realmente produz saídas bit-idênticas.
 
 Por padrão (sem `--output-dir`), as duas extrações de verificação são
 gravadas em um diretório temporário efêmero, nunca em `data/features/` —
-o comando imprime qual modo está rodando. Sobrescrever o dataset real é
-opt-in explícito: passe `--output-dir` apontando para o caminho canônico
-do dinov3 (`adapter.dinov3_root`) para reproduzir o comportamento antigo.
+o comando imprime qual modo está rodando. Com `--output-dir`, as extrações
+vão para o diretório indicado, que é criado se não existir: apontá-lo para o
+caminho canônico do dinov3 (`adapter.dinov3_root`) sobrescreve o dataset
+real e reproduz o comportamento antigo — esse é o único modo destrutivo, e é
+opt-in explícito; qualquer outro caminho é tratado como diretório de
+trabalho comum.
 
 ```bash
 uv run python -m gatefall.dinov3.extract verify-frame-alignment [--repo-dir DIR] [--weights PATH] [--dataset le2i]

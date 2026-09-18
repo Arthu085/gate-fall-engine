@@ -15,9 +15,12 @@ NUM_CLASSES = 10
 # de Lecture_room e Office.
 IGNORE_LABEL = -1
 
-# 2,4 s em TARGET_FPS; cobre o p75 da duração dos segmentos `fall` (2,35 s) e
-# dá timesteps suficientes para uma TCN dilatada de 3 níveis, kernel 3, campo
-# receptivo 29.
+# 2,4 s em TARGET_FPS; cobre o p75 da duração dos segmentos `fall` medido
+# apenas em train (2,37 s, via `uv run python -m gatefall.data.ingest
+# verify`) e dá timesteps suficientes para uma TCN dilatada de 3 níveis,
+# kernel 3, campo receptivo 29. O p75 pooled (2,35 s) citado anteriormente
+# misturava val/test em uma decisão de hiperparâmetro e está superado para
+# esse fim.
 WINDOW_FRAMES = 24
 
 # Em stride 1, janelas de treino consecutivas se sobrepõem em 96% e viram

@@ -26,6 +26,10 @@ from gatefall.dinov3.backbone import (
     resolve_repo_dir,
     resolve_weights_path,
 )
+from gatefall.dinov3.dataset_guard import (
+    DINOV3_SUPPORTED_DATASET_IDENTIFIERS,
+    ensure_dinov3_dataset_supported,
+)
 from gatefall.dinov3.features import Dinov3Backbone, compute_features
 from gatefall.dinov3.preprocessing import preprocess_frames
 from gatefall.hashing import sha256_file
@@ -83,6 +87,8 @@ def run_dinov3_extract(
     weights_sha256: str | None = None,
     dinov3_repo_commit: str | None = None,
 ) -> Dinov3ExtractResult:
+    ensure_dinov3_dataset_supported(adapter)
+
     from gatefall.dinov3.storage import (
         dinov3_path,
         validate_existing_file,
@@ -240,6 +246,8 @@ def run_dinov3_extract_all(
     batch_size: int = DEFAULT_BATCH_SIZE,
     force: bool = False,
 ) -> None:
+    ensure_dinov3_dataset_supported(adapter)
+
     if not adapter.frames_path.exists():
         print(
             f"\ndinov3 extract-all FALHOU: {adapter.frames_path} não existe — "
@@ -321,7 +329,9 @@ def main() -> None:
     extract_parser.add_argument("--weights", default=None)
     extract_parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     extract_parser.add_argument("--force", action="store_true")
-    extract_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    extract_parser.add_argument(
+        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
+    )
 
     extract_all_parser = subparsers.add_parser(
         "extract-all",
@@ -333,17 +343,23 @@ def main() -> None:
         "--batch-size", type=int, default=DEFAULT_BATCH_SIZE
     )
     extract_all_parser.add_argument("--force", action="store_true")
-    extract_all_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    extract_all_parser.add_argument(
+        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
+    )
 
     report_parser = subparsers.add_parser(
         "report", help="Relata a cobertura das features DINOv3 extraídas"
     )
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument(
+        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
+    )
 
     audit_parser = subparsers.add_parser(
         "audit", help="Audita a qualidade das features DINOv3 extraídas"
     )
-    audit_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    audit_parser.add_argument(
+        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
+    )
 
     verify_determinism_parser = subparsers.add_parser(
         "verify-determinism",
@@ -355,7 +371,9 @@ def main() -> None:
     verify_determinism_parser.add_argument(
         "--batch-size", type=int, default=DEFAULT_BATCH_SIZE
     )
-    verify_determinism_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    verify_determinism_parser.add_argument(
+        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
+    )
     verify_determinism_parser.add_argument(
         "--output-dir",
         default=None,
@@ -376,7 +394,7 @@ def main() -> None:
     verify_frame_alignment_parser.add_argument("--repo-dir", default=None)
     verify_frame_alignment_parser.add_argument("--weights", default=None)
     verify_frame_alignment_parser.add_argument(
-        "--dataset", default="le2i", choices=("le2i",)
+        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
     )
 
     subparsers.add_parser(

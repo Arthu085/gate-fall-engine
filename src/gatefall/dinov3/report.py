@@ -8,6 +8,7 @@ import pandas as pd
 
 from gatefall.datasets import DatasetAdapter
 from gatefall.dinov3 import storage
+from gatefall.dinov3.dataset_guard import ensure_dinov3_dataset_supported
 from gatefall.dinov3.storage import dinov3_path
 
 EXPECTED_VIDEO_COUNT = 190
@@ -62,6 +63,8 @@ def find_provenance_divergences(
 
 
 def run_dinov3_report(adapter: DatasetAdapter) -> None:
+    ensure_dinov3_dataset_supported(adapter)
+
     if not adapter.frames_path.exists():
         print(
             f"\ndinov3 report FALHOU: {adapter.frames_path} não existe — rode "

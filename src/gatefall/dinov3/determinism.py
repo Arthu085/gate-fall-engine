@@ -2,28 +2,25 @@
 
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
 from gatefall.datasets import DatasetAdapter
 from gatefall.datasets.le2i import Le2iDatasetAdapter
+from gatefall.dinov3.dataset_guard import ensure_dinov3_dataset_supported
 from gatefall.dinov3.extract import DEFAULT_BATCH_SIZE, run_dinov3_extract
 from gatefall.dinov3.storage import dinov3_path, read_features
 from gatefall.hashing import sha256_array
 
 
 def adapter_with_dinov3_root(adapter: DatasetAdapter, dinov3_root: Path) -> DatasetAdapter:
-    return Le2iDatasetAdapter(
-        identifier=adapter.identifier,
-        raw_dir=adapter.raw_dir,
-        manifest_path=adapter.manifest_path,
-        frames_path=adapter.frames_path,
-        pose_root=adapter.pose_root,
-        pose_stats_path=adapter.pose_stats_path,
-        dinov3_root=dinov3_root,
-        dinov3_stats_path=adapter.dinov3_stats_path,
-        label_names=adapter.label_names,
-    )
+    if not isinstance(adapter, Le2iDatasetAdapter):
+        raise TypeError(
+            f"adapter {type(adapter).__name__} não é um Le2iDatasetAdapter; "
+            "adapter_with_dinov3_root não sabe derivar uma cópia dele"
+        )
+    return replace(adapter, dinov3_root=dinov3_root)
 
 
 def _run_verify(
@@ -91,6 +88,8 @@ def run_dinov3_verify_determinism(
     output_dir_value: str | None = None,
     run_verify: Callable[..., None] | None = None,
 ) -> None:
+    ensure_dinov3_dataset_supported(adapter)
+
     run_verify_fn = run_verify or _run_verify
     output_root, mode = resolve_verify_determinism_output_root(
         output_dir_value, canonical_root=adapter.dinov3_root

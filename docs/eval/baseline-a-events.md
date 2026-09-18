@@ -24,8 +24,11 @@ uv run python -m gatefall.eval.baseline_a_events evaluate --dataset le2i \
 
 Carrega `checkpoint.pt`, `config.yaml` e `metrics.json` do run local completo,
 roda o protocolo sobre `val` e `test` e publica `alarm_protocol.yaml` e
-`event_metrics.json` no mesmo diretório. Destinos em `runs/reference/` são
-rejeitados.
+`event_metrics.json` no mesmo diretório. Sem `--run-dir`, o destino padrão
+depende de `--dataset`: `runs/local/le2i/baseline_a/` para `le2i`,
+`runs/local/le2i_cv/baseline_a/` para `le2i-cv`. Destinos em
+`runs/reference/` são rejeitados, assim como um `--run-dir` que caia sob o
+diretório local canônico do outro protocolo.
 
 A avaliação usa lock exclusivo entre processos implementado com
 `fcntl.flock`, journal, temporários, hashes do config, checkpoint, métricas de
@@ -96,6 +99,14 @@ janela; entre múltiplos matches, a associação usa o de menor
 associado é uma perda (`missed`); um alarme sem nenhum evento associado é
 um falso alarme.
 
+Além de `start_time_s` e `association_end_time_s`, cada `FallEvent` retém
+o fim exato do segmento `fall` (`fall_end_time_s`) e, quando existe um
+`fallen` seguinte, os limites exatos desse segmento
+(`fallen_start_time_s`, `fallen_end_time_s`); no caso fallback (sem
+`fallen` seguinte) os dois ficam `None`. `EventOutcome` retém também todos
+os alarmes associados ao evento, ordenados por `trigger_time_s`
+(`matched_alarms`), não só o mais cedo usado para a latência legada.
+
 ### Inferência sobre a grade completa de janelas
 
 `evaluate` carrega `val`/`test` com `drop_ignored=False`
@@ -127,10 +138,13 @@ contado no numerador de `false_alarms_per_hour` (que cobre toda a grade),
 mas excluído do numerador de `false_alarms_per_hour_labeled_time`. Por
 isso os dois valores podem divergir de forma não trivial quando parte dos
 falsos alarmes cai em trechos `IGNORE_LABEL`: no split de teste da
-execução real (ver tabela abaixo), 4 dos 12 falsos
+execução real (ver tabela abaixo), 2 dos 10 falsos
 alarmes disparam em janelas `IGNORE_LABEL` e são excluídos apenas do
 numerador da taxa secundária, o que basta para separar as duas taxas
-mesmo com denominadores próximos.
+mesmo com denominadores próximos. Como os dois numeradores são contagens
+distintas, as duas taxas também se movem de forma independente entre runs:
+`n_false_alarms_labeled` não é persistido no JSON e só pode ser recuperado
+de `false_alarms_per_hour_labeled_time * labeled_time_hours`.
 
 ## Schema de `alarm_protocol.yaml`
 
@@ -167,7 +181,34 @@ execução. `splits.val` e `splits.test` trazem, cada um:
   `false_alarms_per_hour` e `false_alarms_per_hour_labeled_time`,
   respectivamente (ver acima).
 - `n_fall_events`, `n_detected_events`, `n_missed_events`, `sensitivity`
-  (`n_detected_events / n_fall_events`, nível de evento).
+  (`n_detected_events / n_fall_events`, nível de evento) usam a mesma
+  janela de associação legada acima (`[start_time_s,
+  association_end_time_s]`, incluindo o período de graça
+  `association_end_offset_s`).
+- `n_events_detected_in_fall`, `n_events_detected_in_fall_or_fallen`,
+  `fall_sensitivity`, `fall_or_fallen_sensitivity` são métricas mais
+  estritas, calculadas sobre `matched_alarms` de cada evento (não apenas
+  o alarme mais cedo): um evento conta em `n_events_detected_in_fall` se
+  algum alarme associado cai dentro de `[start_time_s,
+  fall_end_time_s]`; conta em `n_events_detected_in_fall_or_fallen` se
+  isso vale, ou se algum alarme associado cai dentro de
+  `[fallen_start_time_s, fallen_end_time_s]` do `fallen` seguinte. A
+  união `fall ∪ fallen` **exclui** o gap entre o fim do segmento `fall` e
+  o início do `fallen` seguinte, e **exclui** também o período de graça
+  `association_end_offset_s` depois do fim do `fallen` — um alarme só no
+  gap ou só no período de graça conta como detecção pela métrica legada
+  (`detected`/`sensitivity`), mas não entra em nenhuma das duas métricas
+  `fall`/`fall_or_fallen`. Quando o evento não tem `fallen` seguinte
+  (caso fallback), `fall_or_fallen` se reduz a `fall`
+  (`fallen_start_time_s`/`fallen_end_time_s` são `None`). As duas taxas
+  usam `n_fall_events` como denominador, como `sensitivity`.
+- `detected_events_alarm_within_fall_rate` é
+  `n_events_detected_in_fall / n_detected_events` — diferente das duas
+  métricas `*_sensitivity` acima, o denominador é `n_detected_events`
+  (eventos detectados pela regra legada), não `n_fall_events`; mede, entre
+  os eventos já detectados, a fração cujo alarme caiu dentro do próprio
+  `fall`. É `0,0` quando `n_detected_events` é zero (nenhum evento
+  detectado no split).
 - `n_alarms_total`, `n_false_alarms`, `n_pre_fall_false_alarms`
   (subconjunto diagnóstico de `n_false_alarms` cujo `trigger_time_s` cai
   em `[event.start_time_s - pre_fall_diagnostic_window_s,
@@ -186,7 +227,11 @@ execução. `splits.val` e `splits.test` trazem, cada um:
   `window_binary_` marca essa diferença de unidade.
 - `latency_seconds`: `per_event` (latência de cada evento detectado, em
   segundos, arredondada a `latency_decimal_places`), mais `mean` e
-  `median` (`null` se nenhum evento foi detectado).
+  `median` (`null` se nenhum evento foi detectado). A latência de cada
+  evento é sempre medida a partir do início do segmento `fall`
+  (`start_time_s`) até o alarme associado mais cedo — semântica inalterada
+  pelas métricas `fall`/`fall_or_fallen` acima, que não afetam
+  `latency_seconds`.
 
 ## Resultado da execução real
 
@@ -196,27 +241,39 @@ checkpoint da última época treinado em [Treino — Braço A
 
 | Split | Eventos | Detectados | Sensibilidade (evento) | Falsos alarmes/h (total) | Falsos alarmes/h (tempo rotulado) | Falsos alarmes pré-queda | Sensibilidade (janela) | Especificidade (janela) | Latência média |
 | ----- | ------- | ---------- | ----------------------- | ------------------ | ------------------------- | ------------------------- | ------------------------ | -------------------------- | --------------- |
-| Validação | 13 | 13 | 100,0% | 0,0 | 0,0 | 0 | 91,8% | 97,4% | 0,4 s |
-| Teste | 22 | 20 | 90,9% | 70,0 | 51,3 | 1 | 89,1% | 97,0% | 0,4 s |
+| Validação | 13 | 13 | 100,0% | 0,0 | 0,0 | 0 | 93,3% | 97,3% | 0,4 s |
+| Teste | 22 | 22 | 100,0% | 58,4 | 51,3 | 0 | 89,5% | 96,8% | 0,5 s |
+
+As métricas estritas por posição do alarme, disponíveis nesta referência
+(ver "Schema de `event_metrics.json`" acima): na validação, os 13 eventos
+detectados têm alarme dentro do próprio segmento `fall`
+(`fall_sensitivity` e `fall_or_fallen_sensitivity` iguais a 1,0000,
+`detected_events_alarm_within_fall_rate` 1,0000). No teste, 21 dos 22
+eventos têm alarme dentro do `fall` (`fall_sensitivity` 0,9545,
+`detected_events_alarm_within_fall_rate` 0,9545) e os 22 têm alarme dentro
+de `fall ∪ fallen` (`fall_or_fallen_sensitivity` 1,0000) — o evento
+restante só é alcançado dentro do segmento `fallen` seguinte.
 
 A taxa de falsos alarmes por hora é maior no teste que na validação
-(70,0 vs. 0,0 no denominador de tempo total), consistente com a queda de
+(58,4 vs. 0,0 no denominador de tempo total), consistente com a queda de
 macro-F1 do treino para o teste já documentada em [Treino — Braço A
 (TCN)](../train/baseline-a.md): o split de
 teste é cross-subject, então mais confusões entre classes próximas de
 `fall`/`fallen` viram alarmes espúrios sobre subjects não vistos.
 
 No split de teste, `false_alarms_per_hour_labeled_time` (51,3) fica
-sensivelmente abaixo de `false_alarms_per_hour` (70,0): apesar de
+sensivelmente abaixo de `false_alarms_per_hour` (58,4): apesar de
 `labeled_time_hours` (0,156 h) já ser menor que `total_video_time_hours`
-(0,171 h), 4 dos 12 falsos alarmes do split disparam
+(0,171 h), 2 dos 10 falsos alarmes do split disparam
 dentro de trechos `IGNORE_LABEL` e são excluídos do numerador da taxa
 secundária (ver "Denominador de falsos alarmes por hora" acima) — por
 isso a taxa secundária não sobe proporcionalmente à redução do
 denominador. Na validação não há nenhum falso alarme, então as duas taxas
 são igualmente 0,0.
 
-Para o histórico completo da mudança de referência (run anterior ao PR
-#35 vs. este run) e a justificativa metodológica da migração, ver
-"Migração de referência: determinismo de GPU" em [Treino — Braço A
-(TCN)](../train/baseline-a.md#migracao-de-referencia-determinismo-de-gpu).
+Para o histórico completo das mudanças de referência — o retreino sob o
+pipeline de features atual que produziu os números acima e, antes dele, a
+migração da referência (PR #36) para o regime determinístico introduzido pelo
+PR #35 — e a justificativa metodológica de cada uma, ver "Migração de
+referência: pipeline de features atual" em [Treino — Braço A
+(TCN)](../train/baseline-a.md#migracao-de-referencia-pipeline-de-features-atual).

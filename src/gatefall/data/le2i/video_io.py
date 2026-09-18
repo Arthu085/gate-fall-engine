@@ -9,14 +9,13 @@ import numpy as np
 import pandas as pd
 
 from gatefall.data.frames import read_frames
-from gatefall.data.le2i.frames import FRAMES_PATH
 from gatefall.data.le2i.verification import load_le2i_manifest
 from gatefall.data.video_io import decode_frames, probe_frame_count
-from gatefall.datasets.le2i import LE2I_DATASET
+from gatefall.datasets.le2i import LE2I_DATASET, Le2iDatasetAdapter
 
 
-def load_le2i_video_paths() -> dict[str, Path]:
-    return LE2I_DATASET.video_paths()
+def load_le2i_video_paths(adapter: Le2iDatasetAdapter = LE2I_DATASET) -> dict[str, Path]:
+    return adapter.video_paths()
 
 
 def select_le2i_report_sample(
@@ -120,19 +119,20 @@ def check_all_src_indices_decode(video_id: str, decoded_ok: bool) -> bool:
     )
 
 
-def report_le2i_frame_decode() -> None:
-    manifest = load_le2i_manifest()
-    if not FRAMES_PATH.exists():
+def report_le2i_frame_decode(adapter: Le2iDatasetAdapter = LE2I_DATASET) -> None:
+    manifest = load_le2i_manifest(adapter)
+    frames_path = adapter.frames_path
+    if not frames_path.exists():
         print(
-            f"\nframes report FALHOU: {FRAMES_PATH} não existe — rode "
+            f"\nframes report FALHOU: {frames_path} não existe — rode "
             "`uv run python -m gatefall.data.timegrid build` primeiro",
             file=sys.stderr,
         )
         sys.exit(1)
-    frames = read_frames(FRAMES_PATH)
+    frames = read_frames(frames_path)
 
     sample_video_ids = select_le2i_report_sample(manifest)
-    video_paths = load_le2i_video_paths()
+    video_paths = load_le2i_video_paths(adapter)
     manifest_by_video_id = manifest.set_index("video_id")
 
     checks: list[bool] = []
@@ -182,8 +182,10 @@ def dump_le2i_frame_pngs(
     frame_index_start: int,
     frame_index_end: int,
     output_dir: Path = Path("data/scratch"),
+    *,
+    adapter: Le2iDatasetAdapter = LE2I_DATASET,
 ) -> list[Path]:
-    frames = read_frames(FRAMES_PATH)
+    frames = read_frames(adapter.frames_path)
     video_frames = cast(
         pd.DataFrame,
         frames[
@@ -193,7 +195,7 @@ def dump_le2i_frame_pngs(
         ],
     ).sort_values("frame_index")
 
-    video_path = load_le2i_video_paths()[video_id]
+    video_path = load_le2i_video_paths(adapter)[video_id]
     frame_indices = [int(index) for index in video_frames["frame_index"]]
     src_indices = [int(index) for index in video_frames["src_index"]]
     decoded = decode_frames(video_path, src_indices)

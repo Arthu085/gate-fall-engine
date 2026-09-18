@@ -14,28 +14,30 @@ from torch.utils.data import DataLoader
 
 from gatefall.config import EVAL_STRIDE, TRAIN_STRIDE
 from gatefall.data.pose_dataset import PoseWindowDataset
-from gatefall.datasets import get_dataset
+from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.features.standardization import load_stats, validate_stats_layout
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
-from gatefall.runs import REFERENCE_RUN_ROOT, validate_local_run_dir
+from gatefall.runs import REFERENCE_RUN_ROOT, default_run_dir, validate_local_run_dir
 from gatefall.train.artifacts import load_compatible_checkpoint, validate_training_run
 from gatefall.train.artifacts_selftest import run_artifacts_selftest
 from gatefall.train.baseline_a_selftest import run_baseline_a_selftest
-from gatefall.train.config import BASELINE_A_CONFIG
+from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig
 from gatefall.train.engine import _StandardizedTorchDataset, _predict, run_training
 from gatefall.train.engine_selftest import run_engine_selftest
 from gatefall.train.metrics import (
+    BINARY_POSITIVE_LABELS,
     RESTRICTED_CLASSES,
     binary_projection_summary,
+    class_support_table,
     classification_summary,
+    macro_f1_policy_summary,
     restricted_macro_f1,
     support,
 )
 from gatefall.train.metrics_selftest import run_metrics_selftest
 from gatefall.train.tcn_selftest import run_tcn_selftest
 
-RUN_DIR = Path("runs/local/le2i/baseline_a")
 PROTECTED_ARTIFACT_NAMES = (
     "config.yaml",
     "metrics.json",
@@ -43,18 +45,31 @@ PROTECTED_ARTIFACT_NAMES = (
     "alarm_protocol.yaml",
     "event_metrics.json",
 )
-BINARY_POSITIVE_LABELS = frozenset({1, 2})
 
 
-def run_train(force: bool, dataset_name: str = "le2i", run_dir: Path = RUN_DIR) -> None:
-    validate_local_run_dir(run_dir)
+def _resolve_config(seed: int, stats_path: Path, stats_sha256: str) -> TrainConfig:
+    return replace(
+        BASELINE_A_CONFIG,
+        seed=seed,
+        standardization_stats_path=str(stats_path),
+        standardization_stats_sha256=stats_sha256,
+    )
+
+
+def run_train(
+    force: bool,
+    dataset_name: str = "le2i",
+    run_dir: Path | None = None,
+    seed: int = BASELINE_A_CONFIG.seed,
+) -> None:
+    if run_dir is None:
+        run_dir = default_run_dir(dataset_name)
+    validate_local_run_dir(run_dir, dataset_name)
     adapter = get_dataset(dataset_name)
     stats = load_stats(adapter.pose_stats_path)
     validate_stats_layout(stats)
-    config = replace(
-        BASELINE_A_CONFIG,
-        standardization_stats_path=str(adapter.pose_stats_path),
-        standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
+    config = _resolve_config(
+        seed, adapter.pose_stats_path, sha256_file(adapter.pose_stats_path)
     )
     frames = adapter.load_frames()
     loader = lambda video_id: build_pose_features(
@@ -96,13 +111,57 @@ def _guard_protected_output(run_dir: Path, output_path: Path) -> None:
         )
 
 
+def _print_class_support_table(rows: list[dict]) -> None:
+    columns = (
+        "id",
+        "label",
+        "train_support",
+        "val_support",
+        "test_support",
+        "included_in_macro_f1",
+    )
+    formatted_rows = [
+        {column: str(row[column]) for column in columns} for row in rows
+    ]
+    widths = {
+        column: max(len(column), *(len(row[column]) for row in formatted_rows))
+        for column in columns
+    }
+    header = "  ".join(column.ljust(widths[column]) for column in columns)
+    print(header)
+    for row in formatted_rows:
+        print("  ".join(row[column].ljust(widths[column]) for column in columns))
+
+
+def _print_macro_f1_policy_summary(policy_summary: dict) -> None:
+    restricted = policy_summary["restricted_classes"]
+    excluded = policy_summary["excluded_classes"]
+    with_support = policy_summary["classes_with_positive_train_support"]
+    matches = policy_summary["matches_configured_restriction"]
+    if matches:
+        print(
+            f"política de macro-F1: classes restritas {restricted}, "
+            f"classes excluídas {excluded}, classes com suporte de treino "
+            f"positivo {with_support} (conjuntos coincidem)"
+        )
+    else:
+        print(
+            f"ATENÇÃO: DESCASAMENTO na política de macro-F1: classes restritas "
+            f"configuradas {restricted}, classes excluídas {excluded}, mas "
+            f"classes com suporte de treino positivo {with_support} "
+            f"(conjuntos NÃO coincidem)"
+        )
+
+
 def run_report(
     dataset_name: str,
-    run_dir: Path,
+    run_dir: Path | None,
     output_path: Path,
     force: bool,
 ) -> bool:
-    validate_local_run_dir(run_dir)
+    if run_dir is None:
+        run_dir = default_run_dir(dataset_name)
+    validate_local_run_dir(run_dir, dataset_name)
     _guard_protected_output(run_dir, output_path)
     if output_path.exists() and not force:
         raise RuntimeError(
@@ -112,12 +171,14 @@ def run_report(
     adapter = get_dataset(dataset_name)
     stats = load_stats(adapter.pose_stats_path)
     validate_stats_layout(stats)
-    expected_config = replace(
-        BASELINE_A_CONFIG,
-        standardization_stats_path=str(adapter.pose_stats_path),
-        standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
+    expected_config = _resolve_config(
+        BASELINE_A_CONFIG.seed, adapter.pose_stats_path, sha256_file(adapter.pose_stats_path)
     )
-    config = validate_training_run(run_dir, expected_config=expected_config)
+    config = validate_training_run(
+        run_dir,
+        expected_config=expected_config,
+        fields_allowed_to_differ=frozenset({"seed"}),
+    )
 
     checkpoint_path = run_dir / "checkpoint.pt"
     model = load_compatible_checkpoint(checkpoint_path, config)
@@ -138,6 +199,7 @@ def run_report(
 
     splits_report: dict[str, dict] = {}
     mismatches: list[dict] = []
+    support_by_split: dict[str, dict[int, int]] = {}
 
     metrics_path = run_dir / "metrics.json"
     with metrics_path.open(encoding="utf-8") as f:
@@ -185,6 +247,7 @@ def run_report(
                     }
                 )
         recomputed_support = support(y_true, config.num_classes)
+        support_by_split[split_name] = recomputed_support
         stored_support = stored_split["support"]
         for c in range(config.num_classes):
             label_name = adapter.label_names[c]
@@ -202,6 +265,14 @@ def run_report(
 
     ok = len(mismatches) == 0
 
+    support_table = class_support_table(
+        adapter.label_names,
+        support_by_split["train"],
+        support_by_split["val"],
+        support_by_split["test"],
+    )
+    policy_summary = macro_f1_policy_summary(support_by_split["train"])
+
     report = {
         "run_name": config.run_name,
         "dataset": dataset_name,
@@ -210,6 +281,8 @@ def run_report(
         "device": device,
         "splits": splits_report,
         "verification_against_metrics_json": {"ok": ok, "mismatches": mismatches},
+        "class_support_table": support_table,
+        "macro_f1_policy": policy_summary,
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -219,6 +292,8 @@ def run_report(
     os.replace(temporary_path, output_path)
 
     print(f"{output_path}: relatório de classificação gravado (run_name={config.run_name})")
+    _print_class_support_table(support_table)
+    _print_macro_f1_policy_summary(policy_summary)
     if not ok:
         print(
             f"verificação contra metrics.json falhou: {len(mismatches)} divergência(s)",
@@ -247,8 +322,9 @@ def main() -> None:
     train_parser.add_argument(
         "--force", action="store_true", help="Sobrescreve o run_dir já existente"
     )
-    train_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
-    train_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    train_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
+    train_parser.add_argument("--run-dir", type=Path, default=None)
+    train_parser.add_argument("--seed", type=int, default=BASELINE_A_CONFIG.seed)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas da TCN e das métricas")
 
     report_parser = subparsers.add_parser(
@@ -262,13 +338,17 @@ def main() -> None:
     report_parser.add_argument(
         "--force", action="store_true", help="Sobrescreve o --output já existente"
     )
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
-    report_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
+    report_parser.add_argument("--run-dir", type=Path, default=None)
     report_parser.add_argument("--output", type=Path, default=None)
 
     args = parser.parse_args()
+    if args.command in ("train", "report") and args.run_dir is None:
+        args.run_dir = default_run_dir(args.dataset)
     if args.command == "train":
-        run_train(force=args.force, dataset_name=args.dataset, run_dir=args.run_dir)
+        run_train(
+            force=args.force, dataset_name=args.dataset, run_dir=args.run_dir, seed=args.seed
+        )
     elif args.command == "selftest":
         run_selftest()
     elif args.command == "report":

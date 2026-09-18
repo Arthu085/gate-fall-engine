@@ -17,6 +17,7 @@ from gatefall.dinov3.backbone import (
     resolve_repo_dir,
     resolve_weights_path,
 )
+from gatefall.dinov3.dataset_guard import ensure_dinov3_dataset_supported
 from gatefall.dinov3.extract import Dinov3ExtractError, select_src_indices
 from gatefall.dinov3.features import Dinov3Backbone, compute_features
 from gatefall.dinov3.preprocessing import preprocess_frames
@@ -88,6 +89,8 @@ def run_dinov3_verify_frame_alignment(
     backbone: Dinov3Backbone | None = None,
     decode_single_frame: Callable[[Path, int], np.ndarray] | None = None,
 ) -> None:
+    ensure_dinov3_dataset_supported(adapter)
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if backbone is None:
         repo_dir = resolve_repo_dir(repo_dir_value)

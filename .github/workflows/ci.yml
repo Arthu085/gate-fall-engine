@@ -21,17 +21,26 @@ jobs:
       - name: Rodar selftests sintéticos
         run: |
           uv run python -m gatefall.data.timegrid selftest
+          uv run python -m gatefall.data.ingest selftest
           uv run python -m gatefall.data.windows selftest
           uv run python -m gatefall.data.frames_io selftest
+          uv run python -m gatefall.pose.selection selftest
           uv run python -m gatefall.pose.loading selftest
           uv run python -m gatefall.pose.kinematics selftest
+          uv run python -m gatefall.pose.quality selftest
+          uv run python -m gatefall.pose.quality degradation
           uv run python -m gatefall.data.pose_dataset selftest
           uv run python -m gatefall.dinov3.extract selftest
           uv run python -m gatefall.features.standardize selftest
           uv run python -m gatefall.train.baseline_a selftest
           uv run python -m gatefall.eval.baseline_a_events selftest
           uv run python -m gatefall.eval.qualitative selftest
+          uv run python -m gatefall.eval.alarm_protocol_sensitivity selftest
+          uv run python -m gatefall.eval.grouped_bootstrap selftest
+          uv run python -m gatefall.eval.multiseed_summary selftest
+          uv run python -m gatefall.eval.generalization_report selftest
           uv run python -m gatefall.pipeline selftest
+          uv run python -m gatefall.protocol_isolation_selftest
           uv run python -m gatefall.runs_selftest
       - name: Verificar tipos
         run: uv run pyright

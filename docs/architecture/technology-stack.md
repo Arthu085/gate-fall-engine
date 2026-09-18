@@ -19,8 +19,9 @@
 | SAM 3 | **Planejado** para descritores de máscara congelados do braço C |
 
 O pipeline é monocular RGB. YOLO-Pose não é ajustado durante o treino; somente
-a TCN do braço A é treinada. Os braços B e C não estão implementados nesta
-etapa.
+a TCN do braço A é treinada. Do braço B está implementada apenas a extração
+offline de features DINOv3: nenhuma fusão, cabeça ou TCN do braço B é
+treinada. O braço C não está implementado nesta etapa.
 
 ## Licenças
 

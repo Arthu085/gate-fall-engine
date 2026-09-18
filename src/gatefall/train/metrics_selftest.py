@@ -9,8 +9,12 @@ from gatefall.config import NUM_CLASSES
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.train.metrics import (
     RESTRICTED_CLASSES,
+    binary_projection_from_confusion_matrix,
     binary_projection_summary,
+    class_support_table,
     classification_summary,
+    confusion_matrix,
+    macro_f1_policy_summary,
     restricted_macro_f1,
     support,
 )
@@ -197,6 +201,138 @@ def check_binary_projection_fall_fallen() -> bool:
     )
 
 
+def check_binary_projection_from_confusion_matrix_agrees() -> bool:
+    # Mesmos y_true/y_pred de check_binary_projection_fall_fallen(): 1=fall,
+    # 2=fallen em LE2I_LABEL_NAMES.
+    y_true = np.array([0, 1, 1, 2, 2, 3, 4, 7, 8, 9], dtype=np.int64)
+    y_pred = np.array([0, 1, 2, 2, 3, 3, 4, 7, 1, 9], dtype=np.int64)
+    positive_labels = frozenset({1, 2})
+
+    from_arrays = binary_projection_summary(y_true, y_pred, positive_labels)
+    matrix: list[list[int]] = confusion_matrix(y_true, y_pred).tolist()
+    from_matrix = binary_projection_from_confusion_matrix(matrix, positive_labels)
+    ok = from_arrays == from_matrix
+
+    # Segundo caso: classe 6 (lying) sem suporte real, mas presente na predição
+    # (falso positivo puro), exercitando a soma sobre linha de suporte zero.
+    y_true_zero_support = np.array([0, 0, 1, 1, 2, 2, 3, 3, 4, 4], dtype=np.int64)
+    y_pred_zero_support = np.array([0, 6, 1, 6, 2, 2, 3, 3, 4, 4], dtype=np.int64)
+    from_arrays_zero = binary_projection_summary(
+        y_true_zero_support, y_pred_zero_support, positive_labels
+    )
+    matrix_zero = confusion_matrix(y_true_zero_support, y_pred_zero_support).tolist()
+    from_matrix_zero = binary_projection_from_confusion_matrix(matrix_zero, positive_labels)
+    ok_zero = from_arrays_zero == from_matrix_zero
+
+    return _check(
+        "binary_projection_from_confusion_matrix() concorda campo a campo com "
+        "binary_projection_summary() sobre a matriz de confusão persistida, "
+        "inclusive com uma classe de suporte real zero",
+        ok and ok_zero,
+    )
+
+
+def check_class_support_table_covers_all_10_classes() -> bool:
+    # Valores distintos por classe e por split para que uma transposição falhe.
+    train_support = {c: 10 + c for c in range(NUM_CLASSES)}
+    val_support = {c: 100 + c for c in range(NUM_CLASSES)}
+    test_support = {c: 1000 + c for c in range(NUM_CLASSES)}
+
+    rows = class_support_table(LE2I_LABEL_NAMES, train_support, val_support, test_support)
+
+    ok = len(rows) == NUM_CLASSES
+    ok = ok and [row["id"] for row in rows] == list(range(NUM_CLASSES))
+    ok = ok and all(rows[c]["label"] == LE2I_LABEL_NAMES[c] for c in range(NUM_CLASSES))
+    ok = ok and all(rows[c]["train_support"] == train_support[c] for c in range(NUM_CLASSES))
+    ok = ok and all(rows[c]["val_support"] == val_support[c] for c in range(NUM_CLASSES))
+    ok = ok and all(rows[c]["test_support"] == test_support[c] for c in range(NUM_CLASSES))
+    return _check(
+        "class_support_table(): cobre as 10 classes em ordem, com label e "
+        "contagens por split idênticas às entradas (sem transposição)",
+        ok,
+    )
+
+
+def check_class_support_table_inclusion_flags_follow_restricted_classes() -> bool:
+    train_support = {c: 1 for c in range(NUM_CLASSES)}
+    val_support = {c: 1 for c in range(NUM_CLASSES)}
+    test_support = {c: 1 for c in range(NUM_CLASSES)}
+
+    rows = class_support_table(LE2I_LABEL_NAMES, train_support, val_support, test_support)
+
+    ok = all(rows[c]["included_in_macro_f1"] is True for c in {0, 1, 2, 3, 4, 7, 8, 9})
+    ok = ok and all(rows[c]["included_in_macro_f1"] is False for c in {5, 6})
+    return _check(
+        "class_support_table(): included_in_macro_f1 é verdadeiro apenas para "
+        "as classes em RESTRICTED_CLASSES ({0,1,2,3,4,7,8,9}), falso para {5,6}",
+        ok,
+    )
+
+
+def check_class_support_table_zero_train_support_stays_excluded() -> bool:
+    # Classe 5 (lie_down) tem suporte de validação positivo mas suporte de
+    # treino zero; classe 6 (lying) tem suporte zero em todos os splits.
+    train_support = {c: 1 for c in range(NUM_CLASSES)}
+    train_support[5] = 0
+    train_support[6] = 0
+    val_support = {c: 1 for c in range(NUM_CLASSES)}
+    val_support[5] = 5
+    val_support[6] = 0
+    test_support = {c: 1 for c in range(NUM_CLASSES)}
+    test_support[5] = 0
+    test_support[6] = 0
+
+    rows = class_support_table(LE2I_LABEL_NAMES, train_support, val_support, test_support)
+
+    ok = (
+        rows[5]["train_support"] == 0
+        and rows[5]["val_support"] == 5
+        and rows[5]["test_support"] == 0
+        and rows[5]["included_in_macro_f1"] is False
+    )
+    return _check(
+        "class_support_table(): classe 5 (lie_down) com suporte de treino zero "
+        "e suporte de validação positivo permanece excluída do macro-F1",
+        ok,
+    )
+
+
+def check_macro_f1_policy_summary_matches_when_support_aligns() -> bool:
+    train_support = {c: 0 for c in range(NUM_CLASSES)}
+    for c in {0, 1, 2, 3, 4, 7, 8, 9}:
+        train_support[c] = 1
+
+    summary = macro_f1_policy_summary(train_support)
+
+    ok = summary["matches_configured_restriction"] is True
+    ok = ok and summary["excluded_classes"] == [5, 6]
+    ok = ok and summary["classes_with_positive_train_support"] == [0, 1, 2, 3, 4, 7, 8, 9]
+    return _check(
+        "macro_f1_policy_summary(): quando o suporte de treino é positivo "
+        "exatamente nas classes restritas, matches_configured_restriction é "
+        "verdadeiro e excluded_classes == [5, 6]",
+        ok,
+    )
+
+
+def check_macro_f1_policy_summary_flags_mismatch_without_redefining_restriction() -> bool:
+    train_support = {c: 0 for c in range(NUM_CLASSES)}
+    for c in {0, 1, 2, 3, 7, 8, 9}:
+        train_support[c] = 1
+    # Classe 4 está em RESTRICTED_CLASSES, mas recebe suporte de treino zero.
+    train_support[4] = 0
+
+    summary = macro_f1_policy_summary(train_support)
+
+    ok = summary["matches_configured_restriction"] is False
+    ok = ok and summary["restricted_classes"] == list(RESTRICTED_CLASSES)
+    return _check(
+        "macro_f1_policy_summary(): descasamento de suporte real (classe 4 "
+        "sem suporte de treino) é sinalizado sem redefinir restricted_classes",
+        ok,
+    )
+
+
 def run_metrics_selftest() -> bool:
     checks = [
         check_restricted_classes_set(),
@@ -206,6 +342,12 @@ def run_metrics_selftest() -> bool:
         check_classification_summary_zero_support_class(),
         check_classification_summary_matches_restricted_f1(),
         check_binary_projection_fall_fallen(),
+        check_binary_projection_from_confusion_matrix_agrees(),
+        check_class_support_table_covers_all_10_classes(),
+        check_class_support_table_inclusion_flags_follow_restricted_classes(),
+        check_class_support_table_zero_train_support_stays_excluded(),
+        check_macro_f1_policy_summary_matches_when_support_aligns(),
+        check_macro_f1_policy_summary_flags_mismatch_without_redefining_restriction(),
     ]
     ok = all(checks)
     if not ok:

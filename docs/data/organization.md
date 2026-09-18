@@ -7,15 +7,28 @@ execuções. Conteúdo local reconstruível não é versionado.
 data/
 ├── raw/le2i/FallDataset.zip e <ambientes extraídos>/
 ├── labels/omnifall/{train,val,test,le2i}.csv e PROVENANCE.json
+├── labels/omnifall_cv/{train,val,test,le2i}.csv e PROVENANCE.json
 ├── processed/le2i/{manifest,frames}.parquet
+├── processed/le2i_cv/{manifest,frames}.parquet
 ├── features/le2i/pose/<video_id>.h5
 ├── features/le2i/dinov3/<env>/<video_name>.h5
 └── scratch/
 
 runs/
 ├── reference/le2i/baseline_a/   # evidência histórica versionada
-└── local/le2i/baseline_a/       # reprodução local ignorada pelo Git
+├── local/le2i/baseline_a/       # reprodução local ignorada pelo Git
+└── local/le2i_cv/baseline_a/    # reprodução local do protocolo cv, ignorada pelo Git
 ```
+
+`data/labels/omnifall_cv/`, `data/processed/le2i_cv/` e
+`runs/local/le2i_cv/baseline_a/` são os artefatos isolados do protocolo Le2i
+`cv` (cross-environment) e nunca compartilham arquivo com seus equivalentes
+`cs` acima. `data/features/le2i/dinov3/` existe apenas para o `cs` e não tem
+equivalente `cv`: os comandos DINOv3 recusam o adapter `le2i-cv`. Não existe
+`runs/reference/le2i_cv/`: a promoção de um run a
+referência nunca é automática. Veja o [relatório de
+generalização](../eval/le2i-cv-generalization.md) para o que o protocolo `cv`
+mede.
 
 | Camada | Responsabilidade |
 | --- | --- |

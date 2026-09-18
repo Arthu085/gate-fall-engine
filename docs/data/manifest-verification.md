@@ -13,6 +13,13 @@ Le2i](le2i.md), execute:
 uv run python -m gatefall.data.ingest ingest
 ```
 
+`ingest`, `verify` e `selftest` aceitam `--dataset {le2i,le2i-cv}`; com
+`le2i-cv`, o comando lê `data/labels/omnifall_cv/` e grava em
+`data/processed/le2i_cv/manifest.parquet`, isolado do protocolo `cs` descrito
+nesta página. A disjunção de ambiente e câmera entre splits — a propriedade
+da qual a validade do `le2i-cv` depende — não é verificada aqui; ela é
+tratada pelo [relatório de generalização](../eval/le2i-cv-generalization.md).
+
 A ingestão:
 
 1. reúne os segmentos dos três splits em um índice com uma linha por path de
@@ -106,14 +113,27 @@ Os relatórios abaixo descrevem o conjunto, mas não determinam sucesso ou falha
 - distribuição de resolução e vídeos fora da resolução modal;
 - distribuição de FPS por ambiente;
 - tabela cruzada entre `cam` e `env` e avaliação da relação entre ambos;
-- estatísticas de duração dos segmentos por classe;
+- estatísticas de duração dos segmentos por classe, em duas seções: uma
+  apenas com `train`, e outra com `val`, `test` e o pool `train+val+test`,
+  rotulada como informativa e explicitamente não válida para seleção de
+  hiperparâmetros. A seção de `train` é rotulada como evidência de seleção de
+  `WINDOW_FRAMES` sob `--dataset le2i` (`cs`); sob `--dataset le2i-cv`, o
+  cabeçalho deixa explícito que é apenas diagnóstico, pois `WINDOW_FRAMES=24`
+  é congelado do braço A e não é re-selecionado a partir do train do
+  `le2i-cv`;
 - quantidade de segmentos por classe e split, com avisos para combinações
   vazias;
 - duração total e projeção de quadros a 10, 12,5 e 25 fps.
 
-Em particular, a disjunção por sujeito é informativa. O identificador upstream
-`le2i-cs` não substitui essa medição e o nome da configuração não deve ser
-interpretado, isoladamente, como garantia de um split cross-subject.
+Em particular, a disjunção por sujeito é informativa. Sob `--dataset le2i`
+(`cs`), o identificador upstream `le2i-cs` não substitui essa medição e o nome
+da configuração não deve ser interpretado, isoladamente, como garantia de um
+split cross-subject. Sob `--dataset le2i-cv`, a sobreposição de subjects entre
+splits é esperada — o critério de disjunção do protocolo é ambiente/câmera,
+não subject, e os ids de subject do Le2i não são globalmente únicos entre
+ambientes (ver [Le2i-CV](../eval/le2i-cv-generalization.md)). Em ambos os
+protocolos, essa sobreposição permanece não crítica: o comando não falha por
+causa dela.
 
 ## Auditoria de cobertura
 

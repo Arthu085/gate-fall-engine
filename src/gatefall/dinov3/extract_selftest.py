@@ -6,6 +6,7 @@ sintéticas.
 
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, cast
 
@@ -13,8 +14,10 @@ import numpy as np
 import pandas as pd
 import torch
 
+from gatefall.data.frames import read_frames
+from gatefall.data.manifest import read_manifest
 from gatefall.datasets import DatasetAdapter
-from gatefall.datasets.le2i import Le2iDatasetAdapter
+from gatefall.datasets.le2i import LE2I_LABEL_NAMES, Le2iDatasetAdapter
 from gatefall.dinov3 import storage
 from gatefall.dinov3.audit import (
     DimensionStatsAccumulator,
@@ -22,17 +25,20 @@ from gatefall.dinov3.audit import (
     count_non_finite,
     frame_index_is_contiguous,
     max_abs_and_headroom,
+    run_dinov3_audit,
 )
 from gatefall.dinov3.backbone import (
     FEATURE_DIM,
     RESIZE_SIZE,
     configure_deterministic_inference,
 )
+from gatefall.dinov3.dataset_guard import ensure_dinov3_dataset_supported
 from gatefall.dinov3.determinism import (
     adapter_with_dinov3_root,
     resolve_verify_determinism_output_root,
     run_dinov3_verify_determinism,
 )
+from gatefall.dinov3.extract import run_dinov3_extract, run_dinov3_extract_all
 from gatefall.dinov3.features import Dinov3Backbone, compute_features
 from gatefall.dinov3.frame_alignment import (
     check_discriminative_match,
@@ -41,7 +47,7 @@ from gatefall.dinov3.frame_alignment import (
     run_dinov3_verify_frame_alignment,
 )
 from gatefall.dinov3.preprocessing import preprocess_frames
-from gatefall.dinov3.report import find_provenance_divergences
+from gatefall.dinov3.report import find_provenance_divergences, run_dinov3_report
 from gatefall.dinov3.storage import (
     Dinov3StorageError,
     dinov3_path,
@@ -56,6 +62,36 @@ def _check(name: str, condition: bool) -> bool:
     status = "PASS" if condition else "FAIL"
     print(f"[{status}] {name}")
     return condition
+
+
+@dataclass(frozen=True)
+class _SyntheticDatasetAdapter:
+    raw_dir: Path
+    manifest_path: Path
+    frames_path: Path
+    dinov3_root: Path
+    pose_root: Path = Path("pose")
+    pose_stats_path: Path = Path("pose_stats.json")
+    identifier: str = "le2i"
+    label_names: tuple[str, ...] = LE2I_LABEL_NAMES
+
+    def load_manifest(self) -> pd.DataFrame:
+        return read_manifest(self.manifest_path)
+
+    def load_frames(self) -> pd.DataFrame:
+        return read_frames(self.frames_path)
+
+    def video_paths(self) -> dict[str, Path]:
+        manifest = self.load_manifest()
+        return {
+            str(video_id): self.resolve_video_path(str(relative_path))
+            for video_id, relative_path in zip(
+                manifest["video_id"], manifest["relative_path"]
+            )
+        }
+
+    def resolve_video_path(self, relative_path: str) -> Path:
+        return self.raw_dir / relative_path
 
 
 class _FakeBackbone:
@@ -479,7 +515,7 @@ def _build_frame_alignment_fixture(
     include_h5: bool = True,
     h5_row_count: int | None = None,
     stored_row_src_index: Callable[[int], int] | None = None,
-) -> Le2iDatasetAdapter:
+) -> _SyntheticDatasetAdapter:
     env, _, video_name = video_id.partition("/")
     raw_dir = root / "raw"
     manifest_path = root / "manifest.parquet"
@@ -518,7 +554,7 @@ def _build_frame_alignment_fixture(
             dinov3_path(video_id, dinov3_root=dinov3_root), stored, {"K": row_count}
         )
 
-    return Le2iDatasetAdapter(
+    return _SyntheticDatasetAdapter(
         raw_dir=raw_dir,
         manifest_path=manifest_path,
         frames_path=frames_path,
@@ -528,7 +564,7 @@ def _build_frame_alignment_fixture(
 
 def _run_frame_alignment_and_get_exit_code(
     *,
-    adapter: Le2iDatasetAdapter,
+    adapter: DatasetAdapter,
     video_ids: tuple[str, ...],
     backbone: Dinov3Backbone,
     decode_single_frame: Callable[[Path, int], np.ndarray],
@@ -620,7 +656,7 @@ class _FinelySpacedFakeBackbone:
 
 def _build_fine_grid_frame_alignment_fixture(
     root: Path, *, video_id: str, k: int, backbone: Dinov3Backbone
-) -> Le2iDatasetAdapter:
+) -> _SyntheticDatasetAdapter:
     env, _, video_name = video_id.partition("/")
     raw_dir = root / "raw"
     manifest_path = root / "manifest.parquet"
@@ -648,7 +684,7 @@ def _build_fine_grid_frame_alignment_fixture(
         dinov3_path(video_id, dinov3_root=dinov3_root), stored, {"K": k}
     )
 
-    return Le2iDatasetAdapter(
+    return _SyntheticDatasetAdapter(
         raw_dir=raw_dir,
         manifest_path=manifest_path,
         frames_path=frames_path,
@@ -756,10 +792,10 @@ def _check_run_dinov3_verify_frame_alignment_missing_h5() -> bool:
 
 def _check_adapter_with_dinov3_root() -> bool:
     base = Le2iDatasetAdapter()
-    replacement_root = Path("/tmp/synthetic-dinov3-root")
+    replacement_root = Path("synthetic-dinov3-root")
     replaced = adapter_with_dinov3_root(base, replacement_root)
 
-    ok = (
+    cs_ok = (
         replaced.dinov3_root == replacement_root
         and replaced.identifier == base.identifier
         and replaced.raw_dir == base.raw_dir
@@ -767,12 +803,93 @@ def _check_adapter_with_dinov3_root() -> bool:
         and replaced.frames_path == base.frames_path
         and replaced.pose_root == base.pose_root
         and replaced.pose_stats_path == base.pose_stats_path
-        and replaced.dinov3_stats_path == base.dinov3_stats_path
         and replaced.label_names == base.label_names
     )
+
+    cv_replaced = adapter_with_dinov3_root(
+        Le2iDatasetAdapter(protocol="cv"), replacement_root
+    )
+    cv_ok = (
+        cv_replaced.dinov3_root == replacement_root
+        and cv_replaced.identifier == "le2i-cv"
+        and cv_replaced.manifest_path == Path("data/processed/le2i_cv/manifest.parquet")
+        and cv_replaced.frames_path == Path("data/processed/le2i_cv/frames.parquet")
+        and cv_replaced.pose_stats_path
+        == Path("src/gatefall/features/stats/pose_le2i_cv.json")
+    )
+
     return _check(
         "adapter_with_dinov3_root: troca só dinov3_root, mantendo os "
-        "demais campos idênticos ao adapter base", ok
+        "demais campos idênticos ao adapter base, e preserva o protocolo "
+        "(um adapter cv volta como cv, com os caminhos derivados do cv)",
+        cs_ok and cv_ok,
+    )
+
+
+def _check_dinov3_entry_points_reject_le2i_cv() -> bool:
+    def rejects(call: Callable[[], object]) -> bool:
+        try:
+            call()
+        except ValueError as exc:
+            return "le2i-cv" in str(exc)
+        except Exception:
+            return False
+        return False
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        cv_dinov3_root = Path(temporary_dir) / "dinov3"
+        cv_adapter = Le2iDatasetAdapter(protocol="cv", dinov3_root=cv_dinov3_root)
+
+        rejected = [
+            rejects(
+                lambda: run_dinov3_extract("env1/video1", adapter=cv_adapter)
+            ),
+            rejects(
+                lambda: run_dinov3_extract_all(
+                    adapter=cv_adapter, repo_dir_value=None, weights_path_value=None
+                )
+            ),
+            rejects(lambda: run_dinov3_report(cv_adapter)),
+            rejects(lambda: run_dinov3_audit(adapter=cv_adapter)),
+            rejects(
+                lambda: run_dinov3_verify_determinism(
+                    "env1/video1",
+                    adapter=cv_adapter,
+                    repo_dir_value=None,
+                    weights_path_value=None,
+                )
+            ),
+            rejects(
+                lambda: run_dinov3_verify_frame_alignment(
+                    adapter=cv_adapter, repo_dir_value=None, weights_path_value=None
+                )
+            ),
+        ]
+
+        nothing_written_ok = not cv_dinov3_root.exists() and not any(
+            Path(temporary_dir).iterdir()
+        )
+
+    accepts_cs = True
+    try:
+        ensure_dinov3_dataset_supported(Le2iDatasetAdapter())
+        ensure_dinov3_dataset_supported(
+            _SyntheticDatasetAdapter(
+                raw_dir=Path("raw"),
+                manifest_path=Path("manifest.parquet"),
+                frames_path=Path("frames.parquet"),
+                dinov3_root=Path("dinov3"),
+            )
+        )
+    except Exception:
+        accepts_cs = False
+
+    return _check(
+        "guarda de protocolo: os seis pontos de entrada DINOv3 rejeitam o "
+        "adapter le2i-cv com ValueError sem criar nada sob "
+        "adapter.dinov3_root, e a guarda continua aceitando qualquer adapter "
+        "com identifier 'le2i' (checagem por identifier, não por isinstance)",
+        all(rejected) and nothing_written_ok and accepts_cs,
     )
 
 
@@ -867,6 +984,7 @@ def run_dinov3_selftest() -> None:
         _check_run_dinov3_verify_frame_alignment_missing_manifest_row(),
         _check_run_dinov3_verify_frame_alignment_missing_h5(),
         _check_adapter_with_dinov3_root(),
+        _check_dinov3_entry_points_reject_le2i_cv(),
         _check_resolve_verify_determinism_output_root(),
     ]
     if not all(checks):

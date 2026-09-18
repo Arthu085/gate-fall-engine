@@ -46,10 +46,15 @@ nav:
       - Manifesto e verificação: data/manifest-verification.md
       - Contrato temporal: data/temporal-contract.md
       - Padronização de features de pose: data/pose-standardization.md
+      - Índice de qualidade de pose: data/pose-quality.md
       - Features DINOv3: data/dinov3-features.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md
   - Avaliação:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
+      - Generalização entre ambientes (Le2i-CV): eval/le2i-cv-generalization.md
       - Diagnóstico qualitativo (render): eval/qualitative-render.md
+      - Sensibilidade do protocolo de alarme: eval/alarm-protocol-sensitivity.md
+      - Bootstrap agrupado por sujeito (IC): eval/grouped-bootstrap.md
+      - Sumário multi-seed: eval/multiseed-summary.md

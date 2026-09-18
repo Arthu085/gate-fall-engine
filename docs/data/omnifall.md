@@ -19,16 +19,48 @@ O código fixa uma revisão em vez de acompanhar a branch móvel do dataset:
 | --- | --- |
 | Repositório | `simplexsigil2/omnifall` |
 | Revisão | `68e5cee56a4bad38cca4aea791cac248f96e79a0` |
-| Configurações | `le2i-cs`, `labels` |
+| Configurações | `le2i-cs`, `le2i-cv`, `labels` |
 
 A escolha da revisão e das configurações é específica da integração Le2i e
 fica em `gatefall.data.le2i.annotations`. O carregamento de uma configuração,
 a escrita de CSVs e a proveniência são reutilizáveis e ficam em
 `gatefall.data.omnifall`.
 
+## Protocolo cs (cross-subject) e protocolo cv (cross-environment)
+
+Além do protocolo `cs` original, o repositório baixa e mantém o protocolo
+`cv` (cross-view/cross-environment) do OmniFall, na **mesma revisão pinada**
+acima — ela serve tanto `parquet/le2i-cs/*` quanto `parquet/le2i-cv/*`, então
+não há fallback para uma revisão upstream não pinada. Os dois protocolos são
+mantidos em diretórios isolados, sem compartilhar arquivo algum:
+
+| Protocolo | Diretório de labels | Config OmniFall |
+| --- | --- | --- |
+| `cs` | `data/labels/omnifall/` | `le2i-cs` |
+| `cv` | `data/labels/omnifall_cv/` | `le2i-cv` |
+
+Escolha o protocolo com `--protocol`:
+
+```bash
+uv run python scripts/fetch_labels.py --protocol cv
+```
+
+O split `cv` é disjunto por ambiente e câmera (não por subject — ver
+[relatório de generalização](../eval/le2i-cv-generalization.md) para a
+distinção):
+
+| Split | Segmentos | Vídeos | Ambientes | Câmeras |
+| --- | ---: | ---: | --- | --- |
+| `train` | 490 | 97 | Coffee_room_01, Coffee_room_02, Lecture_room | 1, 2, 5 |
+| `val` | 195 | 33 | Office | 6 |
+| `test` | 282 | 60 | Home_01, Home_02 | 3, 4 |
+
+O restante desta página descreve o protocolo `cs`; os arquivos e contagens do
+`cv` seguem a mesma estrutura de CSVs em seu próprio diretório.
+
 ## Download e integridade
 
-Baixe as anotações:
+Baixe as anotações do protocolo padrão (`cs`):
 
 ```bash
 uv run python scripts/fetch_labels.py

@@ -12,8 +12,8 @@ import torch
 from ultralytics import YOLO
 
 from gatefall.data.video_io import decode_frames
-from gatefall.datasets import DatasetAdapter, get_dataset
-from gatefall.pose.selection import select_person_index
+from gatefall.datasets import DatasetAdapter, SUPPORTED_DATASET_IDENTIFIERS, get_dataset
+from gatefall.pose.selection import PersonSelector
 
 DEFAULT_VIDEO_ID = "coffee_room_01/video_1"
 DEFAULT_MODEL = "yolo26n-pose.pt"
@@ -80,6 +80,8 @@ def run_pose_smoke_test(
 
     model = YOLO(_resolve_model_path(model_name))
 
+    selector = PersonSelector()
+
     detections_per_frame: list[int] = []
     track_frame_counts: Counter[int] = Counter()
     selected_kp_conf_values: list[float] = []
@@ -96,8 +98,8 @@ def run_pose_smoke_test(
         detections_per_frame.append(n_det)
 
         ids = result.boxes.id if result.boxes is not None else None
-        frame_track_ids = [int(t) for t in ids.tolist()] if ids is not None else []
-        for track_id in frame_track_ids:
+        frame_track_ids = [int(t) for t in ids.tolist()] if ids is not None else None
+        for track_id in frame_track_ids or []:
             track_frame_counts[track_id] += 1
 
         kp_conf = (
@@ -111,7 +113,12 @@ def run_pose_smoke_test(
             if (result.boxes is not None and result.boxes.conf is not None)
             else None
         )
-        selected_idx = select_person_index(n_det, box_conf)
+        box_xyxy = (
+            cast(torch.Tensor, result.boxes.xyxy).cpu().numpy()
+            if result.boxes is not None
+            else None
+        )
+        selected_idx = selector.select(n_det, box_conf, box_xyxy, frame_track_ids)
 
         if selected_idx is not None:
             frames_with_selected_person += 1
@@ -175,7 +182,7 @@ def main() -> None:
     )
     report_parser.add_argument("--video-id", default=DEFAULT_VIDEO_ID)
     report_parser.add_argument("--model", default=DEFAULT_MODEL)
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     args = parser.parse_args()
     if args.command == "report":

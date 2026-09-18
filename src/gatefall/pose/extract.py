@@ -16,9 +16,9 @@ from ultralytics import YOLO
 
 from gatefall.config import TARGET_FPS
 from gatefall.data.video_io import decode_frames
-from gatefall.datasets import DatasetAdapter, get_dataset
+from gatefall.datasets import DatasetAdapter, SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.pose.loading import pose_path
-from gatefall.pose.selection import select_person_index
+from gatefall.pose.selection import PersonSelector
 from gatefall.pose.smoke import DEFAULT_MODEL
 
 TRACKER_NAME = "bytetrack.yaml"
@@ -81,10 +81,11 @@ def _reset_tracker_state(model: YOLO) -> None:
     # model.track(..., persist=True) mantém o mesmo BYTETracker durante todo o
     # ciclo de vida de model.predictor (ultralytics.trackers.track.on_predict_start:
     # com persist=True e predictor.trackers já existente, a reinicialização é
-    # pulada). Como o mesmo objeto YOLO é reaproveitado entre vídeos, os track_ids
-    # vazariam entre eles sem um reset explícito. BYTETracker.reset() (ultralytics
-    # 8.4.131, trackers/byte_tracker.py) limpa as faixas ativas/perdidas/removidas
-    # e zera o contador global de IDs via BaseTrack.reset_id().
+    # pulada). Como o mesmo objeto YOLO pode ser reaproveitado entre vídeos, os
+    # track_ids vazariam entre eles sem um reset explícito no início de cada
+    # vídeo. BYTETracker.reset() (ultralytics 8.4.131, trackers/byte_tracker.py)
+    # limpa as faixas ativas/perdidas/removidas e zera o contador global de IDs
+    # via BaseTrack.reset_id().
     trackers = getattr(getattr(model, "predictor", None), "trackers", None)
     if not trackers:
         return
@@ -141,6 +142,9 @@ def run_pose_extract(
 
     if model is None:
         model = YOLO(_resolve_model_path(model_name))
+    _reset_tracker_state(model)
+
+    selector = PersonSelector()
 
     for frame_index, frame_rgb in enumerate(frames_rgb):
         frame_bgr = _to_bgr(frame_rgb)
@@ -157,18 +161,24 @@ def run_pose_extract(
             if (result.boxes is not None and result.boxes.conf is not None)
             else None
         )
-        selected_idx = select_person_index(n_det, box_conf)
+        box_xyxy = (
+            cast(torch.Tensor, result.boxes.xyxy).cpu().numpy()
+            if result.boxes is not None
+            else None
+        )
+        ids = result.boxes.id if result.boxes is not None else None
+        frame_track_ids = [int(t) for t in ids.tolist()] if ids is not None else None
+        selected_idx = selector.select(n_det, box_conf, box_xyxy, frame_track_ids)
 
         if selected_idx is None:
             continue
 
-        if result.boxes is None or result.keypoints is None:
+        if result.boxes is None or result.keypoints is None or box_xyxy is None:
             raise PoseExtractError(
                 "detecção selecionada sem boxes/keypoints compatíveis"
             )
         person_found[frame_index] = True
 
-        box_xyxy = cast(torch.Tensor, result.boxes.xyxy).cpu().numpy()
         bbox[frame_index] = box_xyxy[selected_idx]
 
         kp_xy = cast(torch.Tensor, result.keypoints.xy).cpu().numpy()
@@ -177,9 +187,7 @@ def run_pose_extract(
             kp_conf = cast(torch.Tensor, result.keypoints.conf).cpu().numpy()
             keypoints[frame_index, :, 2] = kp_conf[selected_idx]
 
-        ids = result.boxes.id
-        if ids is not None:
-            frame_track_ids = [int(t) for t in ids.tolist()]
+        if frame_track_ids is not None and len(frame_track_ids) == n_det:
             track_id[frame_index] = frame_track_ids[selected_idx]
 
     attrs: dict[str, object] = {
@@ -390,7 +398,6 @@ def run_pose_extract_all(
 
     for video_id in per_video.index:
         video_id = str(video_id)
-        _reset_tracker_state(model)
         try:
             result = run_pose_extract(
                 video_id, model_name, force, adapter=adapter, model=model
@@ -433,7 +440,7 @@ def main() -> None:
     extract_parser.add_argument("--video-id", required=True)
     extract_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_parser.add_argument("--force", action="store_true")
-    extract_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    extract_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     extract_all_parser = subparsers.add_parser(
         "extract-all",
@@ -441,13 +448,13 @@ def main() -> None:
     )
     extract_all_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_all_parser.add_argument("--force", action="store_true")
-    extract_all_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    extract_all_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     report_parser = subparsers.add_parser(
         "report",
         help="Relata a cobertura de pose e sua interação com o contrato de janelamento",
     )
-    report_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    report_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     args = parser.parse_args()
     adapter = get_dataset(args.dataset)

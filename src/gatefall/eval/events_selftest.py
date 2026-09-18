@@ -10,6 +10,8 @@ from gatefall.eval.events import (
     associate_events_and_alarms,
     count_pre_fall_false_alarms,
     detect_alarms_for_video,
+    event_detected_in_fall,
+    event_detected_in_fall_or_fallen,
     fall_events_for_video,
     split_event_report,
     window_level_binary_metrics,
@@ -343,6 +345,319 @@ def check_split_event_report_labeled_time_rates() -> bool:
     )
 
 
+def check_alarm_during_fall_detected_in_fall_and_union() -> bool:
+    # fall em k=[2,3,4] (t=0.2..0.4s), fallen em k=[7,8,9] (t=0.7..0.9s) ->
+    # start_time_s=0.2, fall_end_time_s=0.4, fallen_start_time_s=0.7,
+    # fallen_end_time_s=0.9, association_end_time_s = 0.9 + 2.0 = 2.9s.
+    # Alarme dispara em run positivo k=[2,3,4], t=0.4s: exatamente no limite
+    # (inclusive) de fall_end_time_s.
+    n = 10
+    k_ends = np.arange(n, dtype=np.int64)
+    true_labels = np.zeros(n, dtype=np.int64)
+    true_labels[2:5] = 1
+    true_labels[7:10] = 2
+    preds = np.zeros(n, dtype=np.int64)
+    preds[2:5] = 1
+
+    events = fall_events_for_video("video_k", k_ends, true_labels, _PROTOCOL)
+    alarms = detect_alarms_for_video("video_k", k_ends, preds, _PROTOCOL)
+    outcomes, _false_alarms = associate_events_and_alarms(events, alarms, _PROTOCOL)
+
+    expected_legacy_latency = 0.2  # 0.4 - 0.2
+
+    ok = (
+        len(outcomes) == 1
+        and outcomes[0].detected
+        and outcomes[0].latency_s == expected_legacy_latency
+        and [alarm.trigger_time_s for alarm in outcomes[0].matched_alarms] == [0.4]
+        and event_detected_in_fall(outcomes[0])
+        and event_detected_in_fall_or_fallen(outcomes[0])
+    )
+    return _check(
+        "alarme dentro do segmento fall, disparando exatamente no limite "
+        "fall_end_time_s (inclusive): legacy detected/latency_s inalterados, "
+        "event_detected_in_fall e event_detected_in_fall_or_fallen ambos True",
+        ok,
+    )
+
+
+def check_alarm_only_in_fallen_detected_in_union_not_in_fall() -> bool:
+    # Mesma geometria de evento do check anterior. Alarme dispara em run
+    # positivo k=[7,8,9], t=0.9s: exatamente no limite (inclusive) de
+    # fallen_end_time_s, fora do intervalo fall=[0.2,0.4].
+    n = 10
+    k_ends = np.arange(n, dtype=np.int64)
+    true_labels = np.zeros(n, dtype=np.int64)
+    true_labels[2:5] = 1
+    true_labels[7:10] = 2
+    preds = np.zeros(n, dtype=np.int64)
+    preds[7:10] = 1
+
+    events = fall_events_for_video("video_l", k_ends, true_labels, _PROTOCOL)
+    alarms = detect_alarms_for_video("video_l", k_ends, preds, _PROTOCOL)
+    outcomes, _false_alarms = associate_events_and_alarms(events, alarms, _PROTOCOL)
+
+    expected_legacy_latency = 0.7  # 0.9 - 0.2
+
+    ok = (
+        len(outcomes) == 1
+        and outcomes[0].detected
+        and outcomes[0].latency_s == expected_legacy_latency
+        and [alarm.trigger_time_s for alarm in outcomes[0].matched_alarms] == [0.9]
+        and not event_detected_in_fall(outcomes[0])
+        and event_detected_in_fall_or_fallen(outcomes[0])
+    )
+    return _check(
+        "alarme só dentro do segmento fallen, disparando exatamente no "
+        "limite fallen_end_time_s (inclusive): legacy detected/latency_s "
+        "inalterados, event_detected_in_fall False mas "
+        "event_detected_in_fall_or_fallen True",
+        ok,
+    )
+
+
+def check_alarm_in_gap_between_fall_and_fallen_not_in_union() -> bool:
+    # Mesma geometria de evento. Alarme dispara em run positivo k=[4,5,6],
+    # t=0.6s: estritamente entre fall_end_time_s=0.4 e fallen_start_time_s=
+    # 0.7, dentro do gap excluído da união fall∪fallen.
+    n = 10
+    k_ends = np.arange(n, dtype=np.int64)
+    true_labels = np.zeros(n, dtype=np.int64)
+    true_labels[2:5] = 1
+    true_labels[7:10] = 2
+    preds = np.zeros(n, dtype=np.int64)
+    preds[4:7] = 1
+
+    events = fall_events_for_video("video_m", k_ends, true_labels, _PROTOCOL)
+    alarms = detect_alarms_for_video("video_m", k_ends, preds, _PROTOCOL)
+    outcomes, _false_alarms = associate_events_and_alarms(events, alarms, _PROTOCOL)
+
+    expected_legacy_latency = 0.4  # 0.6 - 0.2
+
+    ok = (
+        len(outcomes) == 1
+        and outcomes[0].detected
+        and outcomes[0].latency_s == expected_legacy_latency
+        and [alarm.trigger_time_s for alarm in outcomes[0].matched_alarms] == [0.6]
+        and not event_detected_in_fall(outcomes[0])
+        and not event_detected_in_fall_or_fallen(outcomes[0])
+    )
+    return _check(
+        "alarme dentro do gap entre fall e fallen: legacy detected=True "
+        "(dentro da janela de associação) mas nem event_detected_in_fall "
+        "nem event_detected_in_fall_or_fallen (gap é excluído da união)",
+        ok,
+    )
+
+
+def check_alarm_in_post_fallen_grace_period_not_in_union() -> bool:
+    # Mesma geometria de evento. association_end_time_s=2.9s. Alarme dispara
+    # em run positivo k=[18,19,20], t=2.0s: depois de fallen_end_time_s=0.9s
+    # e dentro do período de graça de association_end_offset_s=2.0s, mas
+    # fora da união fall∪fallen (a união exclui o período de graça).
+    n = 21
+    k_ends = np.arange(n, dtype=np.int64)
+    true_labels = np.zeros(n, dtype=np.int64)
+    true_labels[2:5] = 1
+    true_labels[7:10] = 2
+    preds = np.zeros(n, dtype=np.int64)
+    preds[18:21] = 1
+
+    events = fall_events_for_video("video_n", k_ends, true_labels, _PROTOCOL)
+    alarms = detect_alarms_for_video("video_n", k_ends, preds, _PROTOCOL)
+    outcomes, _false_alarms = associate_events_and_alarms(events, alarms, _PROTOCOL)
+
+    expected_legacy_latency = 1.8  # 2.0 - 0.2
+
+    ok = (
+        len(outcomes) == 1
+        and outcomes[0].detected
+        and outcomes[0].latency_s == expected_legacy_latency
+        and [alarm.trigger_time_s for alarm in outcomes[0].matched_alarms] == [2.0]
+        and not event_detected_in_fall(outcomes[0])
+        and not event_detected_in_fall_or_fallen(outcomes[0])
+    )
+    return _check(
+        "alarme só no período de graça pós-fallen (+2s): legacy "
+        "detected=True (dentro da janela de associação) mas nem "
+        "event_detected_in_fall nem event_detected_in_fall_or_fallen (a "
+        "união exclui o período de graça de association_end_offset_s)",
+        ok,
+    )
+
+
+def check_fallback_event_in_fall_equals_union() -> bool:
+    # fall em k=[2,3,4] (t=0.2..0.4s), sem fallen seguinte -> fallback:
+    # fallen_start_time_s/fallen_end_time_s são None, has_following_fallen
+    # False, association_end_time_s = fall_end_time_s + 2.0 = 2.4s.
+    # Alarme dispara em run positivo k=[2,3,4], t=0.4s (limite de
+    # fall_end_time_s, inclusive).
+    n = 5
+    k_ends = np.arange(n, dtype=np.int64)
+    true_labels = np.zeros(n, dtype=np.int64)
+    true_labels[2:5] = 1
+    preds = np.zeros(n, dtype=np.int64)
+    preds[2:5] = 1
+
+    events = fall_events_for_video("video_o", k_ends, true_labels, _PROTOCOL)
+    alarms = detect_alarms_for_video("video_o", k_ends, preds, _PROTOCOL)
+    outcomes, _false_alarms = associate_events_and_alarms(events, alarms, _PROTOCOL)
+
+    ok = (
+        len(events) == 1
+        and not events[0].has_following_fallen
+        and events[0].fallen_start_time_s is None
+        and events[0].fallen_end_time_s is None
+        and len(outcomes) == 1
+        and outcomes[0].detected
+        and event_detected_in_fall(outcomes[0])
+        and event_detected_in_fall_or_fallen(outcomes[0])
+        and event_detected_in_fall(outcomes[0]) == event_detected_in_fall_or_fallen(outcomes[0])
+    )
+    return _check(
+        "evento fallback sem fallen seguinte: fallen_start_time_s/"
+        "fallen_end_time_s são None e event_detected_in_fall_or_fallen se "
+        "reduz a event_detected_in_fall",
+        ok,
+    )
+
+
+def check_split_event_report_fall_and_fall_or_fallen_metrics() -> bool:
+    # Combina, em vídeos distintos de 1 evento cada, os 5 casos acima mais 1
+    # evento não detectado (sem nenhum alarme), totalizando 6 eventos.
+    # Detectados (legacy): A, B, C, D, E = 5; F não detectado.
+    # in_fall: só A e E -> n_events_detected_in_fall=2.
+    # fall_or_fallen: A, B e E -> n_events_detected_in_fall_or_fallen=3.
+    # fall_sensitivity = 2/6, fall_or_fallen_sensitivity = 3/6,
+    # detected_events_alarm_within_fall_rate = 2/5 (denominador
+    # n_detected_events, não n_fall_events).
+    video_ids: list[str] = []
+    k_ends: list[int] = []
+    true_labels: list[int] = []
+    pred_labels: list[int] = []
+
+    def _add_video(
+        video_id: str, n: int, fall_range: tuple[int, int], fallen_range: tuple[int, int] | None,
+        pred_range: tuple[int, int] | None,
+    ) -> None:
+        video_true = [0] * n
+        for k in range(*fall_range):
+            video_true[k] = 1
+        if fallen_range is not None:
+            for k in range(*fallen_range):
+                video_true[k] = 2
+        video_pred = [0] * n
+        if pred_range is not None:
+            for k in range(*pred_range):
+                video_pred[k] = 1
+        video_ids.extend([video_id] * n)
+        k_ends.extend(range(n))
+        true_labels.extend(video_true)
+        pred_labels.extend(video_pred)
+
+    # A: alarme dentro de fall (in_fall e union).
+    _add_video("video_p_a", 10, (2, 5), (7, 10), (2, 5))
+    # B: alarme só em fallen (union, não in_fall).
+    _add_video("video_p_b", 10, (2, 5), (7, 10), (7, 10))
+    # C: alarme no gap entre fall e fallen (nem in_fall nem union).
+    _add_video("video_p_c", 10, (2, 5), (7, 10), (4, 7))
+    # D: alarme só no período de graça pós-fallen (nem in_fall nem union).
+    _add_video("video_p_d", 21, (2, 5), (7, 10), (18, 21))
+    # E: fallback sem fallen, alarme dentro de fall (in_fall e union).
+    _add_video("video_p_e", 5, (2, 5), None, (2, 5))
+    # F: evento sem nenhum alarme (não detectado).
+    _add_video("video_p_f", 10, (2, 5), (7, 10), None)
+
+    labeled_windows = len(true_labels)
+    total_windows = len(true_labels)
+    usable_windows = len(true_labels)
+
+    report = split_event_report(
+        video_ids,
+        k_ends,
+        true_labels,
+        pred_labels,
+        _PROTOCOL,
+        usable_windows,
+        total_windows,
+        labeled_windows,
+    )
+
+    expected_n_fall_events = 6
+    expected_n_detected_events = 5
+    expected_n_events_detected_in_fall = 2
+    expected_n_events_detected_in_fall_or_fallen = 3
+    expected_fall_sensitivity = 2 / 6
+    expected_fall_or_fallen_sensitivity = 3 / 6
+    expected_detected_events_alarm_within_fall_rate = 2 / 5
+
+    ok = (
+        report["n_fall_events"] == expected_n_fall_events
+        and report["n_detected_events"] == expected_n_detected_events
+        and report["n_events_detected_in_fall"] == expected_n_events_detected_in_fall
+        and report["n_events_detected_in_fall_or_fallen"]
+        == expected_n_events_detected_in_fall_or_fallen
+        and abs(report["fall_sensitivity"] - expected_fall_sensitivity) < 1e-9
+        and abs(
+            report["fall_or_fallen_sensitivity"] - expected_fall_or_fallen_sensitivity
+        )
+        < 1e-9
+        and abs(
+            report["detected_events_alarm_within_fall_rate"]
+            - expected_detected_events_alarm_within_fall_rate
+        )
+        < 1e-9
+    )
+    return _check(
+        "split_event_report: n_events_detected_in_fall/"
+        "n_events_detected_in_fall_or_fallen, fall_sensitivity/"
+        "fall_or_fallen_sensitivity (denominador n_fall_events) e "
+        "detected_events_alarm_within_fall_rate (denominador "
+        "n_detected_events) batem com os valores calculados à mão sobre 6 "
+        "eventos combinando os casos de fall/fallen/gap/graça/fallback/"
+        "não-detectado",
+        ok,
+    )
+
+
+def check_split_event_report_zero_detected_events_zero_rates() -> bool:
+    # Vídeo sem nenhum segmento fall/fallen e sem nenhum alarme: n_fall_events
+    # =0 e n_detected_events=0, exercitando os três denominadores zerados sem
+    # ZeroDivisionError.
+    n = 10
+    video_ids = ["video_q"] * n
+    k_ends = list(range(n))
+    true_labels = [0] * n
+    pred_labels = [0] * n
+
+    report = split_event_report(
+        video_ids,
+        k_ends,
+        true_labels,
+        pred_labels,
+        _PROTOCOL,
+        usable_windows=n,
+        total_windows=n,
+        labeled_windows=n,
+    )
+
+    ok = (
+        report["n_fall_events"] == 0
+        and report["n_detected_events"] == 0
+        and report["n_events_detected_in_fall"] == 0
+        and report["n_events_detected_in_fall_or_fallen"] == 0
+        and report["fall_sensitivity"] == 0.0
+        and report["fall_or_fallen_sensitivity"] == 0.0
+        and report["detected_events_alarm_within_fall_rate"] == 0.0
+    )
+    return _check(
+        "split_event_report com zero eventos e zero alarmes: contagens "
+        "novas zeradas e as três taxas novas exatamente 0.0, sem "
+        "ZeroDivisionError",
+        ok,
+    )
+
+
 def run_events_selftest() -> bool:
     checks = [
         check_no_trigger_below_threshold(),
@@ -356,6 +671,13 @@ def run_events_selftest() -> bool:
         check_pre_fall_false_alarm_counter(),
         check_window_level_binary_metrics(),
         check_split_event_report_labeled_time_rates(),
+        check_alarm_during_fall_detected_in_fall_and_union(),
+        check_alarm_only_in_fallen_detected_in_union_not_in_fall(),
+        check_alarm_in_gap_between_fall_and_fallen_not_in_union(),
+        check_alarm_in_post_fallen_grace_period_not_in_union(),
+        check_fallback_event_in_fall_equals_union(),
+        check_split_event_report_fall_and_fall_or_fallen_metrics(),
+        check_split_event_report_zero_detected_events_zero_rates(),
     ]
     ok = all(checks)
     if not ok:

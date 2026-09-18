@@ -160,8 +160,10 @@ rotuladas pelo rótulo do último quadro da janela. As constantes vivem em
 `src/gatefall/config.py`:
 
 - `WINDOW_FRAMES = 24` — 2,4 s em `TARGET_FPS`; cobre o p75 da duração dos
-  segmentos `fall` (2,35 s) e dá timesteps suficientes para uma TCN dilatada
-  de 3 níveis, kernel 3, campo receptivo 29.
+  segmentos `fall` medido apenas em train (2,37 s) e dá timesteps suficientes
+  para uma TCN dilatada de 3 níveis, kernel 3, campo receptivo 29. O p75
+  pooled (2,35 s) citado em versões anteriores misturava val/test em uma
+  decisão de hiperparâmetro e está superado para esse fim.
 - `TRAIN_STRIDE = 4` — em stride 1, janelas de treino consecutivas se
   sobrepõem em 96% e viram quase-duplicatas.
 - `EVAL_STRIDE = 1` — uma predição por quadro da grade, o que dá avaliação
@@ -253,6 +255,253 @@ descarte é `ceil(K / stride)`; e nenhuma janela tem `k_end >= n_frames`. Os
 seis valores esperados são propriedades do dataset congelado — se o parquet
 mudar, queremos uma falha ruidosa, não um relatório silenciosamente
 diferente.
+
+## Seleção de pessoa na extração de pose { #selecao-de-pessoa-na-extracao-de-pose }
+
+`src/gatefall/pose/selection.py:PersonSelector` decide, a cada quadro, qual
+detecção do YOLO-Pose vira a pose gravada no `.h5`. A política é de
+continuidade primeiro: a pessoa-alvo é seguida pela track do ByteTrack e,
+quando o ID se perde, reancorada espacialmente; a confiança da caixa só
+decide a aquisição inicial e os empates.
+
+O seletor guarda dois estados por vídeo: a track ativa (`active_track_id`) e
+a bbox da última detecção selecionada (`last_bbox`). O estado é por
+instância e não existe `reset` — `run_pose_extract` cria um
+`PersonSelector` novo por vídeo, e é isso que torna estrutural a garantia de
+que nenhum estado vaza entre vídeos, do mesmo jeito que
+`_reset_tracker_state` zera o BYTETracker no início de cada vídeo.
+
+### Ordem de decisão por quadro
+
+1. Sem detecção (`n_det == 0`), devolve `None` e não muta nada: a track
+   ativa e a última bbox sobrevivem a lacunas de qualquer duração.
+2. Se a track ativa está presente entre os IDs do quadro, ela é escolhida,
+   independentemente da confiança das outras detecções. A última bbox é
+   atualizada quando o quadro traz caixas utilizáveis; a track ativa continua
+   a mesma.
+3. Se a track ativa sumiu (ou o tracker não devolveu IDs) e existe uma bbox
+   anterior, calcula o IoU dela contra todas as detecções do quadro e fica
+   com a de maior sobreposição. Empate exato de IoU é desfeito pela maior
+   confiança de caixa e, persistindo, pelo menor índice. IoU máximo igual a
+   zero não conta como evidência de continuidade e cai no passo 4.
+4. Sem bbox anterior utilizável — aquisição inicial, ausência de caixas ou o
+   IoU zerado do passo 3 —, escolhe a detecção de maior confiança de caixa.
+   É a regra antiga, agora restrita à aquisição, com uma única diferença: a
+   regra antiga devolvia `None` quando havia mais de uma detecção e nenhuma
+   confiança de caixa, e aqui esse quadro cai no índice 0. A cobertura, por
+   isso, só pode subir, nunca cair.
+5. Nos passos 3 e 4, a track ativa passa a ser o ID da detecção escolhida e a
+   última bbox é atualizada. Quando o tracker não devolve IDs utilizáveis no
+   quadro, a track ativa sobrevive intacta, do mesmo jeito que a última bbox
+   — nem uma nem outra é apagada.
+
+O IoU é o critério primário porque a pergunta é de identidade, não de
+qualidade: entre 0,1 s de grade, a mesma pessoa se desloca pouco e sobrepõe
+muito a própria caixa anterior, enquanto uma segunda pessoa no mesmo quadro
+pode perfeitamente ter confiança maior. A confiança de caixa continua útil
+onde não há nada a continuar (aquisição) ou onde o IoU não separa os
+candidatos (empate exato).
+
+### As sete transições cobertas
+
+- **Aquisição inicial** — sem estado, vence a maior confiança de caixa.
+- **Continuidade da mesma track** — o ID ativo aparece no quadro e é
+  seguido mesmo contra um distrator de confiança maior.
+- **Perda** — quadro sem detecção; nada é selecionado e nada é esquecido.
+- **Retomada com o mesmo ID** — depois da lacuna, o ByteTrack devolve o
+  mesmo ID e o passo 2 volta a valer.
+- **Reaquisição com ID diferente** — depois da lacuna, o ID mudou; o passo 3
+  reancora pela maior sobreposição com a última bbox, porque um ID novo não
+  é prova de outra pessoa física.
+- **Troca imediata sem lacuna** — o ID ativo desaparece sem que o vídeo
+  passe por um quadro vazio; o passo 3 resolve no mesmo quadro.
+- **Quadro sem IDs** — o tracker devolve detecções sem ID (nenhuma track
+  ativada no quadro); o passo 3 reancora por IoU, a track ativa é preservada
+  e o quadro seguinte em que o ID volta a aparecer retoma o passo 2.
+
+### Invariante de cobertura
+
+`select` devolve `None` se e somente se o quadro não tem nenhuma detecção.
+A seleção nunca recusa um quadro para preservar uma identidade, não há
+limite de validade para a última bbox nem IoU mínimo para aceitar a track
+ativa. Ou seja, `person_found` e a cobertura relatada por `pose extract
+report` dependem só do detector, como antes desta política — com a ressalva
+do passo 4: um quadro multi-pessoa sem confiança de caixa, que a regra antiga
+recusava, agora é aceito, de modo que a cobertura só pode subir. Na prática
+esse quadro não ocorre — o Ultralytics não devolve detecções sem confiança de
+caixa —, e por isso `src/gatefall/pose/report.py` continua exigindo igualdade
+exata com `EXPECTED_PERSON_FOUND_SUM`: a soma congelada segue valendo, e uma
+diferença deve falhar ruidosamente.
+
+```bash
+uv run python -m gatefall.pose.selection selftest
+```
+
+Trava os catorze casos sintéticos da política — as sete transições, os
+fallbacks por confiança, o desempate exato de IoU, o estado por instância, a
+invariante de cobertura e a numérica do `bbox_iou` — sem tocar no dataset
+real nem no Ultralytics.
+
+### Evidência que motivou a política
+
+A auditoria da extração anterior (`scripts/exploratory/audit_pose_selection.py`)
+mediu 254 quadros multi-pessoa em 30494 (0,8330%) e 38 candidatos a troca de
+identidade da pessoa selecionada.
+
+Todos os números desta seção — incluindo as caudas p99 e p99.9 adiante — foram
+calculados sobre `build_pose_features` anterior à mudança de causalidade do
+prefixo, e não foram recalculados depois dela.
+
+Um candidato é definido assim: sobre a sequência de quadros com
+`person_found` e `track_id >= 0`, em ordem crescente de índice, cada par
+consecutivo em que o `track_id` muda conta como troca — adjacente quando os
+dois quadros são vizinhos na grade, após lacuna caso contrário. A troca vira
+candidata a troca de identidade quando pelo menos um dos dois quadros tem
+`n_detections > 1`, ou seja, quando havia de fato outra pessoa em cena para a
+seleção confundir. Foram 39 trocas adjacentes (34 em contexto multi-pessoa) e
+94 trocas após lacuna (4 em contexto multi-pessoa), somando os 38 candidatos.
+
+O volume é pequeno, mas concentrado: os candidatos se acumulam nas caudas p99
+das derivadas temporais de bbox — 17 dos 305 quadros da cauda de velocidade de
+bbox (44,73x o esperado por acaso) e 28 dos 305 da cauda de aceleração
+(41,78x). Nas quatro caudas p99.9 (velocidade e aceleração, de keypoints e de
+bbox) não cai nenhum candidato: sob a definição operacional de candidato a
+troca adotada nesta auditoria, trocas de identidade não explicam esses
+extremos, e a auditoria não determinou o que os explica.
+
+Três convenções de medida importam para reproduzir esses números. A magnitude
+por quadro de cada bloco é a maior componente absoluta do bloco, não a norma
+L2 — a norma diluiria um salto numa única coordenada entre as 34 colunas de
+keypoints. A máscara de candidatos é expandida para `t+1` nos dois blocos de
+aceleração, porque uma descontinuidade de posição em `t` contamina a segunda
+diferença também no quadro seguinte (os 38 candidatos viram 67 quadros
+marcados), e a máscara expandida entra tanto na interseção com a cauda quanto
+na taxa-base do denominador do enriquecimento. E as caudas são globais,
+calculadas sobre a concatenação dos 190 vídeos, não por vídeo.
+
+Ou seja, a seleção por confiança quadro a quadro produzia justamente o tipo de
+salto espúrio de posição que as features cinemáticas leem como movimento
+brusco — o mesmo argumento que já havia descartado o zero-fill nos gaps
+interiores da imputação de pose (ver [imputação de pose e causalidade do
+prefixo](#imputacao-de-pose-e-causalidade-do-prefixo); antes da primeira
+detecção o zero é justamente a política adotada).
+
+O script também imprime dois diagnósticos adicionais, subordinados a essa
+métrica: as trocas cruas da track selecionada e o subconjunto em que a bbox
+também descola (IoU abaixo de 0,5). São informativos e não substituem a
+contagem de candidatos.
+
+Números da extração posterior à mudança de política:
+
+A mesma auditoria, com a métrica corrigida, foi aplicada a uma reextração
+isolada em `data/scratch/audit/pose_after`, que não tocou os artefatos
+canônicos de `data/features/le2i/pose`. A grade continua com 30494 quadros,
+27561 com pessoa encontrada (90,3817%) e 254 multi-pessoa (0,8330%): a
+invariante de cobertura se confirma quadro a quadro, com `person_found` e
+`n_detections` idênticos entre as duas raízes. Só muda quem é a pessoa
+selecionada — 89 quadros (0,2919% da grade) em 44 vídeos mudaram de conteúdo,
+31 deles também de `track_id`.
+
+Os candidatos a troca de identidade caíram de 38 (0,1246%) para 14 (0,0459%).
+As trocas adjacentes caíram de 39 (34 em contexto multi-pessoa) para 16 (11
+multi-pessoa) e as trocas após lacuna, de 94 (4 multi-pessoa) para 93 (3
+multi-pessoa) — a política ataca a descontinuidade dentro da sequência
+contínua, não a reaquisição depois de uma lacuna de detecção. A máscara
+expandida de aceleração encolheu de 67 para 28 quadros.
+
+Nas caudas p99 globais (305 quadros cada), a contagem absoluta de candidatos
+caiu em todos os quatro blocos: `bbox_velocity` de 17 para 10,
+`bbox_acceleration` de 28 para 14, `kp_velocity` de 1 para 0 e
+`kp_acceleration` de 4 para 0. Nas caudas p99.9 (31 quadros) continua não
+caindo nenhum candidato, antes e depois.
+
+O enriquecimento relativo exige uma ressalva, porque anda na direção
+contrária: `bbox_velocity` foi de 44,73x para 71,41x e `bbox_acceleration` de
+41,78x para 49,99x, enquanto `kp_velocity` e `kp_acceleration` foram de 2,63x
+e 5,97x para 0,00x. A alta nos dois blocos de bbox não é regressão. O
+enriquecimento é a razão entre a taxa de candidatos na cauda e a taxa de
+candidatos na grade inteira, e o denominador caiu mais rápido (de 0,1246%
+para 0,0459%) do que a contagem na cauda. Com menos candidatos no total, os
+poucos que sobram são proporcionalmente mais concentrados no extremo. A
+leitura que importa é a contagem absoluta na cauda, que cai por volta da
+metade.
+
+A reextração "depois" foi rodada duas vezes, em sessões separadas, e produziu
+artefatos idênticos nas duas.
+
+## Imputação de pose e causalidade do prefixo { #imputacao-de-pose-e-causalidade-do-prefixo }
+
+`src/gatefall/pose/loading.py:impute_missing` decide o que entra no vetor de
+features quando o YOLO-Pose não devolve detecção em um quadro da grade, e
+`src/gatefall/pose/kinematics.py` deriva as velocidades, acelerações e a
+orientação de tronco sobre o resultado. As duas etapas seguem a mesma regra
+de três regimes, definida a partir de `f` — o índice da primeira observação
+do vídeo (`first_observed_index(person_found)`, igual a `K` quando o vídeo
+não tem nenhuma detecção).
+
+### Contrato por linha
+
+- **`i < f` (antes da primeira detecção).** A linha inteira é exatamente
+  `0.0` nas 134 colunas: coordenadas de keypoint, descritores de bbox,
+  confiança, os dois blocos de derivada de cada um e o bloco `trunk`.
+  Zerar `trunk_sin`/`trunk_cos` explicitamente é necessário porque
+  `arctan2(0, 0)` vale `0.0`, o que daria `trunk_cos = 1.0` — um tronco
+  horizontal sintético onde não há pose nenhuma.
+- **`i == f` (aquisição).** Posição, confiança e `trunk_sin`/`trunk_cos` são
+  os valores observados. `kp_velocity`, `kp_acceleration`, `bbox_velocity`,
+  `bbox_acceleration` e `trunk_dtheta` são exatamente `0.0`: não existe
+  observação anterior, logo não há deslocamento medido.
+- **`i == f + 1`.** As velocidades e `trunk_dtheta` são reais; os dois blocos
+  de aceleração são exatamente `0.0`, porque só há uma velocidade observada
+  até aqui e a segunda diferença precisaria usar o `0.0` convencional de `f`
+  como se fosse velocidade medida — o que injetaria um pico de aceleração
+  `v[f+1]/dt` cuja magnitude só depende de onde a aquisição começou.
+- **`i >= f + 2`.** Nada muda em relação ao regime já documentado: gaps
+  interiores mantêm forward-fill a partir da última observação, com
+  confiança `0.0`, e a reaparição depois de um gap de `N` quadros divide o
+  deslocamento por `N * dt`, não por `dt`.
+
+Um vídeo sem nenhuma detecção é o caso degenerado do prefixo ausente: `f`
+vale `K` e a matriz `[K, 134]` inteira é exatamente zero.
+
+### Por que zeros antes de `f`, e por que não nos gaps interiores
+
+A política anterior fazia back-fill do trecho inicial a partir da primeira
+detecção futura. Isso torna uma linha dependente de uma detecção que ainda
+não aconteceu. O janelamento e a TCN já eram causais — a janela que termina
+em `k_end` só lê quadros `<= k_end`, e a TCN é dilatada causal —, então o
+back-fill era o único ponto do caminho de features em que informação do
+futuro atravessava para trás: uma janela cujo `k_end` cai dentro do prefixo
+carregaria a pose de um quadro posterior ao próprio instante de decisão.
+
+O zero-fill continua rejeitado nos gaps **interiores** pelo motivo de sempre:
+um quadro zerado entre dois quadros válidos produz um salto de posição do
+tamanho do corpo em 0,1 s, ou seja, um pico espúrio de velocidade e
+aceleração. Antes de `f`, porém, não existe pose passada a segurar, e o zero
+não fica entre dois quadros observados — não há salto a introduzir, apenas a
+ausência a representar. A confiança exatamente `0.0` continua sendo o canal
+que distingue pose imputada de pose observada, tanto no prefixo quanto nos
+gaps interiores.
+
+### Impacto medido no Le2i
+
+63 dos 190 vídeos começam sem detecção. São 1384 das 30494 linhas da grade
+(4,54%) em prefixo ausente, com o prefixo mais longo em 66 quadros (6,6 s em
+`TARGET_FPS`); nenhum vídeo fica inteiramente sem detecção. A cobertura de
+pose não muda (`person_found` soma 27561 em 30494) e as contagens de janela
+por rótulo e split também não — a mudança é de conteúdo das linhas, não da
+grade nem do janelamento.
+
+`gatefall.pose.kinematics report` trava essas duas contagens em
+`EXPECTED_VIDEOS_WITH_PREFIX` e `EXPECTED_PREFIX_ROWS`, além de verificar,
+por vídeo, que o prefixo é exatamente zero, que as derivadas em `f` são zero
+e que as acelerações em `f + 1` são zero. As contagens congeladas existem
+porque a checagem de prefixo passaria vazia se `first_observed_index`
+devolvesse `0` para todo vídeo.
+
+Como o vetor de features mudou, as estatísticas de padronização precisam ser
+recalculadas junto (ver [Padronização de features de
+pose](pose-standardization.md)).
 
 ## Dataset de janelas de pose
 

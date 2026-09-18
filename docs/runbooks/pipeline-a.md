@@ -13,6 +13,13 @@ interrompe imediatamente a sequência, mostra nome, comando e código de saída 
 confirma que etapas posteriores não rodaram. Uma nova execução retoma pelo
 comportamento idempotente de cada produtor; validações rodam novamente.
 
+`--dataset le2i-cv` executa o mesmo pipeline sobre o protocolo Le2i
+cross-environment, em artefatos isolados (`data/labels/omnifall_cv/`,
+`data/processed/le2i_cv/`, `runs/local/le2i_cv/baseline_a/`) e com uma etapa
+27 adicional que gera o relatório de generalização. Veja [Generalização entre
+ambientes (Le2i-CV)](../eval/le2i-cv-generalization.md) para o que esse
+protocolo mede e suas ressalvas.
+
 Use `--dry-run` para imprimir os 26 comandos sem executá-los. Use `--force`
 somente para uma reconstrução deliberada: ele é propagado aos produtores que
 o suportam, nunca às validações. A extração de pose exige os pesos do
@@ -84,6 +91,22 @@ A avaliação tem lifecycle próprio para publicar conjuntamente protocolo e
 métricas: usa lock exclusivo, journal, arquivos de staging e backups para
 recuperar uma promoção interrompida e manter o par anterior consistente.
 `--force` autoriza substituir saídas locais, nunca as referências.
+
+## Repadronizar após mudar a semântica das features de pose
+
+`standardize build` é idempotente e, sem `--force`, preserva o JSON existente.
+A única guarda de obsolescência do arquivo é o SHA-256 de
+`data/processed/le2i/frames.parquet` (ver [Padronização de features de
+pose](../data/pose-standardization.md)), e uma mudança de semântica das
+features — como a [causalidade do prefixo de
+pose](../data/temporal-contract.md#imputacao-de-pose-e-causalidade-do-prefixo)
+— não toca esse parquet. Um JSON calculado sobre as features antigas passa,
+portanto, por todas as checagens existentes sem reclamar.
+
+Depois de qualquer mudança em `gatefall.pose.loading` ou
+`gatefall.pose.kinematics` que altere valores de coluna, rode a etapa 21 com
+`--force` e a etapa 22 em seguida, e retreine o run local antes de comparar
+métricas com qualquer run anterior.
 
 ## Validação de desenvolvimento e CI
 

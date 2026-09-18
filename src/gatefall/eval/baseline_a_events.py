@@ -18,7 +18,7 @@ import torch
 from gatefall.config import EVAL_STRIDE
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
-from gatefall.datasets import get_dataset
+from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.eval.alarm_protocol import (
     BASELINE_A_ALARM_PROTOCOL,
     load_alarm_protocol,
@@ -33,13 +33,12 @@ from gatefall.features.standardization import (
     validate_stats_layout,
 )
 from gatefall.pose.kinematics import build_pose_features
-from gatefall.runs import validate_local_run_dir
+from gatefall.runs import default_run_dir, validate_local_run_dir
 from gatefall.hashing import sha256_file
 from gatefall.train.artifacts import load_compatible_checkpoint, validate_training_run
 from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig
 from gatefall.train.tcn import TCNClassifier
 
-RUN_DIR = Path("runs/local/le2i/baseline_a")
 EVENT_LOCK_FILE = ".event-evaluation.lock"
 
 
@@ -103,6 +102,11 @@ EVENT_SPLIT_FIELDS = {
     "n_detected_events",
     "n_missed_events",
     "sensitivity",
+    "n_events_detected_in_fall",
+    "n_events_detected_in_fall_or_fallen",
+    "fall_sensitivity",
+    "fall_or_fallen_sensitivity",
+    "detected_events_alarm_within_fall_rate",
     "n_alarms_total",
     "n_false_alarms",
     "n_pre_fall_false_alarms",
@@ -119,6 +123,8 @@ EVENT_COUNT_FIELDS = {
     "n_fall_events",
     "n_detected_events",
     "n_missed_events",
+    "n_events_detected_in_fall",
+    "n_events_detected_in_fall_or_fallen",
     "n_alarms_total",
     "n_false_alarms",
     "n_pre_fall_false_alarms",
@@ -196,6 +202,17 @@ def validate_event_metrics(
         ):
             raise ValueError(
                 f"event_metrics.json: contagem de eventos inconsistente em {split}"
+            )
+        if not (
+            0
+            <= split_data["n_events_detected_in_fall"]
+            <= split_data["n_events_detected_in_fall_or_fallen"]
+            <= split_data["n_detected_events"]
+        ):
+            raise ValueError(
+                f"event_metrics.json: n_events_detected_in_fall/"
+                f"n_events_detected_in_fall_or_fallen inconsistentes com "
+                f"n_detected_events em {split}"
             )
         latency = split_data["latency_seconds"]
         if not isinstance(latency, Mapping):
@@ -486,7 +503,11 @@ def _run_evaluate_locked(
         standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
     )
     try:
-        config = validate_training_run(run_dir, expected_config=expected_config)
+        config = validate_training_run(
+            run_dir,
+            expected_config=expected_config,
+            fields_allowed_to_differ=frozenset({"seed"}),
+        )
     except RuntimeError as exc:
         raise RuntimeError(
             f"run de treino inválido em {run_dir}: {exc}"
@@ -640,9 +661,11 @@ def _run_evaluate_locked(
 
 
 def run_evaluate(
-    force: bool, dataset_name: str = "le2i", run_dir: Path = RUN_DIR
+    force: bool, dataset_name: str = "le2i", run_dir: Path | None = None
 ) -> None:
-    validate_local_run_dir(run_dir)
+    if run_dir is None:
+        run_dir = default_run_dir(dataset_name)
+    validate_local_run_dir(run_dir, dataset_name)
     with EventEvaluationLock(run_dir) as lock:
         _run_evaluate_locked(force, dataset_name, run_dir, lock)
 
@@ -663,8 +686,8 @@ def main() -> None:
     evaluate_parser.add_argument(
         "--force", action="store_true", help="Sobrescreve o event_metrics.json já existente"
     )
-    evaluate_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
-    evaluate_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    evaluate_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
+    evaluate_parser.add_argument("--run-dir", type=Path, default=None)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas do protocolo de eventos")
 
     args = parser.parse_args()

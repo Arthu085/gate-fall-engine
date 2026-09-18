@@ -18,13 +18,19 @@ def main() -> None:
         help="Não baixa nada; verifica a integridade dos arquivos já presentes"
         " contra PROVENANCE.json",
     )
+    parser.add_argument(
+        "--protocol",
+        default="cs",
+        choices=("cs", "cv"),
+        help="Protocolo Le2i cujas anotações OmniFall serão buscadas/verificadas",
+    )
     args = parser.parse_args()
 
     if args.verify:
-        verify_annotations()
+        verify_annotations(protocol=args.protocol)
         return
 
-    fetch_annotations(args.force)
+    fetch_annotations(args.force, protocol=args.protocol)
 
 
 if __name__ == "__main__":

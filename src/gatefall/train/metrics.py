@@ -10,6 +10,10 @@ from gatefall.config import NUM_CLASSES
 # ocorre no Le2i. Ambas ficam fora da média macro.
 RESTRICTED_CLASSES: list[int] = [0, 1, 2, 3, 4, 7, 8, 9]
 
+# 1=fall, 2=fallen: projeção binária "queda em andamento ou já caído",
+# reutilizada pelo treino (arma A) e pelo bootstrap agrupado por sujeito.
+BINARY_POSITIVE_LABELS = frozenset({1, 2})
+
 
 def per_class_counts(
     y_true: np.ndarray, y_pred: np.ndarray, num_classes: int
@@ -59,6 +63,45 @@ def support_by_name(
 ) -> dict[str, int]:
     counts = support(y_true, num_classes)
     return {label_names[c]: counts[c] for c in range(num_classes)}
+
+
+def class_support_table(
+    label_names: tuple[str, ...],
+    train_support: dict[int, int],
+    val_support: dict[int, int],
+    test_support: dict[int, int],
+    restricted_classes: list[int] = RESTRICTED_CLASSES,
+    num_classes: int = NUM_CLASSES,
+) -> list[dict]:
+    restricted_set = set(restricted_classes)
+    return [
+        {
+            "id": c,
+            "label": label_names[c],
+            "train_support": train_support[c],
+            "val_support": val_support[c],
+            "test_support": test_support[c],
+            "included_in_macro_f1": c in restricted_set,
+        }
+        for c in range(num_classes)
+    ]
+
+
+def macro_f1_policy_summary(
+    train_support: dict[int, int],
+    restricted_classes: list[int] = RESTRICTED_CLASSES,
+    num_classes: int = NUM_CLASSES,
+) -> dict:
+    classes_with_positive_train_support = [
+        c for c in range(num_classes) if train_support[c] > 0
+    ]
+    return {
+        "restricted_classes": list(restricted_classes),
+        "excluded_classes": [c for c in range(num_classes) if c not in restricted_classes],
+        "classes_with_positive_train_support": classes_with_positive_train_support,
+        "matches_configured_restriction": set(restricted_classes)
+        == set(classes_with_positive_train_support),
+    }
 
 
 def _precision_recall_f1(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
@@ -128,6 +171,48 @@ def binary_projection_summary(
     fn = int(np.sum(true_positive_mask & ~pred_positive_mask))
     fp = int(np.sum(~true_positive_mask & pred_positive_mask))
     tn = int(np.sum(~true_positive_mask & ~pred_positive_mask))
+
+    precision, recall, f1 = _precision_recall_f1(tp, fp, fn)
+    specificity_denom = tn + fp
+    specificity = tn / specificity_denom if specificity_denom > 0 else 0.0
+    accuracy = (tp + tn) / n_samples if n_samples > 0 else 0.0
+
+    return {
+        "tp": tp,
+        "tn": tn,
+        "fp": fp,
+        "fn": fn,
+        "precision": precision,
+        "recall": recall,
+        "specificity": specificity,
+        "f1": f1,
+        "accuracy": accuracy,
+    }
+
+
+def binary_projection_from_confusion_matrix(
+    matrix: list[list[int]], positive_labels: frozenset[int]
+) -> dict:
+    n_classes = len(matrix)
+    n_samples = sum(sum(row) for row in matrix)
+
+    tp = 0
+    fn = 0
+    fp = 0
+    tn = 0
+    for true_c in range(n_classes):
+        true_positive = true_c in positive_labels
+        for pred_c in range(n_classes):
+            pred_positive = pred_c in positive_labels
+            count = matrix[true_c][pred_c]
+            if true_positive and pred_positive:
+                tp += count
+            elif true_positive and not pred_positive:
+                fn += count
+            elif not true_positive and pred_positive:
+                fp += count
+            else:
+                tn += count
 
     precision, recall, f1 = _precision_recall_f1(tp, fp, fn)
     specificity_denom = tn + fp
