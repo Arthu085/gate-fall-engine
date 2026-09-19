@@ -3,6 +3,7 @@
 import hashlib
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from pandas.core.util.hashing import hash_pandas_object
 
@@ -22,3 +23,7 @@ def sha256_dataframe(dataframe: pd.DataFrame) -> str:
     digest = hashlib.sha256()
     digest.update(hash_pandas_object(dataframe, index=False).to_numpy().tobytes())
     return digest.hexdigest()
+
+
+def sha256_array(array: np.ndarray) -> str:
+    return hashlib.sha256(np.ascontiguousarray(array).tobytes()).hexdigest()

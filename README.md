@@ -9,8 +9,11 @@ O **GateFall** investiga a detecção de quedas humanas em vídeo RGB monocular 
 O projeto é organizado em três braços experimentais:
 
 - **Braço A — YOLO-Pose + TCN:** implementado.
-- **Braço B — YOLO-Pose + DINOv3 + TCN:** planejado.
+- **Braço B — YOLO-Pose + DINOv3 + TCN:** extração offline de features DINOv3
+  implementada; fusão com pose e treino ainda pendentes.
 - **Braço C — YOLO-Pose + SAM 3 + TCN:** planejado.
+
+Este projeto é **Built with DINOv3**.
 
 Os três braços compartilham a mesma base de dados, protocolo temporal e estrutura de avaliação. A principal diferença entre eles é o **vetor de features produzido para cada timestep**.
 
@@ -175,25 +178,19 @@ Documentação:
 
 O braço B combinará as informações de pose utilizadas pelo baseline com features visuais extraídas pelo **DINOv3**, mantendo o protocolo temporal e o classificador TCN compatíveis com o braço A.
 
-O pipeline do braço B ainda está em desenvolvimento.
+A extração offline de features DINOv3 já está implementada: veja
+[Features DINOv3](docs/data/dinov3-features.md) para o schema do HDF5
+produzido, a fórmula do descritor e os termos de licença do DINOv3. Fusão
+com pose, treino e avaliação do braço B ainda estão pendentes.
 
-Quando implementado, esta seção concentrará:
+Quando o pipeline completo estiver implementado, esta seção concentrará
+também:
 
 - comando principal de execução;
-- requisitos específicos do DINOv3;
-- preparação e armazenamento das features visuais;
 - composição do vetor de features por timestep;
 - treinamento;
 - avaliação;
-- artefatos produzidos;
 - runbook específico do braço B.
-
-Documentação prevista:
-
-- Runbook do pipeline B
-- Extração de features DINOv3
-- Treino do braço B
-- Avaliação do braço B
 
 ### Braço C — YOLO-Pose + SAM 3 + TCN
 
@@ -264,7 +261,10 @@ A documentação detalhada está organizada por responsabilidade.
 
 ### Braço B
 
-Documentação específica será adicionada durante a implementação do braço B.
+- [Features DINOv3](docs/data/dinov3-features.md)
+
+Documentação adicional será incluída durante o restante da implementação do
+braço B.
 
 ### Braço C
 
@@ -285,3 +285,8 @@ Depois, acesse o endereço exibido pelo MkDocs no terminal.
 O **código do GateFall** é distribuído sob a licença [MIT](LICENSE).
 
 Datasets, pesos pré-treinados e dependências de modelos possuem seus próprios termos e licenças. A licença MIT deste repositório **não se estende automaticamente a esses materiais externos**.
+
+Em particular, o código e os pesos do **DINOv3** são distribuídos sob a
+licença própria do DINOv3 (não MIT, não Apache-2.0) e não são redistribuídos
+por este repositório — veja [Features DINOv3](docs/data/dinov3-features.md#licenca-do-dinov3)
+para os termos completos.

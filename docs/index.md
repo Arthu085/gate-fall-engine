@@ -1,8 +1,9 @@
 # Documentação do GateFall
 
 O GateFall é um projeto acadêmico de detecção de quedas em vídeo RGB monocular.
-O braço A (pose + TCN) está implementado; os braços B (DINOv3) e C (SAM 3)
-estão planejados.
+O braço A (pose + TCN) está implementado; do braço B (DINOv3), a extração
+offline de features já está implementada, com fusão e treino pendentes; o
+braço C (SAM 3) está planejado.
 
 ## Comece aqui
 

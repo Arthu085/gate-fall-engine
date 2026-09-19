@@ -4,7 +4,9 @@ Execute os comandos na raiz do repositório, após `uv sync`. `--dataset le2i`
 é opcional nas CLIs genéricas porque Le2i (protocolo `cs`) é o padrão;
 `--dataset le2i-cv` seleciona o protocolo cross-environment em artefatos
 isolados (ver [OmniFall](../data/omnifall.md) e [relatório de
-generalização](../eval/le2i-cv-generalization.md)). “Dados” indica acesso ao
+generalização](../eval/le2i-cv-generalization.md)); as sub-CLIs de
+`gatefall.dinov3.extract` são a exceção e aceitam somente `--dataset le2i`
+(ver [features DINOv3](../data/dinov3-features.md)). “Dados” indica acesso ao
 dataset real; “GPU/pesos” indica necessidade ou benefício de aceleração e
 pesos. Links apontam para o contrato detalhado.
 
@@ -56,6 +58,13 @@ pesos. Links apontam para o contrato detalhado.
 | `uv run python -m gatefall.features.standardize selftest [--dataset le2i]` | Testa layout e z-score; o dataset opcional preserva o contrato uniforme das sub-CLIs | Casos sintéticos → stdout; não muta | Não | Não | [Padronização](../data/pose-standardization.md) |
 | `uv run python -m gatefall.features.standardize build [--dataset le2i] [--force]` | Calcula estatísticas só do treino | grade + HDF5 → JSON versionado; muta atomicamente; preserva existente; `--force` recalcula | Sim | Não | [Padronização](../data/pose-standardization.md#como-executar) |
 | `uv run python -m gatefall.features.standardize report [--dataset le2i]` | Valida stats e aplicação nos splits | grade + HDF5 + JSON → stdout; não muta | Sim | Não | [Padronização](../data/pose-standardization.md#como-executar) |
+| `uv run python -m gatefall.dinov3.extract extract --video-id ID [--repo-dir DIR] [--weights PATH] [--batch-size N] [--force] [--dataset le2i]` | Extrai features DINOv3 de um vídeo | vídeo + backbone DINOv3 → HDF5 por vídeo; muta; pula existente; `--force` reextrai | Sim | Pesos DINOv3 (locais); GPU recomendada | [Features DINOv3](../data/dinov3-features.md) |
+| `uv run python -m gatefall.dinov3.extract extract-all [--repo-dir DIR] [--weights PATH] [--batch-size N] [--force] [--dataset le2i]` | Extrai features DINOv3 de todos os vídeos da grade | vídeos + backbone DINOv3 → `data/features/le2i/dinov3/**/*.h5`; muta; pula válidos; `--force` reextrai | Sim | Pesos DINOv3 (locais); GPU recomendada | [Features DINOv3](../data/dinov3-features.md) |
+| `uv run python -m gatefall.dinov3.extract report [--dataset le2i]` | Valida cobertura das features DINOv3 extraídas | grade + HDF5 → stdout; não muta | Sim | Não | [Features DINOv3](../data/dinov3-features.md) |
+| `uv run python -m gatefall.dinov3.extract audit [--dataset le2i]` | Audita a qualidade das features DINOv3 extraídas | grade + HDF5 → stdout; não muta | Sim | Não | [Features DINOv3](../data/dinov3-features.md) |
+| `uv run python -m gatefall.dinov3.extract selftest` | Testa pré-processamento, armazenamento, fixtures de alinhamento de quadro e a guarda de protocolo `cs` do braço DINOv3 | Casos sintéticos → stdout; não muta | Não | Não | [Features DINOv3](../data/dinov3-features.md) |
+| `uv run python -m gatefall.dinov3.extract verify-determinism --video-id ID [--repo-dir DIR] [--weights PATH] [--batch-size N] [--output-dir DIR] [--dataset le2i]` | Confere que duas extrações do mesmo vídeo são bit-idênticas | vídeo + backbone DINOv3 → stdout; sem `--output-dir` grava em diretório temporário efêmero (nunca em `data/features/`); com `--output-dir` grava no diretório indicado, e só sobrescreve o dataset real quando ele é o caminho canônico | Sim | Pesos DINOv3 (locais); GPU recomendada | [Features DINOv3](../data/dinov3-features.md) |
+| `uv run python -m gatefall.dinov3.extract verify-frame-alignment [--repo-dir DIR] [--weights PATH] [--dataset le2i]` | Confere que `decode_frames` retorna o quadro correto para o `src_index` pedido, em amostra fixa de vídeos | vídeo + backbone DINOv3 + HDF5 → stdout; somente leitura, não muta | Sim | Pesos DINOv3 (locais); GPU recomendada | [Features DINOv3](../data/dinov3-features.md) |
 
 ## Treino, avaliação e desenvolvimento
 

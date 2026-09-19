@@ -11,6 +11,7 @@ data/
 ├── processed/le2i/{manifest,frames}.parquet
 ├── processed/le2i_cv/{manifest,frames}.parquet
 ├── features/le2i/pose/<video_id>.h5
+├── features/le2i/dinov3/<env>/<video_name>.h5
 └── scratch/
 
 runs/
@@ -22,7 +23,9 @@ runs/
 `data/labels/omnifall_cv/`, `data/processed/le2i_cv/` e
 `runs/local/le2i_cv/baseline_a/` são os artefatos isolados do protocolo Le2i
 `cv` (cross-environment) e nunca compartilham arquivo com seus equivalentes
-`cs` acima. Não existe `runs/reference/le2i_cv/`: a promoção de um run a
+`cs` acima. `data/features/le2i/dinov3/` existe apenas para o `cs` e não tem
+equivalente `cv`: os comandos DINOv3 recusam o adapter `le2i-cv`. Não existe
+`runs/reference/le2i_cv/`: a promoção de um run a
 referência nunca é automática. Veja o [relatório de
 generalização](../eval/le2i-cv-generalization.md) para o que o protocolo `cv`
 mede.

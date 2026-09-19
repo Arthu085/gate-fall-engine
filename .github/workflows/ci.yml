@@ -30,6 +30,7 @@ jobs:
           uv run python -m gatefall.pose.quality selftest
           uv run python -m gatefall.pose.quality degradation
           uv run python -m gatefall.data.pose_dataset selftest
+          uv run python -m gatefall.dinov3.extract selftest
           uv run python -m gatefall.features.standardize selftest
           uv run python -m gatefall.train.baseline_a selftest
           uv run python -m gatefall.eval.baseline_a_events selftest

@@ -47,6 +47,7 @@ nav:
       - Contrato temporal: data/temporal-contract.md
       - Padronização de features de pose: data/pose-standardization.md
       - Índice de qualidade de pose: data/pose-quality.md
+      - Features DINOv3: data/dinov3-features.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md

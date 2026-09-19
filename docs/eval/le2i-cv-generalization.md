@@ -22,6 +22,9 @@ arquivo algum:
 | Estatísticas de padronização | `pose_le2i_cs.json` | `pose_le2i_cv.json` |
 | Run local do braço A | `runs/local/le2i/` | `runs/local/le2i_cv/` |
 
+O braço DINOv3 não está disponível sob o `cv`: seus comandos aceitam somente
+`--dataset le2i` (ver [features DINOv3](../data/dinov3-features.md)).
+
 Não existe `runs/reference/le2i_cv/`: a promoção de um run a referência nunca
 é automática. `gatefall.protocol_isolation_selftest` cobre que os paths do
 adapter `cv` nunca caem sob caminhos `cs`, que `load_annotation_splits`
