@@ -6,8 +6,11 @@ braço B a partir do backbone congelado **DINOv3**. A CLI fina
 `verify-determinism`, `verify-frame-alignment`, `selftest`) opera sobre a
 mesma grade temporal
 (`frames.parquet`) e o mesmo manifesto usados pelo braço A — nenhuma janela
-ou split é recalculado aqui. Fusão com pose, treino e avaliação do braço B
-ainda não estão implementados.
+ou split é recalculado aqui. A padronização dessas features e a arma B0
+(fusão por concatenação simples com pose, seguida da mesma TCN) já estão
+implementadas — ver [Padronização de features
+DINOv3](dinov3-standardization.md) e [Treino — Arma
+B0](../train/b0-fusion.md).
 
 ## Backbone
 
@@ -111,9 +114,9 @@ A gravação é atômica (escreve em `.tmp` e usa `os.replace`) e, depois do
 `replace`, relê o arquivo do disco e compara dataset e atributos com o
 conteúdo em memória byte a byte antes de considerar a gravação bem-sucedida.
 
-Nenhuma estatística de padronização (z-score) é calculada nesta etapa, e o
-contrato do adapter não reserva caminho algum para ela — a padronização das
-features DINOv3, análoga à de pose, entra em uma etapa posterior.
+Nenhuma estatística de padronização (z-score) é calculada nesta etapa — ver
+[Padronização de features DINOv3](dinov3-standardization.md) para a etapa
+que calcula e aplica o z-score sobre este vetor de 1536 dimensões.
 
 ### Somente o protocolo cs
 

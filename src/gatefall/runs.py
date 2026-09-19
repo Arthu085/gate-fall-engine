@@ -11,7 +11,7 @@ LOCAL_RUN_ROOTS: dict[str, Path] = {
 }
 
 
-def default_run_dir(dataset: str) -> Path:
+def default_run_dir_for_arm(dataset: str, arm_name: str) -> Path:
     try:
         root = LOCAL_RUN_ROOTS[dataset]
     except KeyError as exc:
@@ -19,7 +19,11 @@ def default_run_dir(dataset: str) -> Path:
             f"dataset não suportado para run_dir padrão: {dataset!r}; opções "
             f"disponíveis: {', '.join(LOCAL_RUN_ROOTS)}"
         ) from exc
-    return root / "baseline_a"
+    return root / arm_name
+
+
+def default_run_dir(dataset: str) -> Path:
+    return default_run_dir_for_arm(dataset, "baseline_a")
 
 
 def validate_local_run_dir(run_dir: Path, dataset: str | None = None) -> None:

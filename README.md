@@ -9,8 +9,9 @@ O **GateFall** investiga a detecção de quedas humanas em vídeo RGB monocular 
 O projeto é organizado em três braços experimentais:
 
 - **Braço A — YOLO-Pose + TCN:** implementado.
-- **Braço B — YOLO-Pose + DINOv3 + TCN:** extração offline de features DINOv3
-  implementada; fusão com pose e treino ainda pendentes.
+- **Braço B — YOLO-Pose + DINOv3 + TCN:** extração offline de features
+  DINOv3 e a arma B0 (fusão por concatenação simples com pose, treino e
+  diagnóstico de classificação) implementadas.
 - **Braço C — YOLO-Pose + SAM 3 + TCN:** planejado.
 
 Este projeto é **Built with DINOv3**.
@@ -176,21 +177,19 @@ Documentação:
 
 ### Braço B — YOLO-Pose + DINOv3 + TCN
 
-O braço B combinará as informações de pose utilizadas pelo baseline com features visuais extraídas pelo **DINOv3**, mantendo o protocolo temporal e o classificador TCN compatíveis com o braço A.
+O braço B combina as informações de pose utilizadas pelo baseline com features visuais extraídas pelo **DINOv3**, mantendo o protocolo temporal e o classificador TCN compatíveis com o braço A.
 
-A extração offline de features DINOv3 já está implementada: veja
+A extração offline de features DINOv3 está implementada: veja
 [Features DINOv3](docs/data/dinov3-features.md) para o schema do HDF5
-produzido, a fórmula do descritor e os termos de licença do DINOv3. Fusão
-com pose, treino e avaliação do braço B ainda estão pendentes.
+produzido, a fórmula do descritor e os termos de licença do DINOv3.
 
-Quando o pipeline completo estiver implementado, esta seção concentrará
-também:
-
-- comando principal de execução;
-- composição do vetor de features por timestep;
-- treinamento;
-- avaliação;
-- runbook específico do braço B.
+A arma B0 (fusão por concatenação simples entre pose e DINOv3 projetados,
+seguida da mesma TCN do braço A) também está implementada: veja
+[Padronização de features DINOv3](docs/data/dinov3-standardization.md) e
+[Treino — Arma B0](docs/train/b0-fusion.md) para a arquitetura, a receita de
+treino compartilhada com o braço A e como executar. Gating por confiança
+entre pose e visual, avaliação por protocolo de eventos e orquestração de
+B0 em `gatefall.pipeline` ainda estão pendentes.
 
 ### Braço C — YOLO-Pose + SAM 3 + TCN
 
@@ -262,6 +261,8 @@ A documentação detalhada está organizada por responsabilidade.
 ### Braço B
 
 - [Features DINOv3](docs/data/dinov3-features.md)
+- [Padronização de features DINOv3](docs/data/dinov3-standardization.md)
+- [Treino da arma B0 (fusão pose + DINOv3)](docs/train/b0-fusion.md)
 
 Documentação adicional será incluída durante o restante da implementação do
 braço B.

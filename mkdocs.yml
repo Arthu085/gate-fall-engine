@@ -48,8 +48,10 @@ nav:
       - Padronização de features de pose: data/pose-standardization.md
       - Índice de qualidade de pose: data/pose-quality.md
       - Features DINOv3: data/dinov3-features.md
+      - Padronização de features DINOv3: data/dinov3-standardization.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
+      - Arma B0 (fusão pose + DINOv3): train/b0-fusion.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md
   - Avaliação:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
