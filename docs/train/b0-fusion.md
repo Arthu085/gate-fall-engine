@@ -131,6 +131,34 @@ B0 já treinado, sem alterar nenhum artefato existente — mesmas guardas de
 classificação: `report`"](baseline-a.md#diagnostico-de-classificacao-report)
 no braço A.
 
+### Avaliação por eventos
+
+```bash
+uv run python -m gatefall.eval.b0_events selftest
+```
+
+Roda checagens sintéticas da inferência fundida, das guardas de protocolo e
+do lifecycle dos artefatos, sem acessar o dataset real nem um checkpoint.
+
+```bash
+uv run python -m gatefall.eval.b0_events evaluate --dataset le2i \
+  --run-dir runs/local/le2i/b0_fusion
+```
+
+Avalia `val` e `test` de um run B0 completo usando pose e DINOv3 já
+extraídos, as duas estatísticas de padronização e o checkpoint treinado. Sem
+`--run-dir`, usa `runs/local/le2i/b0_fusion/`. A CLI aceita somente Le2i CS,
+rejeita o run do braço A e não oferece suporte a `le2i-cv`.
+
+A avaliação reutiliza `BASELINE_A_ALARM_PROTOCOL`, as mesmas métricas por
+evento e por janela e o mesmo lifecycle atômico com lock, journal, staging e
+hashes descrito em [Avaliação — Braço A](../eval/baseline-a-events.md). Ela
+publica `alarm_protocol.yaml` e `event_metrics.json` no próprio run B0. Sem
+`--force`, preserva um par de saídas íntegro e falha diante de artefatos
+parciais ou inconsistentes; com `--force`, reconstrói e substitui o par
+somente após validar os novos arquivos, com rollback em caso de falha. A
+operação não retreina nem retuna o modelo ou o protocolo.
+
 ## Limitação conhecida: sem verificação de identidade de quadro
 
 `FusionWindowDataset` valida, por vídeo, que o array de pose e o array
@@ -151,7 +179,5 @@ detectar o desalinhamento resultante.
 
 B0 implementa apenas fusão por concatenação simples. Não fazem parte desta
 entrega: gating por confiança entre pose e visual (`q_visual`), braço C
-(SAM 3), atenção cruzada entre as duas fontes, avaliação por
-protocolo de eventos/alarme para B0 (`eval.baseline_a_events` continua
-exclusivo do braço A), orquestração de B0 em `gatefall.pipeline`, e suporte
-a `le2i-cv` para B0.
+(SAM 3), atenção cruzada entre as duas fontes, orquestração de B0 em
+`gatefall.pipeline` e suporte a `le2i-cv` para B0.
