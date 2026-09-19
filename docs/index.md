@@ -2,8 +2,9 @@
 
 O GateFall é um projeto acadêmico de detecção de quedas em vídeo RGB monocular.
 O braço A (pose + TCN) está implementado; do braço B (DINOv3), a extração
-offline de features já está implementada, com fusão e treino pendentes; o
-braço C (SAM 3) está planejado.
+offline de features e a arma B0 (fusão por concatenação simples com pose,
+treino e diagnóstico de classificação) já estão implementadas; o braço C
+(SAM 3) está planejado.
 
 ## Comece aqui
 
@@ -25,7 +26,9 @@ braço C (SAM 3) está planejado.
 - [Manifesto e verificação](data/manifest-verification.md)
 - [Contrato temporal](data/temporal-contract.md)
 - [Padronização de pose](data/pose-standardization.md)
+- [Padronização DINOv3](data/dinov3-standardization.md)
 - [Treino do braço A](train/baseline-a.md)
+- [Treino da arma B0 (fusão pose + DINOv3)](train/b0-fusion.md)
 - [Avaliação por eventos](eval/baseline-a-events.md)
 
 Os resultados históricos ficam em `runs/reference/`; novas reproduções ficam

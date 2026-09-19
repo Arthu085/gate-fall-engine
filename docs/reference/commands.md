@@ -5,7 +5,8 @@ Execute os comandos na raiz do repositório, após `uv sync`. `--dataset le2i`
 `--dataset le2i-cv` seleciona o protocolo cross-environment em artefatos
 isolados (ver [OmniFall](../data/omnifall.md) e [relatório de
 generalização](../eval/le2i-cv-generalization.md)); as sub-CLIs de
-`gatefall.dinov3.extract` são a exceção e aceitam somente `--dataset le2i`
+`gatefall.dinov3.extract`, `gatefall.features.standardize_dinov3` e
+`gatefall.train.b0_fusion` são a exceção e aceitam somente `--dataset le2i`
 (ver [features DINOv3](../data/dinov3-features.md)). “Dados” indica acesso ao
 dataset real; “GPU/pesos” indica necessidade ou benefício de aceleração e
 pesos. Links apontam para o contrato detalhado.
@@ -65,6 +66,10 @@ pesos. Links apontam para o contrato detalhado.
 | `uv run python -m gatefall.dinov3.extract selftest` | Testa pré-processamento, armazenamento, fixtures de alinhamento de quadro e a guarda de protocolo `cs` do braço DINOv3 | Casos sintéticos → stdout; não muta | Não | Não | [Features DINOv3](../data/dinov3-features.md) |
 | `uv run python -m gatefall.dinov3.extract verify-determinism --video-id ID [--repo-dir DIR] [--weights PATH] [--batch-size N] [--output-dir DIR] [--dataset le2i]` | Confere que duas extrações do mesmo vídeo são bit-idênticas | vídeo + backbone DINOv3 → stdout; sem `--output-dir` grava em diretório temporário efêmero (nunca em `data/features/`); com `--output-dir` grava no diretório indicado, e só sobrescreve o dataset real quando ele é o caminho canônico | Sim | Pesos DINOv3 (locais); GPU recomendada | [Features DINOv3](../data/dinov3-features.md) |
 | `uv run python -m gatefall.dinov3.extract verify-frame-alignment [--repo-dir DIR] [--weights PATH] [--dataset le2i]` | Confere que `decode_frames` retorna o quadro correto para o `src_index` pedido, em amostra fixa de vídeos | vídeo + backbone DINOv3 + HDF5 → stdout; somente leitura, não muta | Sim | Pesos DINOv3 (locais); GPU recomendada | [Features DINOv3](../data/dinov3-features.md) |
+| `uv run python -m gatefall.features.standardize_dinov3 selftest [--dataset le2i]` | Testa layout e z-score do vetor DINOv3 | Casos sintéticos → stdout; não muta | Não | Não | [Padronização DINOv3](../data/dinov3-standardization.md) |
+| `uv run python -m gatefall.features.standardize_dinov3 build [--dataset le2i] [--force]` | Calcula estatísticas DINOv3 só do treino | grade + HDF5 → JSON versionado; muta atomicamente; preserva existente; `--force` recalcula | Sim | Não | [Padronização DINOv3](../data/dinov3-standardization.md#como-executar) |
+| `uv run python -m gatefall.features.standardize_dinov3 report [--dataset le2i]` | Valida stats DINOv3 e aplicação nos splits | grade + HDF5 + JSON → stdout; não muta | Sim | Não | [Padronização DINOv3](../data/dinov3-standardization.md#como-executar) |
+| `uv run python -m gatefall.data.fusion_dataset selftest` | Testa o dataset de janelas fundidas pose+DINOv3 | Casos sintéticos → stdout; não muta | Não | Não | [Treino B0](../train/b0-fusion.md) |
 
 ## Treino, avaliação e desenvolvimento
 
@@ -72,6 +77,9 @@ pesos. Links apontam para o contrato detalhado.
 | --- | --- | --- | --- | --- | --- |
 | `uv run python -m gatefall.train.baseline_a selftest` | Testa TCN, métricas e guardas de determinismo de GPU | Casos sintéticos → stdout; não muta | Não | Não | [Treino](../train/baseline-a.md) |
 | `uv run python -m gatefall.train.baseline_a train [--dataset le2i] [--run-dir PATH] [--seed N] [--force]` | Treina o braço A; destino deve ser local | grade + HDF5 + stats → config, checkpoint e métricas; staging validado e promoção por diretório; run válido é preservado; parcial falha; `--force` usa backup para rollback | Sim | GPU recomendada | [Treino](../train/baseline-a.md#como-executar) |
+| `uv run python -m gatefall.train.b0_fusion selftest` | Testa dataset fundido, padronização DINOv3, modelo, config compartilhada com o braço A, loop de treino e validadores de artefato da arma B0 | Casos sintéticos → stdout; não muta | Não | Não | [Treino B0](../train/b0-fusion.md) |
+| `uv run python -m gatefall.train.b0_fusion train --dataset le2i [--run-dir PATH] [--seed N] [--force]` | Treina a arma B0 (fusão pose+DINOv3); destino deve ser local e nunca coincidir com o run do braço A | grade + HDF5 de pose e DINOv3 + stats → config, checkpoint e métricas; staging validado e promoção por diretório; run válido é preservado; parcial falha; `--force` usa backup para rollback | Sim | GPU recomendada | [Treino B0](../train/b0-fusion.md#como-executar) |
+| `uv run python -m gatefall.train.b0_fusion report --dataset le2i [--run-dir PATH] [--output PATH] [--force]` | Diagnóstico de classificação de um run B0 já treinado | run + grade + HDF5 → JSON de relatório; não muta artefatos protegidos do run | Sim | GPU recomendada e checkpoint | [Treino B0](../train/b0-fusion.md#como-executar) |
 | `uv run python -m gatefall.eval.baseline_a_events selftest` | Testa FSM e associação de eventos | Casos sintéticos → stdout; não muta | Não | Não | [Avaliação](../eval/baseline-a-events.md) |
 | `uv run python -m gatefall.eval.baseline_a_events evaluate [--dataset le2i] [--run-dir PATH] [--force]` | Avalia checkpoint local completo; requer runtime POSIX para `fcntl.flock` | run + grade + HDF5 → protocolo e métricas de eventos; lock e journal protegem a publicação conjunta; preserva par válido; `--force` substitui o par local | Sim | GPU recomendada e checkpoint | [Avaliação](../eval/baseline-a-events.md#como-executar) |
 | `uv run python -m gatefall.eval.qualitative selftest` | Testa desenho de esqueleto/bbox, pose imputada e decodificação de vídeo em uma única passada | Casos sintéticos → stdout; não muta | Não | Não | [Diagnóstico qualitativo](../eval/qualitative-render.md) |

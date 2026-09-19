@@ -1,4 +1,4 @@
-"""Validação semântica dos artefatos persistidos de treino."""
+"""Validação semântica dos artefatos persistidos de treino da arma B0."""
 
 import json
 import math
@@ -9,11 +9,12 @@ from typing import Any
 import torch
 
 from gatefall.hashing import sha256_file
-from gatefall.train.config import TrainConfig, load_config
+from gatefall.train.artifacts import validate_classification_diagnostics
+from gatefall.train.b0_config import B0TrainConfig, load_config
+from gatefall.train.b0_model import B0FusionClassifier
 from gatefall.train.metrics import RESTRICTED_CLASSES
-from gatefall.train.tcn import TCNClassifier
 
-REQUIRED_TRAINING_ARTIFACTS = ("config.yaml", "metrics.json", "checkpoint.pt")
+REQUIRED_B0_TRAINING_ARTIFACTS = ("config.yaml", "metrics.json", "checkpoint.pt")
 
 
 def _require_mapping(value: object, field: str) -> Mapping[str, Any]:
@@ -22,9 +23,9 @@ def _require_mapping(value: object, field: str) -> Mapping[str, Any]:
     return value
 
 
-def validate_training_metrics(
+def validate_b0_training_metrics(
     data: object,
-    config: TrainConfig,
+    config: B0TrainConfig,
     config_path: Path | None = None,
     checkpoint_path: Path | None = None,
 ) -> None:
@@ -111,136 +112,12 @@ def validate_training_metrics(
             )
 
 
-def validate_classification_diagnostics(
-    split_metrics: Mapping[str, Any],
-    num_classes: int,
-    split: str,
-    total_support: int,
-) -> None:
-    prefix = f"metrics.json.final.{split}"
-
-    matrix = split_metrics.get("confusion_matrix")
-    if (
-        not isinstance(matrix, list)
-        or len(matrix) != num_classes
-        or any(
-            not isinstance(row, list)
-            or len(row) != num_classes
-            or any(not isinstance(value, int) or value < 0 for value in row)
-            for row in matrix
-        )
-    ):
-        raise ValueError(
-            f"{prefix}.confusion_matrix deve ser {num_classes}x{num_classes} "
-            "de inteiros não negativos"
-        )
-    matrix_total = sum(sum(row) for row in matrix)
-    if matrix_total != total_support:
-        raise ValueError(
-            f"{prefix}.confusion_matrix: soma total ({matrix_total}) diverge "
-            f"do suporte total do split ({total_support})"
-        )
-
-    per_class = split_metrics.get("per_class")
-    if not isinstance(per_class, Mapping) or len(per_class) != num_classes:
-        raise ValueError(f"{prefix}.per_class deve conter {num_classes} entradas")
-
-    seen_ids: set[int] = set()
-    for name, entry in per_class.items():
-        entry_prefix = f"{prefix}.per_class[{name!r}]"
-        if not isinstance(entry, Mapping):
-            raise ValueError(f"{entry_prefix} deve ser um objeto")
-
-        class_id = entry.get("id")
-        if (
-            not isinstance(class_id, int)
-            or isinstance(class_id, bool)
-            or not (0 <= class_id < num_classes)
-        ):
-            raise ValueError(f"{entry_prefix}.id deve ser um inteiro em [0, {num_classes})")
-        if class_id in seen_ids:
-            raise ValueError(f"{entry_prefix}.id repetido: {class_id}")
-        seen_ids.add(class_id)
-
-        int_fields = ("tp", "tn", "fp", "fn", "support")
-        for field in int_fields:
-            value = entry.get(field)
-            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-                raise ValueError(f"{entry_prefix}.{field} deve ser um inteiro não negativo")
-
-        tp, tn, fp, fn, class_support = (entry[field] for field in int_fields)
-        if tp + fn != class_support:
-            raise ValueError(f"{entry_prefix}: tp + fn != support")
-        if tn != total_support - tp - fp - fn:
-            raise ValueError(f"{entry_prefix}: tn != N - tp - fp - fn")
-
-        row_sum = sum(matrix[class_id])
-        if row_sum != class_support:
-            raise ValueError(
-                f"{entry_prefix}: soma da linha {class_id} da confusion_matrix "
-                f"({row_sum}) diverge de support ({class_support})"
-            )
-
-        matrix_tp = matrix[class_id][class_id]
-        if tp != matrix_tp:
-            raise ValueError(
-                f"{entry_prefix}: tp ({tp}) diverge de confusion_matrix[{class_id}][{class_id}] "
-                f"({matrix_tp})"
-            )
-        matrix_fn = row_sum - matrix_tp
-        if fn != matrix_fn:
-            raise ValueError(
-                f"{entry_prefix}: fn ({fn}) diverge da confusion_matrix "
-                f"(soma da linha {class_id} menos a diagonal = {matrix_fn})"
-            )
-        column_sum = sum(row[class_id] for row in matrix)
-        matrix_fp = column_sum - matrix_tp
-        if fp != matrix_fp:
-            raise ValueError(
-                f"{entry_prefix}: fp ({fp}) diverge da confusion_matrix "
-                f"(soma da coluna {class_id} menos a diagonal = {matrix_fp})"
-            )
-
-        float_fields = ("precision", "recall", "f1")
-        for field in float_fields:
-            value = entry.get(field)
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                raise ValueError(f"{entry_prefix}.{field} deve ser numérico")
-            if not math.isfinite(value) or not (0.0 <= value <= 1.0):
-                raise ValueError(f"{entry_prefix}.{field} deve ser finito e estar em [0,1]")
-
-        precision_denom = tp + fp
-        recall_denom = tp + fn
-        expected_precision = tp / precision_denom if precision_denom > 0 else 0.0
-        expected_recall = tp / recall_denom if recall_denom > 0 else 0.0
-        if expected_precision + expected_recall == 0:
-            expected_f1 = 0.0
-        else:
-            expected_f1 = (
-                2 * expected_precision * expected_recall / (expected_precision + expected_recall)
-            )
-        for field, expected in (
-            ("precision", expected_precision),
-            ("recall", expected_recall),
-            ("f1", expected_f1),
-        ):
-            if not math.isclose(entry[field], expected, abs_tol=1e-9, rel_tol=0):
-                raise ValueError(
-                    f"{entry_prefix}.{field} ({entry[field]}) diverge do valor "
-                    f"recalculado ({expected})"
-                )
-
-    if seen_ids != set(range(num_classes)):
-        raise ValueError(f"{prefix}.per_class: ids devem cobrir range(0, {num_classes})")
-
-
-def load_compatible_checkpoint(path: Path, config: TrainConfig) -> TCNClassifier:
+def load_compatible_b0_checkpoint(path: Path, config: B0TrainConfig) -> B0FusionClassifier:
     try:
         state = torch.load(path, map_location="cpu", weights_only=True)
         if not isinstance(state, Mapping):
             raise ValueError("checkpoint não contém um state_dict")
-        model = TCNClassifier(
-            input_dim=config.input_dim,
+        model = B0FusionClassifier(
             channels=config.channels,
             kernel_size=config.kernel_size,
             dilations=config.dilations,
@@ -255,17 +132,17 @@ def load_compatible_checkpoint(path: Path, config: TrainConfig) -> TCNClassifier
     return model
 
 
-def validate_training_run(
+def validate_b0_training_run(
     run_dir: Path,
-    expected_config: TrainConfig | None = None,
+    expected_config: B0TrainConfig | None = None,
     fields_allowed_to_differ: frozenset[str] = frozenset(),
-) -> TrainConfig:
+) -> B0TrainConfig:
     present = [
-        name for name in REQUIRED_TRAINING_ARTIFACTS if (run_dir / name).is_file()
+        name for name in REQUIRED_B0_TRAINING_ARTIFACTS if (run_dir / name).is_file()
     ]
-    if len(present) != len(REQUIRED_TRAINING_ARTIFACTS):
+    if len(present) != len(REQUIRED_B0_TRAINING_ARTIFACTS):
         missing = [
-            name for name in REQUIRED_TRAINING_ARTIFACTS if name not in present
+            name for name in REQUIRED_B0_TRAINING_ARTIFACTS if name not in present
         ]
         raise RuntimeError(
             f"run parcial em {run_dir}: artefatos ausentes: {', '.join(missing)}"
@@ -293,7 +170,7 @@ def validate_training_run(
     try:
         with (run_dir / "metrics.json").open(encoding="utf-8") as stream:
             metrics = json.load(stream)
-        validate_training_metrics(
+        validate_b0_training_metrics(
             metrics,
             config,
             config_path=run_dir / "config.yaml",
@@ -303,7 +180,7 @@ def validate_training_run(
         raise RuntimeError(f"metrics.json inválido em {run_dir}: {exc}") from exc
 
     try:
-        load_compatible_checkpoint(run_dir / "checkpoint.pt", config)
+        load_compatible_b0_checkpoint(run_dir / "checkpoint.pt", config)
     except ValueError as exc:
         raise RuntimeError(f"checkpoint.pt inválido em {run_dir}: {exc}") from exc
     return config
