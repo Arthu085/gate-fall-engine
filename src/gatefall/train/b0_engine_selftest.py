@@ -163,9 +163,99 @@ def check_training_run_writes_valid_artifacts() -> bool:
     )
 
 
+def check_second_invocation_without_force_skips_valid_run() -> bool:
+    video_specs = {
+        "train_vid": ("train", 40),
+        "val_vid": ("val", 30),
+        "test_vid": ("test", 30),
+    }
+    frames = _make_frames(video_specs)
+    rng = np.random.default_rng(1)
+
+    def pose_loader(video_id: str) -> np.ndarray:
+        _split, n_frames = video_specs[video_id]
+        return rng.normal(size=(n_frames, POSE_FEATURE_DIM)).astype(np.float32)
+
+    def visual_loader(video_id: str) -> np.ndarray:
+        _split, n_frames = video_specs[video_id]
+        return rng.normal(size=(n_frames, _VISUAL_DIM)).astype(np.float32)
+
+    def _make_sources() -> tuple[FusionWindowDataset, FusionWindowDataset, FusionWindowDataset]:
+        return (
+            FusionWindowDataset(
+                frames, split="train", stride=TRAIN_STRIDE, pose_loader=pose_loader, visual_loader=visual_loader
+            ),
+            FusionWindowDataset(
+                frames, split="val", stride=EVAL_STRIDE, pose_loader=pose_loader, visual_loader=visual_loader
+            ),
+            FusionWindowDataset(
+                frames, split="test", stride=EVAL_STRIDE, pose_loader=pose_loader, visual_loader=visual_loader
+            ),
+        )
+
+    config = replace(
+        B0_FUSION_CONFIG,
+        run_name="b0_fusion_synthetic_selftest_idempotent",
+        epochs=1,
+        batch_size=4,
+        channels=[8, 8],
+        dilations=[1, 2],
+        kernel_size=3,
+        seed=0,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        run_dir = Path(tmp_dir) / "run"
+
+        train_source, val_source, test_source = _make_sources()
+        run_b0_training(
+            train_source=train_source,
+            val_source=val_source,
+            test_source=test_source,
+            pose_stats=_identity_pose_stats(),
+            visual_stats=_identity_visual_stats(),
+            config=config,
+            run_dir=run_dir,
+            force=True,
+            label_names=tuple(f"class_{i}" for i in range(config.num_classes)),
+        )
+
+        # `run_b0_training` reatribui `config` a uma variável local via
+        # `replace(...)`; o objeto do chamador não é mutado e continua com
+        # trainable_param_count=0, igual a um config recém-resolvido.
+        config_unchanged = config.trainable_param_count == 0
+
+        train_source, val_source, test_source = _make_sources()
+        raised: Exception | None = None
+        try:
+            run_b0_training(
+                train_source=train_source,
+                val_source=val_source,
+                test_source=test_source,
+                pose_stats=_identity_pose_stats(),
+                visual_stats=_identity_visual_stats(),
+                config=config,
+                run_dir=run_dir,
+                force=False,
+                label_names=tuple(f"class_{i}" for i in range(config.num_classes)),
+            )
+        except RuntimeError as exc:
+            raised = exc
+
+    ok = config_unchanged and raised is None
+    return _check(
+        "segunda invocação de run_b0_training sem --force sobre um run já "
+        "completo e íntegro não levanta RuntimeError, mesmo recebendo o "
+        "mesmo objeto de config original (trainable_param_count=0, "
+        "divergente do valor real persistido no run)",
+        ok,
+    )
+
+
 def run_b0_engine_selftest() -> bool:
     checks = [
         check_training_run_writes_valid_artifacts(),
+        check_second_invocation_without_force_skips_valid_run(),
     ]
     ok = all(checks)
     if not ok:

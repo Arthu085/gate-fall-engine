@@ -29,6 +29,10 @@ class FusionWindowDataset:
         self._windows = build_window_index(
             split_frames, stride=stride, drop_ignored=drop_ignored
         )
+        self._expected_k_by_video: dict[str, int] = {
+            str(video_id): int(group["n_frames"].iloc[0])
+            for video_id, group in self._windows.groupby("video_id", sort=False)
+        }
         self._pose_cache: dict[str, np.ndarray] = {}
         self._visual_cache: dict[str, np.ndarray] = {}
         for video_id in pd.unique(cast(pd.Series, self._windows["video_id"])):
@@ -38,6 +42,17 @@ class FusionWindowDataset:
         if video_id not in self._pose_cache:
             pose_array = self._pose_loader(video_id)
             visual_array = self._visual_loader(video_id)
+            expected_k = self._expected_k_by_video[video_id]
+            if pose_array.shape[0] != expected_k:
+                raise ValueError(
+                    f"video_id={video_id!r}: fonte pose tem K={pose_array.shape[0]}, "
+                    f"esperado K={expected_k} (n_frames da tabela de frames)"
+                )
+            if visual_array.shape[0] != expected_k:
+                raise ValueError(
+                    f"video_id={video_id!r}: fonte visual tem K={visual_array.shape[0]}, "
+                    f"esperado K={expected_k} (n_frames da tabela de frames)"
+                )
             if pose_array.shape[0] != visual_array.shape[0]:
                 raise ValueError(
                     f"video_id={video_id!r}: pose array shape {pose_array.shape} "

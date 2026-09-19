@@ -185,12 +185,56 @@ def check_wrong_pose_feature_dim_raises() -> bool:
     )
 
 
+def check_both_sources_share_same_wrong_k_raises() -> bool:
+    # video_a tem N_FRAMES_A quadros na tabela de frames, mas pose e visual
+    # concordam entre si em K = N_FRAMES_A - 1: a checagem de igualdade entre
+    # as duas fontes fica muda, então só a checagem de cada K contra a tabela
+    # de frames pode pegar o descasamento.
+    n_frames_by_video = {"video_a": _N_FRAMES_A}
+    frames = _make_frames(n_frames_by_video)
+    wrong_k = _N_FRAMES_A - 1
+
+    def pose_loader(video_id: str) -> np.ndarray:
+        return np.zeros((wrong_k, _POSE_DIM), dtype=np.float32)
+
+    def visual_loader(video_id: str) -> np.ndarray:
+        return np.zeros((wrong_k, _VISUAL_DIM), dtype=np.float32)
+
+    raised = False
+    message = ""
+    try:
+        FusionWindowDataset(
+            frames,
+            split="train",
+            stride=1,
+            pose_loader=pose_loader,
+            visual_loader=visual_loader,
+        )
+    except ValueError as exc:
+        raised = True
+        message = str(exc)
+
+    ok = (
+        raised
+        and "video_a" in message
+        and str(_N_FRAMES_A) in message
+        and str(wrong_k) in message
+    )
+    return _check(
+        "video cujas duas fontes (pose e visual) concordam entre si num K "
+        "errado, mas divergente do n_frames da tabela de frames, levanta "
+        "ValueError nomeando o video_id e os valores de K esperado e observado",
+        ok,
+    )
+
+
 def run_fusion_dataset_selftest() -> bool:
     checks = [
         check_pose_and_visual_windows_share_frame_indices(),
         check_mismatched_video_k_raises_naming_video(),
         check_wrong_visual_feature_dim_raises(),
         check_wrong_pose_feature_dim_raises(),
+        check_both_sources_share_same_wrong_k_raises(),
     ]
     ok = all(checks)
     if not ok:

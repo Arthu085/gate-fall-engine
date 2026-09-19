@@ -79,10 +79,18 @@ recusa `le2i-cv`, porque os dois adapters do Le2i apontam para o mesmo
 `default_run_dir_for_arm(dataset, "b0_fusion")` resolve o destino padrão
 para `runs/local/le2i/b0_fusion/`, irmão de `runs/local/le2i/baseline_a/`
 (que continua acessível via `default_run_dir_for_arm(dataset, "baseline_a")`,
-reexportado como `default_run_dir` para compatibilidade). `_guard_not_arm_a_run_dir`
-rejeita qualquer `--run-dir` que seja igual, ancestral ou descendente do
-`run_dir` canônico do braço A — fecha o caminho onde um `--force` de B0
-poderia ter sobrescrito ou destruído o run de referência do braço A.
+reexportado como `default_run_dir` para compatibilidade). `run_train` e
+`run_report` aplicam duas guardas complementares antes de tocar no
+`run_dir`: `_guard_not_arm_a_run_dir` rejeita qualquer `--run-dir` que seja
+igual, ancestral ou descendente do `run_dir` canônico do braço A — fecha o
+caminho onde um `--force` de B0 poderia ter sobrescrito ou destruído o run
+de referência do braço A — e `validate_local_run_dir(run_dir, dataset_name)`
+(a mesma guarda de isolamento entre protocolos do braço A, ver
+[Generalização (le2i-cv)](../eval/le2i-cv-generalization.md)) rejeita
+qualquer `--run-dir` sob a árvore de runs local do `le2i-cv`. Cada guarda
+cobre o que a outra não alcança: a guarda compartilhada não detecta o
+próprio diretório do braço A (mesma raiz de protocolo), e a guarda do braço
+não detecta a raiz do `le2i-cv`.
 
 ## Como executar
 
@@ -123,12 +131,15 @@ B0 já treinado, sem alterar nenhum artefato existente — mesmas guardas de
 classificação: `report`"](baseline-a.md#diagnostico-de-classificacao-report)
 no braço A.
 
-## Limitação conhecida: alinhamento pose/visual por contagem de linhas
+## Limitação conhecida: sem verificação de identidade de quadro
 
-`FusionWindowDataset` valida que o array de pose e o array visual de um
-vídeo têm o mesmo número de linhas (`K`), mas não valida identidade de
-quadro por quadro: nem o HDF5 do DINOv3
-([schema](../data/dinov3-features.md#schema-do-hdf5)) nem o HDF5 de pose
+`FusionWindowDataset` valida, por vídeo, que o array de pose e o array
+visual têm cada um o número de linhas (`K`) esperado a partir da tabela de
+frames, e também que os dois arrays têm o mesmo `K` entre si — qualquer
+divergência levanta `ValueError` nomeando o vídeo, a fonte (pose ou visual)
+e o `K` esperado vs. observado. Isso não valida identidade de quadro por
+quadro: nem o HDF5 do DINOv3 (`dinov3/storage.py`,
+[schema](../data/dinov3-features.md#schema-do-hdf5)) nem o HDF5 de pose
 (`pose/loading.py`) persistem um identificador de quadro por linha. A
 garantia de alinhamento entre as duas fontes repousa inteiramente em ambos
 os extratores offline preservarem a mesma ordem contígua de `frame_index` de

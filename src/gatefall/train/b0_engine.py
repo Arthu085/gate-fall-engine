@@ -128,7 +128,11 @@ def run_b0_training(
     if run_dir.exists() and not force:
         if len(present) == len(required):
             try:
-                validate_b0_training_run(run_dir, expected_config=config)
+                validate_b0_training_run(
+                    run_dir,
+                    expected_config=config,
+                    fields_allowed_to_differ=frozenset({"trainable_param_count"}),
+                )
             except RuntimeError as exc:
                 raise RuntimeError(
                     f"run inconsistente em {run_dir}: artefato inválido ({exc}); "

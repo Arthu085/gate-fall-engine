@@ -36,7 +36,12 @@ from gatefall.features.standardization import (
 from gatefall.features.standardize_dinov3 import DINOV3_STATS_PATH
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import build_pose_features
-from gatefall.runs import REFERENCE_RUN_ROOT, default_run_dir, default_run_dir_for_arm
+from gatefall.runs import (
+    REFERENCE_RUN_ROOT,
+    default_run_dir,
+    default_run_dir_for_arm,
+    validate_local_run_dir,
+)
 from gatefall.train.b0_artifacts import load_compatible_b0_checkpoint, validate_b0_training_run
 from gatefall.train.b0_config import B0_FUSION_CONFIG, B0TrainConfig
 from gatefall.train.b0_engine import _StandardizedFusionTorchDataset, _predict, run_b0_training
@@ -97,6 +102,7 @@ def run_train(
     if run_dir is None:
         run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
     _guard_not_arm_a_run_dir(run_dir, dataset_name)
+    validate_local_run_dir(run_dir, dataset_name)
     adapter = get_dataset(dataset_name)
     ensure_dinov3_dataset_supported(adapter)
 
@@ -221,6 +227,7 @@ def run_report(
     if run_dir is None:
         run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
     _guard_not_arm_a_run_dir(run_dir, dataset_name)
+    validate_local_run_dir(run_dir, dataset_name)
     _guard_protected_output(run_dir, output_path)
     if output_path.exists() and not force:
         raise RuntimeError(
