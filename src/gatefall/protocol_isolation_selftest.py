@@ -17,7 +17,13 @@ import gatefall.data.le2i.annotations as annotations_module
 from gatefall.data.le2i.annotations import load_annotation_splits
 from gatefall.datasets import get_dataset
 from gatefall.datasets.le2i import Le2iDatasetAdapter
-from gatefall.eval import alarm_protocol_sensitivity, grouped_bootstrap, multiseed_summary, qualitative
+from gatefall.eval import (
+    alarm_protocol_sensitivity,
+    b0_events,
+    grouped_bootstrap,
+    multiseed_summary,
+    qualitative,
+)
 from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
 from gatefall.runs import default_run_dir, validate_local_run_dir
 from gatefall.train import b0_fusion
@@ -227,18 +233,38 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
                 force=False,
             )
         )
+    b0_events_rejected = _raises_cross_protocol_guard(
+        lambda: b0_events.run_evaluate(
+            force=False,
+            dataset_name="le2i",
+            run_dir=Path("runs/local/le2i_cv/b0_fusion"),
+        )
+    )
+    b0_cv_scope_rejected = False
+    try:
+        b0_events.run_evaluate(
+            force=False,
+            dataset_name="le2i-cv",
+            run_dir=Path("runs/local/le2i_cv/b0_fusion"),
+        )
+    except ValueError:
+        b0_cv_scope_rejected = True
 
     return _check(
         "entry points CS-only (alarm_protocol_sensitivity/grouped_bootstrap/"
-        "qualitative/multiseed_summary/b0_fusion.run_train/b0_fusion.run_report) "
+        "qualitative/multiseed_summary/b0_fusion.run_train/b0_fusion.run_report/"
+        "b0_events.run_evaluate) "
         "recusam --run-dir sob runs/local/le2i_cv/ mesmo com --dataset le2i, "
-        "através da própria função de produção",
+        "através da própria função de produção; B0 events também "
+        "recusa --dataset le2i-cv fora do escopo atual",
         sensitivity_rejected
         and bootstrap_rejected
         and qualitative_rejected
         and multiseed_rejected
         and b0_train_rejected
-        and b0_report_rejected,
+        and b0_report_rejected
+        and b0_events_rejected
+        and b0_cv_scope_rejected,
     )
 
 
@@ -284,6 +310,7 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
     with (
         tempfile.TemporaryDirectory() as b0_train_tmp,
         tempfile.TemporaryDirectory() as b0_report_tmp,
+        tempfile.TemporaryDirectory() as b0_events_tmp,
     ):
         # run_dir vazio e pré-existente: se o guard de protocolo for passado, run_b0_training
         # (b0_engine.py) bate no branch de "run parcial" (artefatos ausentes) antes de criar o
@@ -304,6 +331,13 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
                 force=False,
             )
         )
+        b0_events_ok = _passes_guard_and_fails_downstream(
+            lambda: b0_events.run_evaluate(
+                force=False,
+                dataset_name="le2i",
+                run_dir=Path(b0_events_tmp),
+            )
+        )
 
     return _check(
         "entry points CS-only: run_dir canônico do próprio protocolo e run_dir "
@@ -314,7 +348,8 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
         and qualitative_ok
         and multiseed_ok
         and b0_train_ok
-        and b0_report_ok,
+        and b0_report_ok
+        and b0_events_ok,
     )
 
 
