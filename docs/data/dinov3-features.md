@@ -12,6 +12,12 @@ implementadas — ver [Padronização de features
 DINOv3](dinov3-standardization.md) e [Treino — Arma
 B0](../train/b0-fusion.md).
 
+A [qualidade visual DINOv3](dinov3-quality.md) documenta a proxy causal
+`q_visual`, calculada no quadro RGB redimensionado antes da normalização, e sua
+validação contra degradações controladas. Ela é um diagnóstico para avaliação
+posterior de fusão adaptativa, não uma probabilidade calibrada nem parte do
+vetor de features persistido nesta etapa.
+
 ## Backbone
 
 O modelo é o `dinov3_vitb16` (ViT-B/16, pré-treinado em LVD-1689M), carregado
