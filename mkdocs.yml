@@ -48,6 +48,7 @@ nav:
       - Padronização de features de pose: data/pose-standardization.md
       - Índice de qualidade de pose: data/pose-quality.md
       - Features DINOv3: data/dinov3-features.md
+      - Índice de qualidade visual DINOv3: data/dinov3-quality.md
       - Padronização de features DINOv3: data/dinov3-standardization.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
