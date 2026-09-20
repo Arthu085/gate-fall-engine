@@ -193,8 +193,8 @@ A arma B1 acrescenta uma fusão adaptativa: um gate escalar por timestep,
 calculado a partir dos proxies de qualidade `q_pose` e `q_visual`, pondera as
 duas fontes antes da TCN. Veja [Features de
 qualidade](docs/data/quality-features.md) e [Treino — Arma
-B1](docs/train/b1-adaptive-gate.md). A avaliação por protocolo de eventos do B1
-e a orquestração das armas B em `gatefall.pipeline` ainda estão pendentes.
+B1](docs/train/b1-adaptive-gate.md). A orquestração das armas B em
+`gatefall.pipeline` ainda está pendente.
 
 ### Braço C — YOLO-Pose + SAM 3 + TCN
 

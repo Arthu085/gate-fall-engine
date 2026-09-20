@@ -172,11 +172,42 @@ confusão, `per_class`, projeção binária `fall`/`fallen`, verificação contr
 `metrics.json`, `class_support_table`, `macro_f1_policy`) a partir de um run B1
 já treinado, sem alterar nenhum artefato protegido.
 
+### Avaliação por eventos
+
+```bash
+uv run python -m gatefall.eval.b1_events selftest
+```
+
+Roda checagens sintéticas da inferência com gate, das guardas de protocolo e do
+lifecycle dos artefatos, sem acessar o dataset real nem um checkpoint.
+
+```bash
+uv run python -m gatefall.eval.b1_events evaluate --dataset le2i \
+  --run-dir runs/local/le2i/b1_adaptive_gate
+```
+
+Avalia `val` e `test` de um run B1 completo. Sem `--run-dir`, usa
+`runs/local/le2i/b1_adaptive_gate/`. A CLI aceita somente Le2i CS. As guardas do
+`run_dir` são as mesmas do treino e do report — ancoradas em `REPOSITORY_ROOT`,
+rejeitam os runs dos braços A e B0 e, para runs não canônicos dessas armas, a
+precheck sobre a `arm` declarada no `config.yaml` recusa o destino.
+
+A qualidade entra no gate **crua** na inferência: pose e DINOv3 são
+padronizados, `[q_pose, q_visual]` não, exatamente como no treino.
+
+A avaliação roda `BASELINE_A_ALARM_PROTOCOL` congelado — não há retuning de
+limiar para o B1 — e reutiliza o mesmo schema de `event_metrics.json`, os mesmos
+hashes e o mesmo lifecycle atômico com lock, journal, staging e promoção
+descrito em [Avaliação — Braço A](../eval/baseline-a-events.md). Publica
+`alarm_protocol.yaml` e `event_metrics.json` no próprio run B1. Sem `--force`,
+preserva um par de saídas íntegro e falha diante de artefatos parciais ou
+inconsistentes; com `--force`, reconstrói e substitui o par somente após validar
+os novos arquivos, com rollback em caso de falha.
+
 ## Fora do escopo desta entrega
 
 B1 implementa apenas o gate escalar mínimo sobre `q_pose` e `q_visual`. Não
-fazem parte desta entrega: avaliação por protocolo de eventos do B1
-(`b1_events`), orquestração de B1 em `gatefall.pipeline`, braço C (SAM 3),
-configurações C0/C1, atenção cruzada entre as duas fontes, ablações de gate
+fazem parte desta entrega: orquestração de B1 em `gatefall.pipeline`, braço C
+(SAM 3), configurações C0/C1, atenção cruzada entre as duas fontes, ablações de gate
 vetorial, buscas de hiperparâmetro (inclusive inicialização deliberada do bias
 do gate), retuning do protocolo de alarme e suporte a `le2i-cv`.

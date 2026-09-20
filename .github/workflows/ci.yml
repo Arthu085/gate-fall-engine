@@ -43,6 +43,7 @@ jobs:
           uv run python -m gatefall.train.b1_gate selftest
           uv run python -m gatefall.eval.baseline_a_events selftest
           uv run python -m gatefall.eval.b0_events selftest
+          uv run python -m gatefall.eval.b1_events selftest
           uv run python -m gatefall.eval.qualitative selftest
           uv run python -m gatefall.eval.alarm_protocol_sensitivity selftest
           uv run python -m gatefall.eval.grouped_bootstrap selftest

@@ -7,11 +7,13 @@ usada no treino, aqui a unidade de avaliação é o evento de queda: quantos
 eventos reais foram detectados, com que latência, e quantos alarmes
 dispararam sem um evento correspondente.
 
-A arma B0 reutiliza exatamente o mesmo `BASELINE_A_ALARM_PROTOCOL`, schema de
-métricas e lifecycle de publicação descritos nesta página. Seu entry point
-carrega janelas fundidas de pose+DINOv3 e está documentado em [Treino — Arma
-B0](../train/b0-fusion.md#avaliacao-por-eventos). Os resultados de referência
-abaixo continuam sendo exclusivos do braço A.
+As armas B0 e B1 reutilizam exatamente o mesmo `BASELINE_A_ALARM_PROTOCOL`,
+schema de métricas e lifecycle de publicação descritos nesta página. Seus entry
+points carregam janelas fundidas de pose+DINOv3 — com ponderação por gate no
+caso do B1 — e estão documentados em [Treino — Arma
+B0](../train/b0-fusion.md#avaliacao-por-eventos) e [Treino — Arma
+B1](../train/b1-adaptive-gate.md#avaliacao-por-eventos). Os resultados de
+referência abaixo continuam sendo exclusivos do braço A.
 
 ## Como executar
 
