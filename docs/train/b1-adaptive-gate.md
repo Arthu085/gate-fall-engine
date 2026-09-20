@@ -97,8 +97,8 @@ para `runs/local/le2i/b1_adaptive_gate/`, irmão de `baseline_a/` e de
 `b0_fusion/`. `run_train` e `run_report` aplicam **três** guardas antes de tocar
 no `run_dir`:
 
-- `guard_not_arm_a_run_dir` (importada de `b0_run.py`, sem duplicação) rejeita
-  `--run-dir` igual, ancestral ou descendente do run do braço A;
+- `guard_not_arm_a_run_dir` (`b1_run.py`) rejeita `--run-dir` igual, ancestral
+  ou descendente do run do braço A;
 - `guard_not_arm_b0_run_dir` (`b1_run.py`) faz o mesmo em relação ao run da arma
   B0 — é essa guarda que impede operacionalmente que um `--force` do B1
   sobrescreva ou renomeie o run de comparação do B0;

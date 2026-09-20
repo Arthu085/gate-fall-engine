@@ -37,6 +37,10 @@ jobs:
           uv run python -m gatefall.features.standardize_dinov3 selftest
           uv run python -m gatefall.train.baseline_a selftest
           uv run python -m gatefall.train.b0_fusion selftest
+          # Agregado da arma B1: roda os oito selftests de componente
+          # (quality sequence, quality extract, gated fusion dataset,
+          # b1 model, b1 config, b1 engine, b1 artifacts, b1 gate).
+          uv run python -m gatefall.train.b1_gate selftest
           uv run python -m gatefall.eval.baseline_a_events selftest
           uv run python -m gatefall.eval.b0_events selftest
           uv run python -m gatefall.eval.qualitative selftest

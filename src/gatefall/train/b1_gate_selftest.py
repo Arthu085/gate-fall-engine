@@ -189,6 +189,40 @@ def check_guard_rejects_arm_a_run_dir() -> bool:
     )
 
 
+def check_arm_a_guard_is_anchored_at_repository_root() -> bool:
+    from gatefall.train.b1_gate import _guard_not_arm_a_run_dir, _guard_run_dir
+
+    arm_a_run_dir = repository_anchored_run_dir(default_run_dir("le2i"))
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tempfile.gettempdir())
+        same = _raises_value_error(
+            lambda: _guard_not_arm_a_run_dir(arm_a_run_dir, "le2i")
+        )
+        ancestor = _raises_value_error(
+            lambda: _guard_not_arm_a_run_dir(arm_a_run_dir.parent, "le2i")
+        )
+        descendant = _raises_value_error(
+            lambda: _guard_not_arm_a_run_dir(arm_a_run_dir / "stray", "le2i")
+        )
+        # _guard_run_dir é o caminho que `run_train` percorre antes do
+        # backup-and-replace do --force: se ele aceitasse, o --force destruiria
+        # o run canônico do braço A.
+        rejects_destructive_force = _raises_value_error(
+            lambda: _guard_run_dir(arm_a_run_dir, "le2i")
+        )
+    finally:
+        os.chdir(original_cwd)
+    return _check(
+        "a guarda do braço A continua recusando o run_dir absoluto igual, "
+        "ancestral ou descendente do run canônico — inclusive pelo "
+        "_guard_run_dir usado antes do --force — quando a CLI roda de outro "
+        "cwd: o run_dir padrão é ancorado em REPOSITORY_ROOT, não no "
+        "diretório corrente",
+        same and ancestor and descendant and rejects_destructive_force,
+    )
+
+
 def check_guard_rejects_arm_b0_run_dir() -> bool:
     from gatefall.train.b1_gate import _guard_not_arm_b0_run_dir
 
@@ -309,6 +343,7 @@ def run_b1_gate_selftest() -> bool:
         check_guard_rejects_protected_output_in_canonical_b1_run_dir(),
         check_guards_are_anchored_at_repository_root(),
         check_guard_rejects_arm_a_run_dir(),
+        check_arm_a_guard_is_anchored_at_repository_root(),
         check_guard_rejects_arm_b0_run_dir(),
         check_guard_accepts_b1_own_run_dir(),
         check_resolve_config_propagates_seed(),

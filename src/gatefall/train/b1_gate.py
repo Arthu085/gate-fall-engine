@@ -47,7 +47,6 @@ from gatefall.runs import (
     default_run_dir_for_arm,
     validate_local_run_dir,
 )
-from gatefall.train.b0_run import guard_not_arm_a_run_dir
 from gatefall.train.b1_artifacts import (
     load_compatible_b1_checkpoint,
     validate_b1_training_run,
@@ -60,6 +59,7 @@ from gatefall.train.b1_engine import (
 )
 from gatefall.train.b1_run import (
     B0_ARM_NAME,
+    guard_not_arm_a_run_dir,
     guard_not_arm_b0_run_dir,
     repository_anchored_run_dir,
     resolve_b1_config,
