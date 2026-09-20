@@ -36,6 +36,7 @@ class Le2iDatasetAdapter:
     raw_dir: Path = Path("data/raw/le2i")
     pose_root: Path = Path("data/features/le2i/pose")
     dinov3_root: Path = Path("data/features/le2i/dinov3")
+    quality_root: Path = Path("data/features/le2i/quality")
     label_names: tuple[str, ...] = LE2I_LABEL_NAMES
     identifier: str = field(init=False, default="le2i")
     manifest_path: Path = field(
