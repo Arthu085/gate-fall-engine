@@ -10,8 +10,8 @@ O projeto é organizado em três braços experimentais:
 
 - **Braço A — YOLO-Pose + TCN:** implementado.
 - **Braço B — YOLO-Pose + DINOv3 + TCN:** extração offline de features
-  DINOv3 e a arma B0 (fusão por concatenação simples com pose, treino e
-  diagnóstico de classificação) implementadas.
+  DINOv3, a arma B0 (fusão por concatenação simples com pose) e a arma B1
+  (fusão adaptativa por gate escalar) implementadas.
 - **Braço C — YOLO-Pose + SAM 3 + TCN:** planejado.
 
 Este projeto é **Built with DINOv3**.
@@ -187,9 +187,14 @@ A arma B0 (fusão por concatenação simples entre pose e DINOv3 projetados,
 seguida da mesma TCN do braço A) também está implementada: veja
 [Padronização de features DINOv3](docs/data/dinov3-standardization.md) e
 [Treino — Arma B0](docs/train/b0-fusion.md) para a arquitetura, a receita de
-treino compartilhada com o braço A e como executar. Gating por confiança
-entre pose e visual, avaliação por protocolo de eventos e orquestração de
-B0 em `gatefall.pipeline` ainda estão pendentes.
+treino compartilhada com o braço A e como executar.
+
+A arma B1 acrescenta uma fusão adaptativa: um gate escalar por timestep,
+calculado a partir dos proxies de qualidade `q_pose` e `q_visual`, pondera as
+duas fontes antes da TCN. Veja [Features de
+qualidade](docs/data/quality-features.md) e [Treino — Arma
+B1](docs/train/b1-adaptive-gate.md). A avaliação por protocolo de eventos do B1
+e a orquestração das armas B em `gatefall.pipeline` ainda estão pendentes.
 
 ### Braço C — YOLO-Pose + SAM 3 + TCN
 
@@ -263,6 +268,8 @@ A documentação detalhada está organizada por responsabilidade.
 - [Features DINOv3](docs/data/dinov3-features.md)
 - [Padronização de features DINOv3](docs/data/dinov3-standardization.md)
 - [Treino da arma B0 (fusão pose + DINOv3)](docs/train/b0-fusion.md)
+- [Features de qualidade (`q_pose`, `q_visual`)](docs/data/quality-features.md)
+- [Treino da arma B1 (fusão adaptativa por gate)](docs/train/b1-adaptive-gate.md)
 
 Documentação adicional será incluída durante o restante da implementação do
 braço B.

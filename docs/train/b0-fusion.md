@@ -181,3 +181,7 @@ B0 implementa apenas fusão por concatenação simples. Não fazem parte desta
 entrega: gating por confiança entre pose e visual (`q_visual`), braço C
 (SAM 3), atenção cruzada entre as duas fontes, orquestração de B0 em
 `gatefall.pipeline` e suporte a `le2i-cv` para B0.
+
+A ponderação adaptativa entre as duas fontes é a arma irmã B1, documentada em
+[Treino — Arma B1 (fusão adaptativa por gate)](b1-adaptive-gate.md); B0
+permanece inalterada.

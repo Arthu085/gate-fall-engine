@@ -72,6 +72,7 @@ class _SyntheticDatasetAdapter:
     dinov3_root: Path
     pose_root: Path = Path("pose")
     pose_stats_path: Path = Path("pose_stats.json")
+    quality_root: Path = Path("quality")
     identifier: str = "le2i"
     label_names: tuple[str, ...] = LE2I_LABEL_NAMES
 

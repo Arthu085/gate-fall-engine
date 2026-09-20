@@ -50,9 +50,11 @@ nav:
       - Features DINOv3: data/dinov3-features.md
       - Índice de qualidade visual DINOv3: data/dinov3-quality.md
       - Padronização de features DINOv3: data/dinov3-standardization.md
+      - Features de qualidade (q_pose, q_visual): data/quality-features.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
       - Arma B0 (fusão pose + DINOv3): train/b0-fusion.md
+      - Arma B1 (fusão adaptativa por gate): train/b1-adaptive-gate.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md
   - Avaliação:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
