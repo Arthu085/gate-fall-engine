@@ -1,15 +1,15 @@
-"""Worker de vida longa do SAM 3 real (facebook/sam3, via transformers).
+"""Worker de vida longa do SAM 3 real (facebookresearch/sam3, runtime oficial).
 
-Roda isolado em `sam3_runtime/` (seu próprio `pyproject.toml`, sem `uv.lock`
-commitado — o operador roda `uv sync` aqui antes de extrair). Nunca importa
-`gatefall`: só troca bytes com o processo pai pelo protocolo de fio descrito
-abaixo e em `gatefall.sam3.runtime`. Os dois lados duplicam a implementação
-do protocolo de propósito — nenhum dos dois pode importar o outro.
+Roda isolado em `sam3_runtime/` (seu próprio `pyproject.toml` e `uv.lock`
+commitado). Nunca importa `gatefall`: só troca bytes com o processo pai pelo
+protocolo de fio descrito abaixo e em `gatefall.sam3.runtime`. Os dois lados
+duplicam a implementação do protocolo de propósito — nenhum dos dois pode
+importar o outro.
 
 Protocolo (todo inteiro é uint32 big-endian):
 - Ao iniciar, este processo imprime uma única linha JSON em stdout com o
-  manifesto de runtime (`sam3_package_version`, `torch_version_isolated`,
-  `device`) antes de processar qualquer quadro.
+  manifesto de runtime (`sam3_package_version`, `sam3_source_revision`,
+  `torch_version_isolated`, `device`) antes de processar qualquer quadro.
 - Por quadro recebido em stdin: um cabeçalho JSON com prefixo de tamanho
   (`{"height", "width", "text_prompt"}`) seguido do RGB cru do quadro
   (`height*width*3` bytes) também com prefixo de tamanho. Responde em
@@ -18,6 +18,7 @@ Protocolo (todo inteiro é uint32 big-endian):
 """
 
 import argparse
+import importlib.metadata
 import json
 import os
 import struct
@@ -27,12 +28,15 @@ from typing import BinaryIO
 
 import numpy as np
 import torch
-import transformers
 from PIL import Image
-from transformers import Sam3Model, Sam3Processor
+from sam3 import build_sam3_image_model
+from sam3.model.sam3_image_processor import Sam3Processor
 
 _LENGTH_PREFIX_FORMAT = ">I"
 _LENGTH_PREFIX_SIZE = struct.calcsize(_LENGTH_PREFIX_FORMAT)
+
+_SAM3_PROCESSOR_RESOLUTION = 1008
+_SAM3_CONFIDENCE_THRESHOLD = 0.5
 
 
 def _write_length_prefixed(stream: BinaryIO, payload: bytes) -> None:
@@ -66,34 +70,59 @@ def _checkpoint_sha256(checkpoint: str) -> str:
     return digest.hexdigest()
 
 
+class Sam3SourceRevisionError(Exception):
+    """Não foi possível resolver a revisão git da distribuição 'sam3' instalada."""
+
+
+def _sam3_source_revision() -> str:
+    try:
+        distribution = importlib.metadata.distribution("sam3")
+    except importlib.metadata.PackageNotFoundError as exc:
+        raise Sam3SourceRevisionError(
+            "distribuição 'sam3' não encontrada em importlib.metadata — o "
+            "pacote foi instalado corretamente?"
+        ) from exc
+
+    direct_url_text = distribution.read_text("direct_url.json")
+    if direct_url_text is None:
+        raise Sam3SourceRevisionError(
+            "direct_url.json ausente na distribuição 'sam3' instalada — ela "
+            "não parece ter sido instalada a partir da URL git oficial "
+            "(reinstalação a partir de wheel/cache local perde essa proveniência)"
+        )
+
+    try:
+        direct_url = json.loads(direct_url_text)
+        commit_id = direct_url["vcs_info"]["commit_id"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise Sam3SourceRevisionError(
+            f"direct_url.json da distribuição 'sam3' não tem o formato "
+            f"esperado (vcs_info.commit_id): {exc!r}"
+        ) from exc
+
+    if not commit_id:
+        raise Sam3SourceRevisionError(
+            "commit_id vazio em vcs_info de direct_url.json da distribuição 'sam3'"
+        )
+    return str(commit_id)
+
+
 def _segment_frame(
-    model: Sam3Model,
     processor: Sam3Processor,
-    device: str,
     frame_rgb: np.ndarray,
     text_prompt: str,
 ) -> tuple[np.ndarray, np.ndarray]:
     image = Image.fromarray(frame_rgb, mode="RGB")
-    inputs = processor(images=image, text=text_prompt, return_tensors="pt").to(device)
+    state = processor.set_image(image)
+    state = processor.set_text_prompt(text_prompt, state)
 
-    with torch.inference_mode():
-        outputs = model(**inputs)
-
-    results = processor.post_process_instance_segmentation(
-        outputs, target_sizes=[(frame_rgb.shape[0], frame_rgb.shape[1])]
-    )[0]
-
-    masks = results["masks"].to(torch.bool).cpu().numpy()
-    scores = results["scores"].to(torch.float32).cpu().numpy()
-    if masks.ndim == 2:
-        masks = masks[np.newaxis, ...]
-        scores = scores[np.newaxis, ...] if scores.ndim == 0 else scores
+    masks = state["masks"].squeeze(1).to(torch.bool).cpu().numpy()
+    scores = state["scores"].to(torch.float32).cpu().numpy()
     return masks, scores
 
 
 def main() -> None:
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-    os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
 
     real_stdout: BinaryIO = sys.stdout.buffer
     sys.stdout = sys.stderr
@@ -103,11 +132,32 @@ def main() -> None:
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = Sam3Model.from_pretrained(args.checkpoint).to(device).eval()
-    processor = Sam3Processor.from_pretrained(args.checkpoint)
+    model = build_sam3_image_model(
+        bpe_path=None,
+        device=device,
+        eval_mode=True,
+        checkpoint_path=args.checkpoint,
+        load_from_HF=False,
+        enable_segmentation=True,
+        enable_inst_interactivity=False,
+        compile=False,
+    )
+    processor = Sam3Processor(
+        model,
+        resolution=_SAM3_PROCESSOR_RESOLUTION,
+        device=device,
+        confidence_threshold=_SAM3_CONFIDENCE_THRESHOLD,
+    )
+
+    try:
+        sam3_source_revision = _sam3_source_revision()
+    except Sam3SourceRevisionError as exc:
+        print(f"sam3_runtime FALHOU: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     manifest = {
-        "sam3_package_version": transformers.__version__,
+        "sam3_package_version": importlib.metadata.version("sam3"),
+        "sam3_source_revision": sam3_source_revision,
         "torch_version_isolated": torch.__version__,
         "device": device,
         "sam3_checkpoint_sha256": _checkpoint_sha256(args.checkpoint),
@@ -129,7 +179,7 @@ def main() -> None:
         frame_bytes = _read_length_prefixed(stdin)
         frame_rgb = np.frombuffer(frame_bytes, dtype=np.uint8).reshape(height, width, 3)
 
-        masks, scores = _segment_frame(model, processor, device, frame_rgb, text_prompt)
+        masks, scores = _segment_frame(processor, frame_rgb, text_prompt)
 
         buffer = BytesIO()
         np.savez(buffer, masks=masks, scores=scores)

@@ -1,7 +1,8 @@
 # Fundação SAM 3 (braço C)
 
 `src/gatefall/sam3/` implementa a extração offline do descritor `V_t` do
-braço C a partir do backbone congelado **SAM 3** (`facebook/sam3`). Esta
+braço C a partir do backbone congelado **SAM 3** (runtime oficial
+`facebookresearch/sam3`). Esta
 etapa cobre apenas a fundação de dados: descritores de máscara, seleção de
 instância, armazenamento e proveniência. Ela **não implementa** C0, C1, um
 `q_visual` específico do SAM, fusão, gate, cross-attention, treino da TCN do
@@ -12,10 +13,10 @@ braço C nem avaliação por eventos — e **não fecha o PEND-015**.
 `uv run python -m gatefall.sam3.selection selftest` e
 `uv run python -m gatefall.sam3.extract selftest` rodam apenas contra
 fixtures sintéticas e um segmentador falso injetado (`Sam3Segmenter`
-protocolo, sem `torch`/`transformers`). Eles validam a matemática dos
+protocolo, sem `torch`/`sam3`). Eles validam a matemática dos
 descritores, a política de seleção contínua, o armazenamento HDF5, a
 verificação de proveniência e o alinhamento de quadro — nada disso exercita
-o modelo `facebook/sam3` real. **A extração real ainda não foi rodada**:
+o modelo SAM 3 real. **A extração real ainda não foi rodada**:
 não há evidência de que o SAM 3 produza máscaras válidas sobre vídeo real do
 Le2i. Só `uv run python -m gatefall.sam3.extract verify-frame-alignment`
 roda o hardware real, e mesmo assim valida apenas alinhamento de quadro, não
@@ -32,12 +33,20 @@ sobrescreveria os `.h5` do `cs`.
 
 ## Modelo e prompt
 
-- Modelo congelado: `facebook/sam3`, carregado no sub-projeto isolado
-  `sam3_runtime/` (ver abaixo).
-- Inferência quadro a quadro (sem tracking de vídeo, sem SAM 3.1).
-- Prompt de texto fixo e único: `"person"`. Nenhuma variação de prompt
-  relacionada a queda e nenhuma bbox de pose é usada como prompt — a
-  seleção de instância (abaixo) é independente da pose.
+- Modelo congelado: **SAM 3 base** (não SAM 3.1), carregado no sub-projeto
+  isolado `sam3_runtime/` (ver abaixo) via `build_sam3_image_model(...)` do
+  pacote oficial `facebookresearch/sam3`, com `enable_inst_interactivity=False`.
+- Inferência quadro a quadro (sem tracking de vídeo).
+- Prompt de texto fixo e único: `"person"`, aplicado via
+  `Sam3Processor.set_image(...)` seguido de `set_text_prompt("person", state)`.
+  Nenhuma variação de prompt relacionada a queda e nenhuma bbox de pose é
+  usada como prompt — a seleção de instância (abaixo) é independente da pose.
+- `Sam3Processor(confidence_threshold=0.5)` já filtra instâncias abaixo do
+  limiar antes de as máscaras chegarem ao lado GateFall do protocolo de fio.
+- O quadro RGB é convertido para `PIL.Image` antes de `set_image` porque a
+  API upstream interpreta mal a forma de um `ndarray` HWC passado direto.
+- Um checkpoint **SAM 3.1** não é validado quanto a compatibilidade por este
+  repositório — o operador deve fornecer um checkpoint SAM 3 base.
 
 ## Descritor `V_t`
 
@@ -122,9 +131,12 @@ Um arquivo por vídeo, agrupado por vídeo (nunca um arquivo por quadro), em
 - dataset `sam_score`: shape `[K]`, `float32`;
 - dataset `n_instances`: shape `[K]`, `int16`;
 - atributos de proveniência: `model_name`, `text_prompt`,
-  `sam3_checkpoint_sha256`, `sam3_runtime_lock_sha256`, `target_fps`, além de
-  `video_id`, `env`, `split`, `subject`, `K`, `fps`, `width`, `height` e os
-  campos do manifesto de runtime reportados pelo worker.
+  `sam3_checkpoint_sha256`, `sam3_runtime_lock_sha256`, `sam3_source_revision`,
+  `target_fps`, além de `video_id`, `env`, `split`, `subject`, `K`, `fps`,
+  `width`, `height` e os campos do manifesto de runtime reportados pelo
+  worker. `sam3_source_revision` é o commit git upstream resolvido (ver
+  abaixo) a partir do `direct_url.json` (PEP 610) da distribuição `sam3`
+  instalada no sub-projeto isolado.
 
 O score do SAM é gravado **fora** de `v_t`, em `sam_score`, por design: o
 contrato de `V_t` é congelado em 10 dimensões, e um canal de confiança do
@@ -137,17 +149,30 @@ antes de a gravação ser considerada bem-sucedida (`verify_written_file`).
 ## Isolamento de ambiente: `sam3_runtime/`
 
 O SAM 3 roda em `sam3_runtime/`, um sub-projeto `uv` isolado com seu próprio
-`pyproject.toml`. `gatefall.sam3.runtime` nunca importa `torch`/`transformers`
-do SAM 3 diretamente nem o script `sam3_runtime/run_sam3.py`: a comunicação é
-só por um subprocesso de vida longa, um quadro por vez, via protocolo de fio
-com prefixo de tamanho (todo inteiro é `uint32` big-endian):
+`pyproject.toml` e `sam3_runtime/uv.lock` **commitado** no repositório.
+`gatefall.sam3.runtime` nunca importa `torch`/`sam3` diretamente nem o script
+`sam3_runtime/run_sam3.py`: a comunicação é só por um subprocesso de vida
+longa, um quadro por vez, via protocolo de fio com prefixo de tamanho (todo
+inteiro é `uint32` big-endian):
 
 - ao iniciar, o worker imprime uma linha JSON com o manifesto de runtime
-  (versões, hash do checkpoint) antes de processar qualquer quadro;
+  (versões, `sam3_source_revision`, hash do checkpoint) antes de processar
+  qualquer quadro;
 - por quadro, o cliente escreve um cabeçalho JSON com prefixo de tamanho
   (`height`, `width`, `text_prompt`) seguido do RGB cru do quadro, também
   com prefixo de tamanho; o worker responde com um `.npz` com prefixo de
-  tamanho contendo `masks` (`[N,H,W]` bool) e `scores` (`[N]` float32).
+  tamanho contendo `masks` (`[N,H,W]` bool) e `scores` (`[N]` float32). O
+  modelo devolve máscaras `[N,1,H,W]`; o worker as reduz (`squeeze`) para o
+  `[N,H,W]` do protocolo de fio antes de enviar.
+
+`sam3_runtime/pyproject.toml` fixa
+`sam3 @ git+https://github.com/facebookresearch/sam3.git@2345a4ad109ac29c569da749c91d84f10dc08c40`
+(commit exato, não uma tag — o repositório upstream `facebookresearch/sam3`
+não publica tags de release) e `numpy>=1.26,<2`, porque o pacote oficial
+exige NumPy abaixo de 2. Isso diverge do `numpy>=2.5.2` da raiz do
+repositório; a divergência é segura porque só bytes cruzam a fronteira do
+subprocesso (o protocolo de fio acima) e o `pyright` da raiz só cobre
+`src`/`scripts`, nunca `sam3_runtime/`.
 
 O `pyproject.toml`/`uv.lock` da raiz do repositório permanecem intocados —
 o ambiente A/B (braços A e B) não pode mudar por causa do braço C. O
@@ -162,25 +187,35 @@ CI, que só roda os `selftest` sintéticos contra um segmentador falso.
 cd sam3_runtime && uv sync
 ```
 
-`sam3_runtime/uv.lock` é deliberadamente **não commitado**: o operador roda
-`uv sync` no sub-projeto antes de extrair. Consequência: enquanto esse
-arquivo não existir, `sam3_runtime_lock_sha256` (e, de forma análoga,
-`sam3_checkpoint_sha256` enquanto o checkpoint não existir) é gravado como
-string vazia na proveniência, e o código emite um aviso em stderr sempre que
-um hash de proveniência resolve vazio.
+`sam3_runtime/uv.lock` é commitado: `uv sync` materializa o ambiente a
+partir desse lock em vez de resolvê-lo do zero. `ensure_sam3_runtime_available`
+falha alto (`FileNotFoundError`) se `sam3_runtime/uv.lock` não existir no
+diretório do runtime, e o worker falha na inicialização
+(`Sam3SourceRevisionError`, saída não-zero) se não conseguir resolver
+`sam3_source_revision` a partir do `direct_url.json` da distribuição `sam3`
+instalada — nenhum dos dois caminhos reais grava mais um placeholder vazio
+de proveniência. O sentinela de string vazia para
+`sam3_checkpoint_sha256`/`sam3_runtime_lock_sha256` permanece **só** no
+caminho sintético do `selftest`, que injeta um segmentador falso e nunca
+sobe o runtime real — ver a limitação residual 1 abaixo para o caso real
+restante (lock desatualizado, não lock ausente).
 
 ## Limitações residuais conhecidas
 
 1. **`extract` (vídeo único) pode reportar "já existe e é válido" com base
-   em um lock desatualizado.** O caminho de `extract` para um único vídeo lê
-   `sam3_runtime/uv.lock` para checar o `.h5` existente **antes** de o
-   subprocesso do runtime sincronizar o sub-projeto isolado. Se
-   `sam3_runtime/pyproject.toml` mudar e `uv sync` ainda não tiver sido
-   rodado, o hash do lock desatualizado pode fazer o comando pular uma
-   reextração necessária. `extract-all` não tem esse problema: ele resolve
-   os hashes depois de entrar no contexto do runtime e os repassa para cada
-   vídeo. Contorno: rode `uv sync` em `sam3_runtime/` antes de extrair, ou
-   passe `--force`.
+   em um `uv.lock` desatualizado em relação a um `pyproject.toml` editado.**
+   Commitar `sam3_runtime/uv.lock` resolve o caso de o arquivo estar
+   totalmente ausente (agora `ensure_sam3_runtime_available` falha alto
+   nesse caso). O que resta: o caminho de `extract` para um único vídeo
+   ainda lê `sam3_runtime/uv.lock` do disco e faz seu hash para checar o
+   `.h5` existente **antes** de o subprocesso do runtime sincronizar o
+   sub-projeto isolado. Se `sam3_runtime/pyproject.toml` for editado
+   localmente e `uv lock`/`uv sync` ainda não tiverem sido rodados, o hash é
+   calculado sobre o lock desatualizado como está no disco, e isso pode
+   fazer o comando pular uma reextração necessária. `extract-all` não tem
+   esse problema: ele resolve os hashes depois de entrar no contexto do
+   runtime e os repassa para cada vídeo. Contorno: rode `uv lock`/`uv sync`
+   em `sam3_runtime/` antes de extrair um vídeo único, ou passe `--force`.
 2. **`extract-all` aborta o lote inteiro se o subprocesso do runtime morrer
    no meio.** `run_sam3_extract_all` interrompe com uma mensagem clara em
    vez de continuar processando os vídeos restantes contra um subprocesso
@@ -203,9 +238,13 @@ uv run python -m gatefall.sam3.extract selftest
 ```
 
 Roda checagens sintéticas dos descritores, do armazenamento, da guarda de
-protocolo `cs` e das fixtures de alinhamento de quadro, tudo contra um
-segmentador falso — não toca no checkpoint do SAM 3, no sub-projeto
-`sam3_runtime/` nem no dataset real.
+protocolo `cs`, das fixtures de alinhamento de quadro, da construção do
+comando/caminhos do worker (`build_worker_invocation`,
+`resolve_runtime_project_dir`, `resolve_checkpoint_path`) e das rejeições do
+gate de `sam3 report` (proveniência ausente/vazia/malformada, `.h5`
+estruturalmente inválido), tudo contra um segmentador falso injetado — não
+toca no checkpoint do SAM 3, no sub-projeto `sam3_runtime/` nem no dataset
+real.
 
 ```bash
 uv run python -m gatefall.sam3.extract extract --video-id <ENV/VIDEO> [--runtime-dir DIR] [--checkpoint PATH] [--force] [--dataset le2i]
@@ -229,8 +268,16 @@ lote (ver limitação 2 acima), caso em que o comando aborta antes do resumo.
 uv run python -m gatefall.sam3.extract report [--dataset le2i]
 ```
 
-Valida a cobertura dos `.h5` de SAM 3 já extraídos contra `frames.parquet` e
-a homogeneidade de proveniência entre eles.
+Gate de integridade e capacidade pré-C0 sobre os 190 vídeos: valida a
+cobertura dos `.h5` de SAM 3 já extraídos contra `frames.parquet`, a
+homogeneidade de proveniência entre eles, a estrutura de cada `.h5`
+(`storage.validate_existing_file` — presença, shape e dtype corretos de
+`v_t`, `sam_score`, `n_instances`) e que os atributos de proveniência
+obrigatórios (`sam3_checkpoint_sha256`, `sam3_runtime_lock_sha256`,
+`sam3_source_revision`) não estão ausentes, vazios nem malformados
+(`sam3_source_revision` deve ser um SHA de commit git hexadecimal minúsculo
+de 40 caracteres; os dois hashes SHA-256, hexadecimal minúsculo de 64
+caracteres). Qualquer falha resulta em saída não-zero.
 
 ```bash
 uv run python -m gatefall.sam3.extract verify-frame-alignment [--runtime-dir DIR] [--checkpoint PATH] [--dataset le2i]
@@ -246,7 +293,7 @@ mesma decisão tomada pela extração. Roda o SAM 3 real via
 ## Licença do SAM 3
 
 O código e o checkpoint do SAM 3 utilizados aqui têm licença própria, definida
-pela Meta/`facebook/sam3` — **não verificada nem afirmada por esta
+pela Meta/`facebookresearch/sam3` — **não verificada nem afirmada por esta
 documentação**. Quem for rodar a extração real deve consultar os termos
 oficiais diretamente na fonte do modelo antes de baixar, redistribuir ou
 publicar resultados obtidos com ele; a licença MIT deste repositório não se

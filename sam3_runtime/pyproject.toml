@@ -1,14 +1,14 @@
 [project]
 name = "sam3-runtime"
 version = "0.1.0"
-description = "Sub-projeto uv isolado que roda o SAM 3 real (facebook/sam3) via transformers, fora do ambiente do gatefall"
+description = "Sub-projeto uv isolado que roda o SAM 3 real (facebookresearch/sam3, runtime oficial), fora do ambiente do gatefall"
 requires-python = ">=3.12"
 dependencies = [
-    "accelerate>=1.0.0",
-    "numpy>=2.5.2",
+    "numpy>=1.26,<2",
     "pillow>=12.3.0",
+    "sam3 @ git+https://github.com/facebookresearch/sam3.git@2345a4ad109ac29c569da749c91d84f10dc08c40",
     "torch>=2.13.0",
-    "transformers>=4.57.0",
+    "torchvision>=0.28.0",
 ]
 
 [tool.uv]

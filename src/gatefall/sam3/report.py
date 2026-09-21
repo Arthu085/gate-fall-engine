@@ -7,7 +7,7 @@ import h5py
 import pandas as pd
 
 from gatefall.datasets import DatasetAdapter
-from gatefall.sam3 import storage
+from gatefall.sam3 import descriptors, storage
 from gatefall.sam3.dataset_guard import ensure_sam3_dataset_supported
 from gatefall.sam3.storage import sam3_path
 
@@ -85,6 +85,7 @@ def run_sam3_report(adapter: DatasetAdapter) -> None:
     total_bytes = 0
     total_present = 0
     attrs_by_video: dict[str, dict[str, object]] = {}
+    structurally_invalid: dict[str, list[str]] = {}
 
     for video_id, n_frames in group_sizes.items():
         video_id = str(video_id)
@@ -101,6 +102,13 @@ def run_sam3_report(adapter: DatasetAdapter) -> None:
                 if name in h5_file.attrs
             }
             n_present_video = int(cast(h5py.Dataset, h5_file["v_t"])[:, 0].sum())
+
+        structural_reasons = storage.validate_existing_file(
+            path, expected_k=int(n_frames), v_t_dim=descriptors.V_T_DIM, expected_attrs={}
+        )
+        if structural_reasons:
+            structurally_invalid[video_id] = structural_reasons
+
         if k != int(n_frames):
             mismatched.append(f"{video_id} (K={k}, frames.parquet={int(n_frames)})")
             continue
@@ -109,6 +117,13 @@ def run_sam3_report(adapter: DatasetAdapter) -> None:
         total_bytes += path.stat().st_size
 
     divergences = find_provenance_divergences(attrs_by_video)
+    invalid_provenance_by_video: dict[str, list[str]] = {}
+    for video_id, attrs in attrs_by_video.items():
+        invalid_reasons = storage.find_invalid_required_provenance(
+            attrs, storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES
+        )
+        if invalid_reasons:
+            invalid_provenance_by_video[video_id] = invalid_reasons
 
     n_videos = len(group_sizes)
     total_frames = sum(frames_by_split.values())
@@ -120,6 +135,17 @@ def run_sam3_report(adapter: DatasetAdapter) -> None:
         print(f"\nvídeos com K divergente ({len(mismatched)}): {mismatched}")
     if divergences:
         print(f"\ndivergências de proveniência ({len(divergences)}): {divergences}")
+    if structurally_invalid:
+        print(
+            f"\n.h5 estruturalmente inválidos ({len(structurally_invalid)}): "
+            f"{structurally_invalid}"
+        )
+    if invalid_provenance_by_video:
+        print(
+            "\nvídeos com atributo(s) de proveniência obrigatório(s) ausente(s), "
+            "vazio(s) ou malformado(s) "
+            f"({len(invalid_provenance_by_video)}): {invalid_provenance_by_video}"
+        )
 
     print("\nquadros por split:")
     for split, expected in EXPECTED_SPLIT_FRAME_COUNTS.items():
@@ -137,6 +163,11 @@ def run_sam3_report(adapter: DatasetAdapter) -> None:
         _check("nenhum K divergente", not mismatched),
         _check(f"total de quadros == {EXPECTED_TOTAL_FRAMES}", total_frames == EXPECTED_TOTAL_FRAMES),
         _check("proveniência idêntica em todos os .h5", not divergences),
+        _check("nenhum .h5 estruturalmente inválido", not structurally_invalid),
+        _check(
+            "nenhum atributo de proveniência obrigatório ausente, vazio ou malformado",
+            not invalid_provenance_by_video,
+        ),
     ]
     for split, expected in EXPECTED_SPLIT_FRAME_COUNTS.items():
         checks.append(

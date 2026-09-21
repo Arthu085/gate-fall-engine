@@ -1,9 +1,8 @@
 """Fronteira de isolamento entre o GateFall e o runtime real do SAM 3.
 
-O SAM 3 (facebook/sam3, via `transformers`) roda em um uv sub-projeto isolado
-em `sam3_runtime/`, com seu próprio `pyproject.toml` e sem `uv.lock`
-commitado (decisão do plano: o operador roda `uv sync` lá antes de extrair).
-Este módulo nunca importa `torch`/`transformers` do SAM 3 nem o processo
+O SAM 3 (facebookresearch/sam3, runtime oficial) roda em um uv sub-projeto
+isolado em `sam3_runtime/`, com seu próprio `pyproject.toml` e `uv.lock`
+commitado. Este módulo nunca importa `torch`/`sam3` real nem o processo
 `sam3_runtime/run_sam3.py` — só troca bytes com ele por um subprocesso de
 vida longa, um quadro por vez, via um protocolo de fio (wire protocol) simples
 de mensagens com prefixo de tamanho.
@@ -58,20 +57,45 @@ class Sam3Segmenter(Protocol):
 
 def resolve_runtime_project_dir(cli_value: str | None) -> Path:
     if cli_value is not None:
-        return Path(cli_value)
+        return Path(cli_value).resolve()
     env_value = os.environ.get(RUNTIME_DIR_ENV_VAR)
     if env_value is not None:
-        return Path(env_value)
-    return SAM3_RUNTIME_PROJECT_DIR
+        return Path(env_value).resolve()
+    return SAM3_RUNTIME_PROJECT_DIR.resolve()
 
 
 def resolve_checkpoint_path(cli_value: str | None) -> Path:
     if cli_value is not None:
-        return Path(cli_value)
+        return Path(cli_value).resolve()
     env_value = os.environ.get(CHECKPOINT_PATH_ENV_VAR)
     if env_value is not None:
-        return Path(env_value)
-    return DEFAULT_CHECKPOINT_PATH
+        return Path(env_value).resolve()
+    return DEFAULT_CHECKPOINT_PATH.resolve()
+
+
+def build_worker_invocation(
+    runtime_project_dir: Path, checkpoint_path: Path
+) -> tuple[list[str], str]:
+    """Monta o argv/cwd do `uv run` do worker do SAM 3.
+
+    `--project` e `cwd` devem ser exatamente o mesmo caminho absoluto: `uv`
+    resolve `--project` contra o próprio `cwd` do subprocesso, então um valor
+    relativo aqui aponta para o lugar errado assim que `cwd` já é o próprio
+    diretório do sub-projeto.
+    """
+    runtime_project_dir = runtime_project_dir.resolve()
+    checkpoint_path = checkpoint_path.resolve()
+    argv = [
+        "uv",
+        "run",
+        "--project",
+        str(runtime_project_dir),
+        "python",
+        "run_sam3.py",
+        "--checkpoint",
+        str(checkpoint_path),
+    ]
+    return argv, str(runtime_project_dir)
 
 
 def ensure_sam3_runtime_available(runtime_project_dir: Path, checkpoint_path: Path) -> None:
@@ -86,6 +110,12 @@ def ensure_sam3_runtime_available(runtime_project_dir: Path, checkpoint_path: Pa
         raise FileNotFoundError(
             f"worker do runtime SAM 3 não encontrado: {run_script} — "
             f"{runtime_project_dir} existe mas não contém `run_sam3.py`"
+        )
+    lock_file = runtime_project_dir / "uv.lock"
+    if not lock_file.exists():
+        raise FileNotFoundError(
+            f"uv.lock do runtime SAM 3 não encontrado: {lock_file} — "
+            f"{runtime_project_dir} existe mas não contém `uv.lock` commitado"
         )
     if not checkpoint_path.exists():
         raise FileNotFoundError(
@@ -126,8 +156,16 @@ class Sam3RuntimeSegmenter:
         runtime_project_dir: Path | None = None,
         checkpoint_path: Path | None = None,
     ) -> None:
-        self._runtime_project_dir = runtime_project_dir or resolve_runtime_project_dir(None)
-        self._checkpoint_path = checkpoint_path or resolve_checkpoint_path(None)
+        self._runtime_project_dir = (
+            runtime_project_dir.resolve()
+            if runtime_project_dir is not None
+            else resolve_runtime_project_dir(None)
+        )
+        self._checkpoint_path = (
+            checkpoint_path.resolve()
+            if checkpoint_path is not None
+            else resolve_checkpoint_path(None)
+        )
         self._process: subprocess.Popen[bytes] | None = None
         self._runtime_manifest: dict[str, object] | None = None
 
@@ -141,18 +179,10 @@ class Sam3RuntimeSegmenter:
 
     def __enter__(self) -> "Sam3RuntimeSegmenter":
         ensure_sam3_runtime_available(self._runtime_project_dir, self._checkpoint_path)
+        argv, cwd = build_worker_invocation(self._runtime_project_dir, self._checkpoint_path)
         self._process = subprocess.Popen(
-            [
-                "uv",
-                "run",
-                "--project",
-                str(self._runtime_project_dir),
-                "python",
-                "run_sam3.py",
-                "--checkpoint",
-                str(self._checkpoint_path),
-            ],
-            cwd=str(self._runtime_project_dir),
+            argv,
+            cwd=cwd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=sys.stderr,

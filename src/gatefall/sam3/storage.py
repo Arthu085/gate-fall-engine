@@ -7,6 +7,7 @@ dele.
 """
 
 import os
+import re
 from pathlib import Path
 from typing import cast
 
@@ -18,8 +19,51 @@ PROVENANCE_ATTR_NAMES: tuple[str, ...] = (
     "text_prompt",
     "sam3_checkpoint_sha256",
     "sam3_runtime_lock_sha256",
+    "sam3_source_revision",
     "target_fps",
 )
+
+REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES: tuple[str, ...] = (
+    "sam3_checkpoint_sha256",
+    "sam3_runtime_lock_sha256",
+    "sam3_source_revision",
+)
+
+_GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+_SHA256_HEX_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+# Mesmo conjunto de chaves de REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES: um
+# valor não vazio mas mal formado (ex.: uma mensagem de erro) precisa
+# reprovar tanto quanto um valor ausente ou vazio.
+REQUIRED_PROVENANCE_ATTR_FORMATS: dict[str, tuple[re.Pattern[str], str]] = {
+    "sam3_checkpoint_sha256": (_SHA256_HEX_DIGEST_PATTERN, "sha256 hexadecimal de 64 caracteres"),
+    "sam3_runtime_lock_sha256": (_SHA256_HEX_DIGEST_PATTERN, "sha256 hexadecimal de 64 caracteres"),
+    "sam3_source_revision": (_GIT_COMMIT_SHA_PATTERN, "sha de commit git de 40 caracteres hexadecimais"),
+}
+
+
+def find_invalid_required_provenance(
+    attrs: dict[str, object], required_names: tuple[str, ...]
+) -> list[str]:
+    invalid: list[str] = []
+    for name in required_names:
+        if name not in attrs:
+            invalid.append(f"{name}: ausente")
+            continue
+        value = attrs[name]
+        if isinstance(value, str) and value == "":
+            invalid.append(f"{name}: vazio")
+            continue
+        pattern_and_description = REQUIRED_PROVENANCE_ATTR_FORMATS.get(name)
+        if pattern_and_description is None:
+            continue
+        pattern, description = pattern_and_description
+        if not isinstance(value, str) or pattern.match(value) is None:
+            invalid.append(
+                f"{name}: formato inválido (esperado {description}, "
+                f"encontrado {value!r})"
+            )
+    return invalid
 
 
 class Sam3StorageError(Exception):

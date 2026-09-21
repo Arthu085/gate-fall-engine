@@ -5,9 +5,12 @@ as entradas são sintéticas e o segmentador é sempre um fake injetado via
 `segmenter=`, nunca o `Sam3RuntimeSegmenter` real.
 """
 
+import os
 import sys
 import tempfile
+from contextlib import redirect_stdout
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from typing import Callable
 
@@ -34,7 +37,15 @@ from gatefall.sam3.extract import (
 )
 from gatefall.sam3.frame_alignment import run_sam3_verify_frame_alignment
 from gatefall.sam3.report import find_provenance_divergences, run_sam3_report
-from gatefall.sam3.runtime import Sam3Instance
+from gatefall.sam3.runtime import (
+    CHECKPOINT_PATH_ENV_VAR,
+    RUNTIME_DIR_ENV_VAR,
+    Sam3Instance,
+    build_worker_invocation,
+    ensure_sam3_runtime_available,
+    resolve_checkpoint_path,
+    resolve_runtime_project_dir,
+)
 from gatefall.sam3.storage import (
     Sam3StorageError,
     sam3_path,
@@ -540,6 +551,346 @@ def _check_dataset_guard_rejects_le2i_cv() -> bool:
     )
 
 
+def _check_build_worker_invocation_project_equals_cwd() -> bool:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir)
+        (root / "sam3_runtime").mkdir()
+        original_cwd = Path.cwd()
+        os.chdir(root)
+        try:
+            argv, cwd = build_worker_invocation(
+                Path("sam3_runtime"), Path("checkpoint.pt")
+            )
+        finally:
+            os.chdir(original_cwd)
+
+        project_value = argv[argv.index("--project") + 1]
+        ok = project_value == cwd == str((root / "sam3_runtime").resolve())
+    return _check(
+        "build_worker_invocation: com entradas relativas, --project e cwd "
+        "são exatamente o mesmo caminho absoluto", ok
+    )
+
+
+def _check_build_worker_invocation_checkpoint_absolute_independent_of_cwd() -> bool:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir)
+        (root / "sam3_runtime").mkdir()
+        original_cwd = Path.cwd()
+        os.chdir(root)
+        try:
+            argv, cwd = build_worker_invocation(
+                Path("sam3_runtime"), Path("weights/checkpoint.pt")
+            )
+        finally:
+            os.chdir(original_cwd)
+
+        checkpoint_value = argv[argv.index("--checkpoint") + 1]
+        ok = (
+            Path(checkpoint_value).is_absolute()
+            and checkpoint_value == str((root / "weights/checkpoint.pt").resolve())
+            and checkpoint_value != cwd
+        )
+    return _check(
+        "build_worker_invocation: --checkpoint é absoluto e independente do "
+        "cwd do subprocesso", ok
+    )
+
+
+def _check_resolve_precedence_and_absolute_paths() -> bool:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir)
+        original_cwd = Path.cwd()
+        os.chdir(root)
+        original_runtime_env = os.environ.pop(RUNTIME_DIR_ENV_VAR, None)
+        original_checkpoint_env = os.environ.pop(CHECKPOINT_PATH_ENV_VAR, None)
+        try:
+            default_dir = resolve_runtime_project_dir(None)
+            default_checkpoint = resolve_checkpoint_path(None)
+            default_ok = default_dir.is_absolute() and default_checkpoint.is_absolute()
+
+            os.environ[RUNTIME_DIR_ENV_VAR] = "env_runtime_dir"
+            os.environ[CHECKPOINT_PATH_ENV_VAR] = "env_checkpoint.pt"
+            env_dir = resolve_runtime_project_dir(None)
+            env_checkpoint = resolve_checkpoint_path(None)
+            env_ok = (
+                env_dir == (root / "env_runtime_dir").resolve()
+                and env_checkpoint == (root / "env_checkpoint.pt").resolve()
+                and env_dir.is_absolute()
+                and env_checkpoint.is_absolute()
+            )
+
+            cli_dir = resolve_runtime_project_dir("cli_runtime_dir")
+            cli_checkpoint = resolve_checkpoint_path("cli_checkpoint.pt")
+            cli_ok = (
+                cli_dir == (root / "cli_runtime_dir").resolve()
+                and cli_checkpoint == (root / "cli_checkpoint.pt").resolve()
+                and cli_dir.is_absolute()
+                and cli_checkpoint.is_absolute()
+            )
+        finally:
+            os.chdir(original_cwd)
+            if original_runtime_env is None:
+                os.environ.pop(RUNTIME_DIR_ENV_VAR, None)
+            else:
+                os.environ[RUNTIME_DIR_ENV_VAR] = original_runtime_env
+            if original_checkpoint_env is None:
+                os.environ.pop(CHECKPOINT_PATH_ENV_VAR, None)
+            else:
+                os.environ[CHECKPOINT_PATH_ENV_VAR] = original_checkpoint_env
+
+    ok = default_ok and env_ok and cli_ok
+    return _check(
+        "resolve_runtime_project_dir/resolve_checkpoint_path: precedência "
+        "CLI > env > padrão se mantém e todo ramo devolve caminho absoluto "
+        "a partir de entrada relativa", ok
+    )
+
+
+def _check_ensure_sam3_runtime_available_requires_uv_lock() -> bool:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir)
+        runtime_dir = root / "sam3_runtime"
+        runtime_dir.mkdir()
+        (runtime_dir / "run_sam3.py").write_text("")
+        checkpoint_path = root / "checkpoint.pt"
+        checkpoint_path.write_text("")
+
+        missing_lock_raised = False
+        try:
+            ensure_sam3_runtime_available(runtime_dir, checkpoint_path)
+        except FileNotFoundError as exc:
+            missing_lock_raised = "uv.lock" in str(exc)
+
+        (runtime_dir / "uv.lock").write_text("")
+        cleared_after_lock_present = True
+        try:
+            ensure_sam3_runtime_available(runtime_dir, checkpoint_path)
+        except FileNotFoundError:
+            cleared_after_lock_present = False
+
+    ok = missing_lock_raised and cleared_after_lock_present
+    return _check(
+        "ensure_sam3_runtime_available: uv.lock ausente levanta "
+        "FileNotFoundError e sua presença limpa a checagem", ok
+    )
+
+
+_WELL_FORMED_REQUIRED_PROVENANCE_VALUES: dict[str, str] = {
+    "sam3_checkpoint_sha256": "a" * 64,
+    "sam3_runtime_lock_sha256": "b" * 64,
+    "sam3_source_revision": "c" * 40,
+}
+
+
+def _full_required_provenance_attrs(**overrides: object) -> dict[str, object]:
+    attrs: dict[str, object] = dict(_WELL_FORMED_REQUIRED_PROVENANCE_VALUES)
+    attrs.update(overrides)
+    return attrs
+
+
+def _check_find_invalid_required_provenance() -> bool:
+    complete_ok = (
+        storage.find_invalid_required_provenance(
+            _full_required_provenance_attrs(), storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES
+        )
+        == []
+    )
+
+    empty_string_reasons = storage.find_invalid_required_provenance(
+        _full_required_provenance_attrs(sam3_source_revision=""),
+        storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES,
+    )
+    empty_string_ok = empty_string_reasons == ["sam3_source_revision: vazio"]
+
+    attrs_missing_key = _full_required_provenance_attrs()
+    del attrs_missing_key["sam3_runtime_lock_sha256"]
+    missing_key_reasons = storage.find_invalid_required_provenance(
+        attrs_missing_key, storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES
+    )
+    missing_key_ok = missing_key_reasons == ["sam3_runtime_lock_sha256: ausente"]
+
+    malformed_revision_reasons = storage.find_invalid_required_provenance(
+        _full_required_provenance_attrs(
+            sam3_source_revision="ERRO_RESOLVENDO_REVISAO_SAM3: LookupError('...')"
+        ),
+        storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES,
+    )
+    malformed_revision_ok = (
+        len(malformed_revision_reasons) == 1
+        and malformed_revision_reasons[0].startswith("sam3_source_revision: formato inválido")
+    )
+
+    malformed_checkpoint_reasons = storage.find_invalid_required_provenance(
+        _full_required_provenance_attrs(sam3_checkpoint_sha256="nao-e-um-sha256"),
+        storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES,
+    )
+    malformed_checkpoint_ok = (
+        len(malformed_checkpoint_reasons) == 1
+        and malformed_checkpoint_reasons[0].startswith("sam3_checkpoint_sha256: formato inválido")
+    )
+
+    ok = (
+        complete_ok
+        and empty_string_ok
+        and missing_key_ok
+        and malformed_revision_ok
+        and malformed_checkpoint_ok
+    )
+    return _check(
+        "find_invalid_required_provenance: completo e bem formado dá [], "
+        "valor ausente, valor vazio e valor não vazio mas mal formado "
+        "(ex.: uma mensagem de erro em vez de um sha) são nomeados "
+        "separadamente com o motivo específico", ok
+    )
+
+
+def _check_report_detects_structurally_invalid_h5() -> bool:
+    video_id = "coffee_room/video_bad"
+    k = 3
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir)
+        adapter = _build_fixture(root, video_id=video_id, k=k)
+        pd.DataFrame(
+            {
+                "video_id": [video_id] * k,
+                "frame_index": list(range(k)),
+                "src_index": list(range(k)),
+                "split": ["train"] * k,
+            }
+        ).to_parquet(adapter.frames_path)
+        output_path = sam3_path(video_id, sam3_root=adapter.sam3_root)
+
+        v_t = np.zeros((k, V_T_DIM), dtype=np.float32)
+        sam_score_wrong_dtype = np.zeros(k, dtype=np.float64)
+        n_instances = np.zeros(k, dtype=np.int16)
+        attrs = {"K": k, **_full_required_provenance_attrs(), **{
+            name: f"valor-{name}" for name in storage.PROVENANCE_ATTR_NAMES
+        }}
+        write_sam3_atomic(output_path, v_t, sam_score_wrong_dtype, n_instances, attrs)
+
+        captured_stdout = StringIO()
+        with redirect_stdout(captured_stdout):
+            try:
+                run_sam3_report(adapter)
+            except SystemExit:
+                pass
+
+    report_output = captured_stdout.getvalue()
+    ok = "[FAIL] nenhum .h5 estruturalmente inválido" in report_output
+    return _check(
+        "run_sam3_report: dataset 'sam_score' com dtype divergente (float64 "
+        "em vez de float32) é detectado por validate_existing_file e reprovado "
+        "na checagem dedicada", ok
+    )
+
+
+def _check_report_rejects_malformed_source_revision() -> bool:
+    video_id = "coffee_room/video_malformed_revision"
+    k = 3
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir)
+        adapter = _build_fixture(root, video_id=video_id, k=k)
+        pd.DataFrame(
+            {
+                "video_id": [video_id] * k,
+                "frame_index": list(range(k)),
+                "src_index": list(range(k)),
+                "split": ["train"] * k,
+            }
+        ).to_parquet(adapter.frames_path)
+        output_path = sam3_path(video_id, sam3_root=adapter.sam3_root)
+
+        v_t = np.zeros((k, V_T_DIM), dtype=np.float32)
+        sam_score = np.zeros(k, dtype=np.float32)
+        n_instances = np.zeros(k, dtype=np.int16)
+        attrs: dict[str, object] = {
+            "K": k,
+            **_full_required_provenance_attrs(
+                sam3_source_revision="ERRO_RESOLVENDO_REVISAO_SAM3: LookupError('...')"
+            ),
+            **{
+                name: f"valor-{name}"
+                for name in storage.PROVENANCE_ATTR_NAMES
+                if name not in storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES
+            },
+        }
+        write_sam3_atomic(output_path, v_t, sam_score, n_instances, attrs)
+
+        captured_stdout = StringIO()
+        with redirect_stdout(captured_stdout):
+            try:
+                run_sam3_report(adapter)
+            except SystemExit:
+                pass
+
+    report_output = captured_stdout.getvalue()
+    ok = (
+        "[FAIL] nenhum atributo de proveniência obrigatório ausente, vazio "
+        "ou malformado" in report_output
+        and "sam3_source_revision: formato inválido" in report_output
+    )
+    return _check(
+        "run_sam3_report: sam3_source_revision não vazio mas mal formado "
+        "(ex.: uma mensagem de erro em vez de um sha de commit) reprova a "
+        "checagem de proveniência obrigatória em vez de passar como não vazio",
+        ok,
+    )
+
+
+def _check_report_rejects_malformed_checkpoint_digest() -> bool:
+    video_id = "coffee_room/video_malformed_checkpoint"
+    k = 3
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir)
+        adapter = _build_fixture(root, video_id=video_id, k=k)
+        pd.DataFrame(
+            {
+                "video_id": [video_id] * k,
+                "frame_index": list(range(k)),
+                "src_index": list(range(k)),
+                "split": ["train"] * k,
+            }
+        ).to_parquet(adapter.frames_path)
+        output_path = sam3_path(video_id, sam3_root=adapter.sam3_root)
+
+        v_t = np.zeros((k, V_T_DIM), dtype=np.float32)
+        sam_score = np.zeros(k, dtype=np.float32)
+        n_instances = np.zeros(k, dtype=np.int16)
+        attrs: dict[str, object] = {
+            "K": k,
+            **_full_required_provenance_attrs(sam3_checkpoint_sha256="nao-e-um-sha256"),
+            **{
+                name: f"valor-{name}"
+                for name in storage.PROVENANCE_ATTR_NAMES
+                if name not in storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES
+            },
+        }
+        write_sam3_atomic(output_path, v_t, sam_score, n_instances, attrs)
+
+        captured_stdout = StringIO()
+        with redirect_stdout(captured_stdout):
+            try:
+                run_sam3_report(adapter)
+            except SystemExit:
+                pass
+
+    report_output = captured_stdout.getvalue()
+    ok = (
+        "[FAIL] nenhum atributo de proveniência obrigatório ausente, vazio "
+        "ou malformado" in report_output
+        and "sam3_checkpoint_sha256: formato inválido" in report_output
+    )
+    return _check(
+        "run_sam3_report: sam3_checkpoint_sha256 não vazio mas com "
+        "comprimento/alfabeto diferente de um sha256 hexadecimal reprova a "
+        "checagem de proveniência obrigatória", ok
+    )
+
+
 def _check_missing_video_id_raises_extract_error() -> bool:
     with tempfile.TemporaryDirectory() as temporary_dir:
         root = Path(temporary_dir)
@@ -570,6 +921,14 @@ def run_sam3_selftest() -> None:
         _check_validate_existing_file(),
         _check_provenance_divergence_heterogeneous_checkpoint(),
         _check_dataset_guard_rejects_le2i_cv(),
+        _check_build_worker_invocation_project_equals_cwd(),
+        _check_build_worker_invocation_checkpoint_absolute_independent_of_cwd(),
+        _check_resolve_precedence_and_absolute_paths(),
+        _check_ensure_sam3_runtime_available_requires_uv_lock(),
+        _check_find_invalid_required_provenance(),
+        _check_report_detects_structurally_invalid_h5(),
+        _check_report_rejects_malformed_source_revision(),
+        _check_report_rejects_malformed_checkpoint_digest(),
         _check_missing_video_id_raises_extract_error(),
     ]
     if not all(checks):
