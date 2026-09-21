@@ -22,14 +22,23 @@ Le2i. Só `uv run python -m gatefall.sam3.extract verify-frame-alignment`
 roda o hardware real, e mesmo assim valida apenas alinhamento de quadro, não
 qualidade de máscara.
 
-Uma tentativa real de smoke test do worker chegou a ser feita e **falhou na
+Uma primeira tentativa real de smoke test do worker **falhou na
 inicialização**, antes de qualquer inferência, com
 `ModuleNotFoundError: No module named 'pkg_resources'` (ver
 [teto de `setuptools`](#teto-de-setuptools-no-sam3_runtime) abaixo). Essa
-falha motivou o teto de `setuptools` agora fixado no ambiente isolado, mas
-**não implica que a extração real funcione agora**: a inicialização do
-worker e a qualidade das máscaras continuam não verificadas e serão
-revalidadas manualmente; o smoke test não foi rerrodado nesta mudança.
+falha motivou o teto de `setuptools` agora fixado no ambiente isolado.
+
+Uma segunda tentativa real de smoke test, já com o teto de `setuptools` em
+vigor, confirmou que esse bloqueio foi superado: o ambiente isolado resolve
+`setuptools==81.0.0`, o `import pkg_resources` funciona, e a inicialização do
+worker avança além desse ponto. A inicialização então falhou de novo, ainda
+**antes da construção do modelo**, com
+`ModuleNotFoundError: No module named 'einops'` (ver
+[dependências adicionadas por lacuna de empacotamento upstream](#dependencias-adicionadas-por-lacuna-de-empacotamento-upstream)
+abaixo). Isso motivou as três dependências novas declaradas em
+`sam3_runtime/pyproject.toml`. **Nenhuma dessas duas correções implica que a
+extração real funcione**: a construção do modelo e a qualidade das máscaras
+sobre vídeo real do Le2i continuam inteiramente não verificadas.
 
 ## Somente o protocolo cs
 
@@ -177,8 +186,12 @@ inteiro é `uint32` big-endian):
 `sam3_runtime/pyproject.toml` fixa
 `sam3 @ git+https://github.com/facebookresearch/sam3.git@2345a4ad109ac29c569da749c91d84f10dc08c40`
 (commit exato, não uma tag — o repositório upstream `facebookresearch/sam3`
-não publica tags de release) e `numpy>=1.26,<2`, porque o pacote oficial
-exige NumPy abaixo de 2. Isso diverge do `numpy>=2.5.2` da raiz do
+não publica tags de release), `numpy>=1.26,<2`, porque o pacote oficial
+exige NumPy abaixo de 2, e três dependências adicionais —
+`einops`, `pycocotools` e `psutil` — exigidas para simplesmente importar o
+pacote `sam3`, não para treino ou tracking de vídeo (ver
+[dependências adicionadas por lacuna de empacotamento upstream](#dependencias-adicionadas-por-lacuna-de-empacotamento-upstream)
+abaixo). Isso diverge do `numpy>=2.5.2` da raiz do
 repositório; a divergência é segura porque só bytes cruzam a fronteira do
 subprocesso (o protocolo de fio acima) e o `pyright` da raiz só cobre
 `src`/`scripts`, nunca `sam3_runtime/`.
@@ -231,6 +244,57 @@ com um teto superior estritamente abaixo de `82`; e (2) todo stanza
 fechada diante de arquivo ausente ou malformado. Ela garante apenas que os
 dois arquivos declarados são consistentes entre si — não que o worker real
 sobe nem que as máscaras produzidas são válidas.
+
+### Dependências adicionadas por lacuna de empacotamento upstream
+
+Após o teto de `setuptools` acima resolver o bloqueio de `pkg_resources`, um
+segundo smoke test real do worker avançou até falhar com
+`ModuleNotFoundError: No module named 'einops'`, ainda antes de qualquer
+construção de modelo. `sam3_runtime/pyproject.toml` agora declara três
+dependências adicionais para fechar essa lacuna:
+
+- **`einops` (resolvido em `0.8.2`)** — `sam3/sam/rope.py:15` do commit
+  fixado importa `from einops import rearrange, repeat`
+  incondicionalmente, mas o `[project] dependencies` upstream não declara
+  `einops`; ele só aparece em um extra de notebooks e no README do
+  repositório upstream. É uma lacuna de empacotamento do upstream que este
+  sub-projeto isolado precisa fechar para importar `sam3` de qualquer forma.
+- **`pycocotools` (resolvido em `2.0.11`)** e
+  **`psutil` (resolvido em `7.2.2`)** — exigidos pela mesma causa
+  estrutural: `sam3/__init__.py` importa `model_builder`, que carrega
+  módulos de treino e de predição de vídeo no momento da importação, antes
+  de qualquer uso da API de imagem. As cadeias de importação verificadas
+  são:
+  ```text
+  pycocotools: sam3/__init__.py:5 -> model_builder.py:40 ->
+    sam1_task_predictor.py:16 -> sam3_tracker_base.py:14 ->
+    train/data/collator.py:16 -> train/data/sam3_image_dataset.py:26 ->
+    train/data/coco_json_loaders.py:10 (`from pycocotools import mask as mask_util`)
+  psutil: sam3/__init__.py:5 -> model_builder.py:44 ->
+    model/sam3_video_predictor.py:17 (`import psutil`)
+  ```
+
+Essas duas últimas dependências existem **só** por causa do grafo de
+importação eager do upstream, não porque este projeto adota treino ou
+tracking de vídeo. O pipeline continua congelado, offline, monocular RGB e
+quadro a quadro, sem tracking de vídeo — nenhum desses invariantes muda com
+esta atualização.
+
+Com `sam3_runtime/uv.lock` regenerado a partir dessas três novas entradas de
+dependência, um **preflight só de importação** — sem download de checkpoint,
+sem construção de modelo e sem GPU — foi verificado com sucesso a partir do
+lock committado:
+
+```python
+from sam3 import build_sam3_image_model
+from sam3.model.sam3_image_processor import Sam3Processor
+```
+
+Ambas as importações têm sucesso. Isso prova apenas que o grafo de módulos
+Python resolve; **não é** uma inicialização de modelo bem-sucedida nem uma
+extração real do Le2i. Nem a construção do modelo SAM 3 nem a qualidade de
+máscara sobre vídeo real do Le2i foram verificadas nesta rodada — ambas
+permanecem em aberto (ver o aviso de honestidade no topo desta página).
 
 ### Setup único e isolado
 
