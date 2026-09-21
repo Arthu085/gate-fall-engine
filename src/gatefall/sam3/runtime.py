@@ -9,8 +9,8 @@ de mensagens com prefixo de tamanho.
 
 Protocolo (todo inteiro é uint32 big-endian):
 - Ao iniciar, o worker imprime uma única linha JSON em stdout com o
-  manifesto de runtime (versões, hash do checkpoint) antes de processar
-  qualquer quadro.
+  manifesto de runtime (versões, hash do checkpoint,
+  `sam3_inference_autocast_dtype`) antes de processar qualquer quadro.
 - Por quadro: o cliente escreve um cabeçalho JSON com prefixo de tamanho
   (`{"height", "width", "text_prompt"}`) seguido do RGB cru do quadro
   (`height*width*3` bytes) também com prefixo de tamanho; o worker responde
@@ -32,6 +32,23 @@ from typing import IO, Protocol
 import numpy as np
 
 TEXT_PROMPT = "person"
+
+SAM3_INFERENCE_AUTOCAST_DTYPE_NAMES: tuple[str, ...] = ("bfloat16", "float16")
+
+
+def select_inference_autocast_dtype_name(
+    device: str, *, cuda_bf16_supported: bool
+) -> str:
+    """Política de precisão de inferência do SAM 3, duplicada no worker.
+
+    `sam3.perflib.fused.addmm_act()` (upstream 2345a4a) converte a primeira
+    projeção do `Mlp` para bfloat16 incondicionalmente e devolve BF16 para um
+    `fc2` FP32; só um contexto de autocast alinha as duas metades. FP16 é o
+    recuo para hardware pré-Ampere, onde o GEMM bfloat16 não é nativo.
+    """
+    if device == "cuda":
+        return "bfloat16" if cuda_bf16_supported else "float16"
+    return "bfloat16"
 
 SAM3_RUNTIME_PROJECT_DIR = Path("sam3_runtime")
 DEFAULT_CHECKPOINT_PATH = Path("data/scratch/weights/sam3/sam3_checkpoint.pt")

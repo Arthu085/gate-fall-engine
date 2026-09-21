@@ -18,8 +18,12 @@ descritores, a política de seleção contínua, o armazenamento HDF5, a
 verificação de proveniência e o alinhamento de quadro — nada disso exercita
 o modelo SAM 3 real. **A extração real ainda não foi rodada**:
 não há evidência de que o SAM 3 produza máscaras válidas sobre vídeo real do
-Le2i. Só `uv run python -m gatefall.sam3.extract verify-frame-alignment`
-roda o hardware real, e mesmo assim valida apenas alinhamento de quadro, não
+Le2i. Os três comandos que sobem o worker real do SAM 3 via
+`Sam3RuntimeSegmenter` são `extract`, `extract-all` e
+`verify-frame-alignment`; os comandos `selftest` e `sam3 report` são livres
+de hardware (`report` apenas abre os `.h5` já gravados e nunca constrói o
+modelo nem sobe o runtime isolado).
+E mesmo `verify-frame-alignment` valida apenas alinhamento de quadro, não
 qualidade de máscara.
 
 Uma primeira tentativa real de smoke test do worker **falhou na
@@ -39,6 +43,20 @@ abaixo). Isso motivou as três dependências novas declaradas em
 `sam3_runtime/pyproject.toml`. **Nenhuma dessas duas correções implica que a
 extração real funcione**: a construção do modelo e a qualidade das máscaras
 sobre vídeo real do Le2i continuam inteiramente não verificadas.
+
+Uma terceira tentativa real de smoke test esbarrou primeiro em um OOM de
+memória do host WSL — uma limitação de ambiente, não um defeito do
+repositório — superado após aumentar a alocação de memória do WSL. A rodada
+corrigida atravessou a importação dos pacotes, a construção do modelo, o
+carregamento do checkpoint, a configuração do dispositivo e a impressão do
+manifesto de inicialização do worker, e **chegou ao primeiro quadro real do
+Le2i**, onde falhou dentro de `Sam3Processor.set_image()` com
+`RuntimeError: mat1 and mat2 must have the same dtype, but got BFloat16 and
+Float` (ver [política de precisão de inferência (autocast)](#politica-de-precisao-de-inferencia-autocast)
+abaixo). O `EOFError` observado do lado do processo pai foi apenas
+consequência da saída do worker, não uma falha de protocolo. **A extração
+real continua não comprovada**: nenhuma máscara válida sobre vídeo real do
+Le2i foi produzida até aqui.
 
 ## Somente o protocolo cs
 
@@ -150,11 +168,18 @@ Um arquivo por vídeo, agrupado por vídeo (nunca um arquivo por quadro), em
 - dataset `n_instances`: shape `[K]`, `int16`;
 - atributos de proveniência: `model_name`, `text_prompt`,
   `sam3_checkpoint_sha256`, `sam3_runtime_lock_sha256`, `sam3_source_revision`,
-  `target_fps`, além de `video_id`, `env`, `split`, `subject`, `K`, `fps`,
+  `sam3_inference_autocast_dtype`, `target_fps`, além de `video_id`, `env`,
+  `split`, `subject`, `K`, `fps`,
   `width`, `height` e os campos do manifesto de runtime reportados pelo
   worker. `sam3_source_revision` é o commit git upstream resolvido (ver
   abaixo) a partir do `direct_url.json` (PEP 610) da distribuição `sam3`
-  instalada no sub-projeto isolado.
+  instalada no sub-projeto isolado. `sam3_inference_autocast_dtype` registra
+  o dtype de autocast (`bfloat16` ou `float16`) sob o qual as máscaras do
+  vídeo foram de fato inferidas (ver
+  [política de precisão de inferência (autocast)](#politica-de-precisao-de-inferencia-autocast));
+  misturar artefatos FP16 e BF16 em um mesmo conjunto é uma falha de
+  proveniência, porque os descritores passariam a vir de duas precisões
+  numéricas diferentes sem que nada no `.h5` distinguisse as duas metades.
 
 O score do SAM é gravado **fora** de `v_t`, em `sam_score`, por design: o
 contrato de `V_t` é congelado em 10 dimensões, e um canal de confiança do
@@ -174,8 +199,9 @@ longa, um quadro por vez, via protocolo de fio com prefixo de tamanho (todo
 inteiro é `uint32` big-endian):
 
 - ao iniciar, o worker imprime uma linha JSON com o manifesto de runtime
-  (versões, `sam3_source_revision`, hash do checkpoint) antes de processar
-  qualquer quadro;
+  (versões, `sam3_source_revision`, hash do checkpoint e
+  `sam3_inference_autocast_dtype`, o dtype de autocast resolvido para o
+  dispositivo daquele processo) antes de processar qualquer quadro;
 - por quadro, o cliente escreve um cabeçalho JSON com prefixo de tamanho
   (`height`, `width`, `text_prompt`) seguido do RGB cru do quadro, também
   com prefixo de tamanho; o worker responde com um `.npz` com prefixo de
@@ -296,6 +322,68 @@ extração real do Le2i. Nem a construção do modelo SAM 3 nem a qualidade de
 máscara sobre vídeo real do Le2i foram verificadas nesta rodada — ambas
 permanecem em aberto (ver o aviso de honestidade no topo desta página).
 
+### Política de precisão de inferência (autocast)
+
+No commit fixado `2345a4ad109ac29c569da749c91d84f10dc08c40`, o `Mlp.forward()`
+de `sam3/model/vitdet.py` chama `sam3.perflib.fused.addmm_act()`, que converte
+entrada, peso e viés da **primeira** projeção para `torch.bfloat16`
+incondicionalmente e devolve BF16 para um `fc2` que continua FP32 — daí o
+`RuntimeError: mat1 and mat2 must have the same dtype, but got BFloat16 and
+Float`. Os exemplos oficiais do upstream rodam a inferência sob autocast, que
+é exatamente a metade que faltava aqui.
+
+A correção fica **só no worker isolado** (`sam3_runtime/run_sam3.py`):
+`processor.set_image(...)` e `processor.set_text_prompt(...)` rodam dentro de
+um `torch.autocast(device_type=..., dtype=...)` explícito. Nenhum tensor do
+modelo ou do checkpoint é convertido de forma permanente (`.half()`,
+`model.to(torch.bfloat16)`, `set_default_dtype`), e o `perflib` do upstream
+não é corrigido, vendorizado nem monkey-patched — o backbone continua
+congelado e o pacote `sam3` continua exatamente como publicado. As conversões
+`.to(torch.bool)`/`.to(torch.float32)` das máscaras e scores ficam **fora** do
+bloco de autocast, então o protocolo de fio permanece byte a byte idêntico.
+`set_image`/`set_text_prompt` já são `@torch.inference_mode()` upstream, então
+nenhum `no_grad`/`inference_mode` adicional é aplicado.
+
+O dtype escolhido segue esta tabela:
+
+| Dispositivo | Condição | `sam3_inference_autocast_dtype` |
+| --- | --- | --- |
+| CUDA | BF16 nativo | `bfloat16` |
+| CUDA | sem BF16 nativo | `float16` |
+| CPU | — | `bfloat16` |
+
+O suporte a BF16 é consultado com
+`torch.cuda.is_bf16_supported(including_emulation=False)`. O argumento é
+obrigatório: no torch 2.14 o padrão `including_emulation=True` responde `True`
+em `sm_75` (GTX 1650) apenas porque um tensor bfloat16 pode ser alocado, o que
+anularia em silêncio o recuo para FP16 em hardware pré-Ampere.
+
+O mecanismo do recuo FP16 é que `_addmm_activation` está na lista de
+operações de precisão reduzida do autocast do torch: sob um autocast FP16, o
+op **deve** ser despachado em FP16 na própria fronteira da operação,
+sobrepondo-se à conversão BF16 fixa do upstream em vez de conviver com ela.
+Como o ramo de CPU, o recuo FP16 é uma política **não exercitada em hardware
+real**: nenhum dos dois ramos (BF16 ou FP16) chegou a rodar até aqui, e na GPU
+de desenvolvimento (`sm_75`, GTX 1650) FP16 é justamente o ramo que será
+tomado.
+
+BF16 e FP16 **não** produzem artefatos intercambiáveis: a precisão reduzida
+desloca os scores comparados com o `confidence_threshold = 0.5` de filtragem
+de instâncias dentro do processador, logo `n_instances` e a própria
+composição das máscaras podem mudar entre os dois ramos — por isso o dtype é
+gravado como proveniência e por isso misturá-lo em um mesmo conjunto de
+artefatos é falha de gate.
+
+A política é **duplicada** nos dois lados — `select_inference_autocast_dtype_name`
+em `gatefall.sam3.runtime` e `_select_inference_autocast_dtype_name` no worker
+— pelo mesmo motivo do protocolo de fio: nenhum dos dois lados pode importar o
+outro. O `extract selftest` só consegue cruzar as duas metades
+**textualmente** (procura os fragmentos obrigatórios e proibidos no fonte do
+worker); não há prova de equivalência semântica entre elas.
+
+O ramo de CPU é uma política explícita, **não exercitada em hardware real**:
+nenhuma extração do Le2i foi concluída em CPU até aqui.
+
 ### Setup único e isolado
 
 ```bash
@@ -310,7 +398,8 @@ diretório do runtime, e o worker falha na inicialização
 `sam3_source_revision` a partir do `direct_url.json` da distribuição `sam3`
 instalada — nenhum dos dois caminhos reais grava mais um placeholder vazio
 de proveniência. O sentinela de string vazia para
-`sam3_checkpoint_sha256`/`sam3_runtime_lock_sha256` permanece **só** no
+`sam3_checkpoint_sha256`/`sam3_runtime_lock_sha256`/`sam3_inference_autocast_dtype`
+permanece **só** no
 caminho sintético do `selftest`, que injeta um segmentador falso e nunca
 sobe o runtime real — ver a limitação residual 1 abaixo para o caso real
 restante (lock desatualizado, não lock ausente).
@@ -329,8 +418,21 @@ restante (lock desatualizado, não lock ausente).
    calculado sobre o lock desatualizado como está no disco, e isso pode
    fazer o comando pular uma reextração necessária. `extract-all` não tem
    esse problema: ele resolve os hashes depois de entrar no contexto do
-   runtime e os repassa para cada vídeo. Contorno: rode `uv lock`/`uv sync`
+   runtime e os repassa para cada vídeo. O mesmo vale para
+   `sam3_inference_autocast_dtype`: contra um runtime vivo, `extract` de um
+   vídeo único valida o `.h5` existente **antes** de o worker subir e
+   reportar seu manifesto, então essa decisão de pular é cega ao dtype de
+   autocast e não detecta um `.h5` antigo extraído em outra precisão.
+   `extract-all` (que já conhece o dtype ao chamar cada vídeo) e
+   `sam3 report` (que confere formato e homogeneidade entre todos os `.h5`)
+   não compartilham esse ponto cego. Contorno: rode `uv lock`/`uv sync`
    em `sam3_runtime/` antes de extrair um vídeo único, ou passe `--force`.
+   `--force` **não** introduz uma segunda precisão no conjunto: quando o
+   `.h5` existente já traz um `sam3_inference_autocast_dtype` e o worker
+   reporta outro, a reextração falha com `Sam3ExtractError` nomeando o vídeo
+   e os dois dtypes, em vez de sobrescrever o artefato — o conjunto inteiro
+   precisa ser reextraído, não apenas aquele vídeo. O ponto cego que resta é
+   só o da decisão de pular, que continua deliberadamente sem subir o worker.
 2. **`extract-all` aborta o lote inteiro se o subprocesso do runtime morrer
    no meio.** `run_sam3_extract_all` interrompe com uma mensagem clara em
    vez de continuar processando os vídeos restantes contra um subprocesso
@@ -357,9 +459,15 @@ protocolo `cs`, das fixtures de alinhamento de quadro, da construção do
 comando/caminhos do worker (`build_worker_invocation`,
 `resolve_runtime_project_dir`, `resolve_checkpoint_path`), das rejeições do
 gate de `sam3 report` (proveniência ausente/vazia/malformada, `.h5`
-estruturalmente inválido) e do
+estruturalmente inválido), do
 [teto de `setuptools`](#teto-de-setuptools-no-sam3_runtime) declarado em
-`sam3_runtime/pyproject.toml`/`uv.lock`, tudo contra um segmentador falso
+`sam3_runtime/pyproject.toml`/`uv.lock` e da
+[política de precisão de inferência](#politica-de-precisao-de-inferencia-autocast)
+— a tabela pura `dispositivo × suporte a BF16 → dtype`, a rejeição de
+`sam3_inference_autocast_dtype` ausente, vazio ou fora do vocabulário, a
+divergência entre dois vídeos extraídos com dtypes diferentes, e um
+cruzamento **textual** com o fonte do worker isolado (que o `gatefall` nunca
+importa) —, tudo contra um segmentador falso
 injetado ou lendo arquivos como dado inerte — não toca no checkpoint do SAM
 3, no sub-projeto `sam3_runtime/` nem no dataset real.
 
@@ -391,10 +499,12 @@ homogeneidade de proveniência entre eles, a estrutura de cada `.h5`
 (`storage.validate_existing_file` — presença, shape e dtype corretos de
 `v_t`, `sam_score`, `n_instances`) e que os atributos de proveniência
 obrigatórios (`sam3_checkpoint_sha256`, `sam3_runtime_lock_sha256`,
-`sam3_source_revision`) não estão ausentes, vazios nem malformados
-(`sam3_source_revision` deve ser um SHA de commit git hexadecimal minúsculo
-de 40 caracteres; os dois hashes SHA-256, hexadecimal minúsculo de 64
-caracteres). Qualquer falha resulta em saída não-zero.
+`sam3_source_revision`, `sam3_inference_autocast_dtype`) não estão ausentes,
+vazios nem malformados (`sam3_source_revision` deve ser um SHA de commit git
+hexadecimal minúsculo de 40 caracteres; os dois hashes SHA-256, hexadecimal
+minúsculo de 64 caracteres; `sam3_inference_autocast_dtype` deve ser
+exatamente `bfloat16` ou `float16`). Qualquer falha resulta em saída
+não-zero.
 
 ```bash
 uv run python -m gatefall.sam3.extract verify-frame-alignment [--runtime-dir DIR] [--checkpoint PATH] [--dataset le2i]

@@ -28,6 +28,7 @@ from gatefall.sam3.runtime import (
 from gatefall.sam3.selection import InstanceSelector
 
 MODEL_NAME = "facebook/sam3"
+SAM3_INFERENCE_AUTOCAST_DTYPE_ATTR = "sam3_inference_autocast_dtype"
 
 
 class Sam3ExtractSkipped(Exception):
@@ -84,6 +85,32 @@ def _warn_if_empty_provenance_hash(attr_name: str, value: str) -> None:
         )
 
 
+def _inference_autocast_dtype_from_manifest(
+    runtime_manifest: dict[str, object],
+) -> str | None:
+    """`None` quando o manifesto não traz a chave: desconhecido nunca vira
+    valor esperado de atributo (`''` reprovaria todo artefato já gravado)."""
+    value = runtime_manifest.get(SAM3_INFERENCE_AUTOCAST_DTYPE_ATTR)
+    return value if isinstance(value, str) else None
+
+
+def _stored_inference_autocast_dtype(path: Path) -> str | None:
+    from gatefall.sam3.storage import read_provenance_attr
+
+    return read_provenance_attr(path, SAM3_INFERENCE_AUTOCAST_DTYPE_ATTR)
+
+
+def _warn_if_empty_inference_autocast_dtype(value: str) -> None:
+    if value == "":
+        print(
+            f"aviso: proveniência '{SAM3_INFERENCE_AUTOCAST_DTYPE_ATTR}' gravada "
+            "como '' — o segmentador usado não reportou manifesto de runtime; "
+            "este artefato terá proveniência de precisão incompleta e será "
+            "rejeitado por `sam3 report`",
+            file=sys.stderr,
+        )
+
+
 def run_frames_through_segmenter(
     frames_rgb: list[np.ndarray], *, segmenter: Sam3Segmenter, width: int, height: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -119,6 +146,7 @@ def run_sam3_extract(
     force: bool = False,
     checkpoint_sha256: str | None = None,
     runtime_lock_sha256: str | None = None,
+    inference_autocast_dtype: str | None = None,
 ) -> Sam3ExtractResult:
     ensure_sam3_dataset_supported(adapter)
 
@@ -155,8 +183,13 @@ def run_sam3_extract(
         "sam3_runtime_lock_sha256": resolved_runtime_lock_sha256,
         "target_fps": TARGET_FPS,
     }
+    if inference_autocast_dtype is not None:
+        current_provenance[SAM3_INFERENCE_AUTOCAST_DTYPE_ATTR] = inference_autocast_dtype
 
+    stored_inference_autocast_dtype: str | None = None
     if output_path.exists():
+        if not inference_autocast_dtype:
+            stored_inference_autocast_dtype = _stored_inference_autocast_dtype(output_path)
         reasons = validate_existing_file(
             output_path,
             expected_k=k,
@@ -222,6 +255,38 @@ def run_sam3_extract(
             v_t, sam_score, n_instances = run_frames_through_segmenter(
                 frames_rgb, segmenter=live_segmenter, width=width, height=height
             )
+
+    manifest_inference_autocast_dtype = _inference_autocast_dtype_from_manifest(
+        runtime_manifest
+    )
+    expected_inference_autocast_dtype = (
+        inference_autocast_dtype or stored_inference_autocast_dtype or None
+    )
+    if (
+        expected_inference_autocast_dtype is not None
+        and manifest_inference_autocast_dtype
+        and manifest_inference_autocast_dtype != expected_inference_autocast_dtype
+    ):
+        expected_origin = (
+            "a extração foi iniciada com"
+            if inference_autocast_dtype
+            else f"o .h5 existente em {output_path} foi gravado com"
+        )
+        raise Sam3ExtractError(
+            f"\nsam3 extract FALHOU: o runtime do SAM 3 reportou "
+            f"'{manifest_inference_autocast_dtype}' como dtype de autocast de "
+            f"inferência para '{video_id}', mas {expected_origin} "
+            f"'{expected_inference_autocast_dtype}' — FP16 e BF16 não podem "
+            "ser misturados em um mesmo conjunto de artefatos; reextraia o "
+            "conjunto inteiro, não apenas este vídeo"
+        )
+    resolved_inference_autocast_dtype = (
+        manifest_inference_autocast_dtype or inference_autocast_dtype or ""
+    )
+    current_provenance[SAM3_INFERENCE_AUTOCAST_DTYPE_ATTR] = (
+        resolved_inference_autocast_dtype
+    )
+    _warn_if_empty_inference_autocast_dtype(resolved_inference_autocast_dtype)
 
     _warn_if_empty_provenance_hash(
         "sam3_checkpoint_sha256", cast(str, current_provenance["sam3_checkpoint_sha256"])
@@ -325,6 +390,9 @@ def run_sam3_extract_all(
     ) as live_segmenter:
         checkpoint_sha256 = _resolve_provenance_hash(None, checkpoint_path)
         runtime_lock_sha256 = _resolve_provenance_hash(None, runtime_project_dir / "uv.lock")
+        inference_autocast_dtype = _inference_autocast_dtype_from_manifest(
+            live_segmenter.runtime_manifest
+        )
         for video_id in per_video.index:
             video_id = str(video_id)
             try:
@@ -337,6 +405,7 @@ def run_sam3_extract_all(
                     force=force,
                     checkpoint_sha256=checkpoint_sha256,
                     runtime_lock_sha256=runtime_lock_sha256,
+                    inference_autocast_dtype=inference_autocast_dtype,
                 )
             except Sam3ExtractSkipped as exc:
                 skipped += 1

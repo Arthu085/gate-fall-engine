@@ -20,6 +20,7 @@ PROVENANCE_ATTR_NAMES: tuple[str, ...] = (
     "sam3_checkpoint_sha256",
     "sam3_runtime_lock_sha256",
     "sam3_source_revision",
+    "sam3_inference_autocast_dtype",
     "target_fps",
 )
 
@@ -27,10 +28,12 @@ REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES: tuple[str, ...] = (
     "sam3_checkpoint_sha256",
     "sam3_runtime_lock_sha256",
     "sam3_source_revision",
+    "sam3_inference_autocast_dtype",
 )
 
 _GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_HEX_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_INFERENCE_AUTOCAST_DTYPE_PATTERN = re.compile(r"^(bfloat16|float16)$")
 
 # Mesmo conjunto de chaves de REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES: um
 # valor não vazio mas mal formado (ex.: uma mensagem de erro) precisa
@@ -39,6 +42,7 @@ REQUIRED_PROVENANCE_ATTR_FORMATS: dict[str, tuple[re.Pattern[str], str]] = {
     "sam3_checkpoint_sha256": (_SHA256_HEX_DIGEST_PATTERN, "sha256 hexadecimal de 64 caracteres"),
     "sam3_runtime_lock_sha256": (_SHA256_HEX_DIGEST_PATTERN, "sha256 hexadecimal de 64 caracteres"),
     "sam3_source_revision": (_GIT_COMMIT_SHA_PATTERN, "sha de commit git de 40 caracteres hexadecimais"),
+    "sam3_inference_autocast_dtype": (_INFERENCE_AUTOCAST_DTYPE_PATTERN, "bfloat16 ou float16"),
 }
 
 
@@ -116,6 +120,18 @@ def read_sam_score(path: Path) -> np.ndarray:
 def read_n_instances(path: Path) -> np.ndarray:
     with h5py.File(path, "r") as h5_file:
         return cast(h5py.Dataset, h5_file["n_instances"])[()]
+
+
+def read_provenance_attr(path: Path, name: str) -> str | None:
+    """`None` quando o arquivo é ilegível ou o atributo está ausente/não textual."""
+    try:
+        with h5py.File(path, "r") as h5_file:
+            value = h5_file.attrs.get(name)
+    except OSError:
+        return None
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value if isinstance(value, str) else None
 
 
 def _read_v_t_shape_dtype(path: Path) -> tuple[tuple[int, ...], np.dtype]:

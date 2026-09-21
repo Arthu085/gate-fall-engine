@@ -24,7 +24,7 @@ import gatefall.sam3.extract as sam3_extract
 from gatefall.data.frames import read_frames
 from gatefall.data.manifest import read_manifest
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES, Le2iDatasetAdapter
-from gatefall.sam3 import storage
+from gatefall.sam3 import runtime, storage
 from gatefall.sam3.dataset_guard import ensure_sam3_dataset_supported
 from gatefall.sam3.descriptors import (
     V_T_DIM,
@@ -106,6 +106,20 @@ class _ScriptedSam3Segmenter:
         instances = self._script[self._call_count]
         self._call_count += 1
         return instances
+
+
+class _ManifestSam3Segmenter(_ScriptedSam3Segmenter):
+    """Fake que também expõe `runtime_manifest`, como o segmentador real."""
+
+    def __init__(
+        self, script: list[list[Sam3Instance]], runtime_manifest: dict[str, object]
+    ) -> None:
+        super().__init__(script)
+        self._runtime_manifest = runtime_manifest
+
+    @property
+    def runtime_manifest(self) -> dict[str, object]:
+        return self._runtime_manifest
 
 
 def _rect_mask(
@@ -317,6 +331,9 @@ def _check_end_to_end_continuity_tracks_moving_instance() -> bool:
         with h5py.File(output_path, "r") as h5_file:
             checkpoint_attr = str(h5_file.attrs["sam3_checkpoint_sha256"])
             lock_attr = str(h5_file.attrs["sam3_runtime_lock_sha256"])
+            # `.get` em vez de indexação: o atributo ausente precisa reprovar
+            # a checagem, não abortar o selftest inteiro.
+            autocast_dtype_attr = h5_file.attrs.get("sam3_inference_autocast_dtype")
 
         frames_parquet = read_frames(adapter.frames_path)
         k_matches = result.k == len(frames_parquet) == k
@@ -325,7 +342,12 @@ def _check_end_to_end_continuity_tracks_moving_instance() -> bool:
         [((b[0] + b[2]) / 2.0) / width for b in target_boxes], dtype=np.float32
     )
     centroids_track_target = bool(np.allclose(stored_v_t[:, 2], expected_centroid_x, atol=1e-5))
-    provenance_sentinels_ok = checkpoint_attr == "" and lock_attr == ""
+    provenance_sentinels_ok = (
+        checkpoint_attr == ""
+        and lock_attr == ""
+        and autocast_dtype_attr is not None
+        and str(autocast_dtype_attr) == ""
+    )
 
     ok = (
         k_matches
@@ -336,8 +358,9 @@ def _check_end_to_end_continuity_tracks_moving_instance() -> bool:
     return _check(
         "fim a fim: instância contínua (score mais baixo) é seguida em vez "
         "do distrator (score mais alto e sem overlap), K bate com "
-        "frames.parquet e sam3_checkpoint_sha256/sam3_runtime_lock_sha256 "
-        "degradam para '' quando os arquivos reais não existem", ok
+        "frames.parquet e sam3_checkpoint_sha256/sam3_runtime_lock_sha256/"
+        "sam3_inference_autocast_dtype degradam para '' quando os arquivos "
+        "reais não existem e o segmentador fake não traz manifesto", ok
     )
 
 
@@ -490,6 +513,33 @@ def _check_provenance_divergence_heterogeneous_checkpoint() -> bool:
         "find_provenance_divergences: dataset homogêneo dá [] e "
         "sam3_checkpoint_sha256 divergente entre dois vídeos sintéticos é "
         "nomeado", ok
+    )
+
+
+def _check_provenance_divergence_mixed_inference_autocast_dtype() -> bool:
+    homogeneous: dict[str, dict[str, object]] = {
+        "env1/v1": _full_provenance_attrs(sam3_inference_autocast_dtype="bfloat16"),
+        "env1/v2": _full_provenance_attrs(sam3_inference_autocast_dtype="bfloat16"),
+    }
+    homogeneous_ok = find_provenance_divergences(homogeneous) == []
+
+    heterogeneous: dict[str, dict[str, object]] = {
+        "env1/v1": _full_provenance_attrs(sam3_inference_autocast_dtype="bfloat16"),
+        "env1/v2": _full_provenance_attrs(sam3_inference_autocast_dtype="float16"),
+    }
+    divergences = find_provenance_divergences(heterogeneous)
+    heterogeneous_ok = (
+        len(divergences) == 1
+        and "env1/v2" in divergences[0]
+        and "'sam3_inference_autocast_dtype'" in divergences[0]
+    )
+
+    ok = homogeneous_ok and heterogeneous_ok
+    return _check(
+        "find_provenance_divergences: dois vídeos extraídos com dtype de "
+        "autocast diferente (bfloat16 vs float16) dão exatamente uma "
+        "divergência nomeando o vídeo e 'sam3_inference_autocast_dtype', e o "
+        "caso homogêneo dá []", ok
     )
 
 
@@ -678,10 +728,45 @@ def _check_ensure_sam3_runtime_available_requires_uv_lock() -> bool:
     )
 
 
+def _check_select_inference_autocast_dtype_policy() -> bool:
+    # Tabela pura: a política é decidida sem torch e sem GPU, então o
+    # suporte a bf16 na CUDA entra como parâmetro, não como consulta.
+    expected_by_case: dict[tuple[str, bool], str] = {
+        ("cuda", True): "bfloat16",
+        ("cuda", False): "float16",
+        ("cpu", False): "bfloat16",
+        ("cpu", True): "bfloat16",
+    }
+    selected_by_case = {
+        (device, cuda_bf16_supported): runtime.select_inference_autocast_dtype_name(
+            device, cuda_bf16_supported=cuda_bf16_supported
+        )
+        for device, cuda_bf16_supported in expected_by_case
+    }
+    table_ok = selected_by_case == expected_by_case
+
+    pattern, _ = storage.REQUIRED_PROVENANCE_ATTR_FORMATS["sam3_inference_autocast_dtype"]
+    vocabulary_ok = all(
+        value in runtime.SAM3_INFERENCE_AUTOCAST_DTYPE_NAMES
+        and pattern.match(value) is not None
+        for value in selected_by_case.values()
+    )
+
+    ok = table_ok and vocabulary_ok
+    return _check(
+        "select_inference_autocast_dtype_name: cuda com bf16 suportado dá "
+        "bfloat16, cuda sem bf16 dá float16 e cpu dá bfloat16 em qualquer "
+        "caso, e todo valor devolvido pertence a "
+        "SAM3_INFERENCE_AUTOCAST_DTYPE_NAMES e casa com o formato de "
+        "proveniência exigido", ok
+    )
+
+
 _WELL_FORMED_REQUIRED_PROVENANCE_VALUES: dict[str, str] = {
     "sam3_checkpoint_sha256": "a" * 64,
     "sam3_runtime_lock_sha256": "b" * 64,
     "sam3_source_revision": "c" * 40,
+    "sam3_inference_autocast_dtype": "bfloat16",
 }
 
 
@@ -744,6 +829,48 @@ def _check_find_invalid_required_provenance() -> bool:
         "valor ausente, valor vazio e valor não vazio mas mal formado "
         "(ex.: uma mensagem de erro em vez de um sha) são nomeados "
         "separadamente com o motivo específico", ok
+    )
+
+
+def _check_inference_autocast_dtype_provenance_format() -> bool:
+    def invalid_for(**overrides: object) -> list[str]:
+        return storage.find_invalid_required_provenance(
+            _full_required_provenance_attrs(**overrides),
+            storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES,
+        )
+
+    accepted_ok = all(
+        invalid_for(sam3_inference_autocast_dtype=value) == []
+        for value in ("bfloat16", "float16")
+    )
+
+    empty_ok = invalid_for(sam3_inference_autocast_dtype="") == [
+        "sam3_inference_autocast_dtype: vazio"
+    ]
+
+    attrs_missing_key = _full_required_provenance_attrs()
+    del attrs_missing_key["sam3_inference_autocast_dtype"]
+    missing_ok = storage.find_invalid_required_provenance(
+        attrs_missing_key, storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES
+    ) == ["sam3_inference_autocast_dtype: ausente"]
+
+    malformed_ok = True
+    for value in ("float32", "torch.bfloat16", "bf16", "BFloat16"):
+        reasons = invalid_for(sam3_inference_autocast_dtype=value)
+        malformed_ok = (
+            malformed_ok
+            and len(reasons) == 1
+            and reasons[0].startswith(
+                "sam3_inference_autocast_dtype: formato inválido"
+            )
+        )
+
+    ok = accepted_ok and empty_ok and missing_ok and malformed_ok
+    return _check(
+        "find_invalid_required_provenance: sam3_inference_autocast_dtype "
+        "aceita exatamente 'bfloat16' e 'float16', e ausente, vazio ou fora "
+        "do vocabulário (float32, torch.bfloat16, bf16, BFloat16) é nomeado "
+        "com o motivo específico", ok
     )
 
 
@@ -890,6 +1017,173 @@ def _check_report_rejects_malformed_checkpoint_digest() -> bool:
         "run_sam3_report: sam3_checkpoint_sha256 não vazio mas com "
         "comprimento/alfabeto diferente de um sha256 hexadecimal reprova a "
         "checagem de proveniência obrigatória", ok
+    )
+
+
+def _check_report_rejects_malformed_inference_autocast_dtype() -> bool:
+    video_id = "coffee_room/video_malformed_autocast_dtype"
+    k = 3
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir)
+        adapter = _build_fixture(root, video_id=video_id, k=k)
+        pd.DataFrame(
+            {
+                "video_id": [video_id] * k,
+                "frame_index": list(range(k)),
+                "src_index": list(range(k)),
+                "split": ["train"] * k,
+            }
+        ).to_parquet(adapter.frames_path)
+        output_path = sam3_path(video_id, sam3_root=adapter.sam3_root)
+
+        v_t = np.zeros((k, V_T_DIM), dtype=np.float32)
+        sam_score = np.zeros(k, dtype=np.float32)
+        n_instances = np.zeros(k, dtype=np.int16)
+        attrs: dict[str, object] = {
+            "K": k,
+            **_full_required_provenance_attrs(
+                sam3_inference_autocast_dtype="torch.bfloat16"
+            ),
+            **{
+                name: f"valor-{name}"
+                for name in storage.PROVENANCE_ATTR_NAMES
+                if name not in storage.REQUIRED_NONEMPTY_PROVENANCE_ATTR_NAMES
+            },
+        }
+        write_sam3_atomic(output_path, v_t, sam_score, n_instances, attrs)
+
+        captured_stdout = StringIO()
+        with redirect_stdout(captured_stdout):
+            try:
+                run_sam3_report(adapter)
+            except SystemExit:
+                pass
+
+    report_output = captured_stdout.getvalue()
+    ok = (
+        "[FAIL] nenhum atributo de proveniência obrigatório ausente, vazio "
+        "ou malformado" in report_output
+        and "sam3_inference_autocast_dtype: formato inválido" in report_output
+    )
+    return _check(
+        "run_sam3_report: sam3_inference_autocast_dtype com um nome de dtype "
+        "do torch ('torch.bfloat16') em vez do vocabulário gravado reprova a "
+        "checagem de proveniência obrigatória", ok
+    )
+
+
+def _check_extract_persists_inference_autocast_dtype_from_runtime_manifest() -> bool:
+    width, height = 100, 50
+    k = 2
+    frames_by_src = {i: np.zeros((height, width, 3), dtype=np.uint8) for i in range(k)}
+    manifest: dict[str, object] = {
+        "sam3_inference_autocast_dtype": "float16",
+        "device": "cuda",
+    }
+
+    def extract_with(
+        video_id: str, *, inference_autocast_dtype: str | None = None
+    ) -> str:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            root = Path(temporary_dir)
+            adapter = _build_fixture(
+                root, video_id=video_id, k=k, width=width, height=height
+            )
+            segmenter = _ManifestSam3Segmenter([[] for _ in range(k)], manifest)
+            restore = _install_fake_decode_frames(frames_by_src)
+            try:
+                run_sam3_extract(
+                    video_id,
+                    adapter=adapter,
+                    segmenter=segmenter,
+                    runtime_project_dir_value=str(root / "sam3_runtime_missing"),
+                    checkpoint_path_value=str(root / "checkpoint_missing.pt"),
+                    inference_autocast_dtype=inference_autocast_dtype,
+                )
+            finally:
+                restore()
+            output_path = sam3_path(video_id, sam3_root=adapter.sam3_root)
+            with h5py.File(output_path, "r") as h5_file:
+                return str(h5_file.attrs.get("sam3_inference_autocast_dtype"))
+
+    from_manifest_ok = extract_with("coffee_room/video_autocast_manifest") == "float16"
+    with_matching_kwarg_ok = (
+        extract_with(
+            "coffee_room/video_autocast_kwarg", inference_autocast_dtype="float16"
+        )
+        == "float16"
+    )
+
+    ok = from_manifest_ok and with_matching_kwarg_ok
+    return _check(
+        "run_sam3_extract: sam3_inference_autocast_dtype vem do manifesto de "
+        "runtime do segmentador injetado, e um "
+        "inference_autocast_dtype explícito idêntico grava o mesmo valor", ok
+    )
+
+
+def _check_extract_force_rejects_second_inference_autocast_dtype() -> bool:
+    width, height = 100, 50
+    k = 2
+    video_id = "coffee_room/video_autocast_force"
+    frames_by_src = {i: np.zeros((height, width, 3), dtype=np.uint8) for i in range(k)}
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir)
+        adapter = _build_fixture(root, video_id=video_id, k=k, width=width, height=height)
+        output_path = sam3_path(video_id, sam3_root=adapter.sam3_root)
+
+        def extract_with_manifest_dtype(dtype_name: str, *, force: bool) -> None:
+            segmenter = _ManifestSam3Segmenter(
+                [[] for _ in range(k)],
+                {"sam3_inference_autocast_dtype": dtype_name},
+            )
+            restore = _install_fake_decode_frames(frames_by_src)
+            try:
+                run_sam3_extract(
+                    video_id,
+                    adapter=adapter,
+                    segmenter=segmenter,
+                    runtime_project_dir_value=str(root / "sam3_runtime_missing"),
+                    checkpoint_path_value=str(root / "checkpoint_missing.pt"),
+                    force=force,
+                )
+            finally:
+                restore()
+
+        extract_with_manifest_dtype("bfloat16", force=False)
+
+        try:
+            extract_with_manifest_dtype("float16", force=True)
+        except Sam3ExtractError as exc:
+            message = str(exc)
+            mismatch_rejected = (
+                video_id in message
+                and "'bfloat16'" in message
+                and "'float16'" in message
+                and "conjunto inteiro" in message
+            )
+        else:
+            mismatch_rejected = False
+
+        with h5py.File(output_path, "r") as h5_file:
+            preserved_ok = str(h5_file.attrs["sam3_inference_autocast_dtype"]) == "bfloat16"
+
+        try:
+            extract_with_manifest_dtype("bfloat16", force=True)
+        except Sam3ExtractError:
+            same_dtype_ok = False
+        else:
+            same_dtype_ok = True
+
+    ok = mismatch_rejected and preserved_ok and same_dtype_ok
+    return _check(
+        "run_sam3_extract: `--force` de um vídeo único contra um .h5 já "
+        "gravado em 'bfloat16' levanta Sam3ExtractError quando o worker "
+        "reporta 'float16' (nomeando o vídeo, os dois dtypes e a reextração "
+        "do conjunto inteiro) sem sobrescrever o artefato, e o mesmo dtype "
+        "reextrai normalmente", ok
     )
 
 
@@ -1284,6 +1578,43 @@ def _check_sam3_runtime_lock_pins_setuptools_below_pkg_resources_removal() -> bo
     )
 
 
+def _check_sam3_runtime_worker_declares_same_inference_autocast_policy() -> bool:
+    worker_path = Path(__file__).resolve().parents[3] / "sam3_runtime" / "run_sam3.py"
+    try:
+        worker_source = worker_path.read_text(encoding="utf-8")
+    except OSError:
+        # Fail-closed: sem o arquivo do worker não há o que comparar.
+        return _check(
+            "sam3_runtime/run_sam3.py: worker ilegível ou ausente", False
+        )
+
+    # Fragmentos entre aspas: `float16` é substring de `bfloat16`, então a
+    # forma nua não distinguiria um worker que perdeu o recuo FP16.
+    required_fragments = (
+        "sam3_inference_autocast_dtype",
+        *(f'"{name}"' for name in runtime.SAM3_INFERENCE_AUTOCAST_DTYPE_NAMES),
+        "torch.autocast(",
+        "including_emulation=False",
+    )
+    forbidden_fragments = (".half()", "model.to(torch.bfloat16)", "set_default_dtype")
+
+    required_ok = all(fragment in worker_source for fragment in required_fragments)
+    forbidden_ok = all(
+        fragment not in worker_source for fragment in forbidden_fragments
+    )
+
+    ok = required_ok and forbidden_ok
+    return _check(
+        "sam3_runtime/run_sam3.py: o worker isolado declara "
+        "sam3_inference_autocast_dtype no manifesto, usa torch.autocast com "
+        "is_bf16_supported(including_emulation=False) e não converte pesos "
+        "globalmente (.half(), model.to(torch.bfloat16), set_default_dtype) — "
+        "é uma checagem textual entre dois lados deliberadamente duplicados "
+        "(o worker nunca é importado pelo gatefall), não uma prova de "
+        "equivalência semântica com select_inference_autocast_dtype_name", ok
+    )
+
+
 def run_sam3_selftest() -> None:
     checks = [
         _check_compute_descriptor_rectangle(),
@@ -1294,20 +1625,27 @@ def run_sam3_selftest() -> None:
         _check_storage_round_trip(),
         _check_validate_existing_file(),
         _check_provenance_divergence_heterogeneous_checkpoint(),
+        _check_provenance_divergence_mixed_inference_autocast_dtype(),
         _check_dataset_guard_rejects_le2i_cv(),
         _check_build_worker_invocation_project_equals_cwd(),
         _check_build_worker_invocation_checkpoint_absolute_independent_of_cwd(),
         _check_resolve_precedence_and_absolute_paths(),
         _check_ensure_sam3_runtime_available_requires_uv_lock(),
+        _check_select_inference_autocast_dtype_policy(),
         _check_find_invalid_required_provenance(),
+        _check_inference_autocast_dtype_provenance_format(),
         _check_report_detects_structurally_invalid_h5(),
         _check_report_rejects_malformed_source_revision(),
         _check_report_rejects_malformed_checkpoint_digest(),
+        _check_report_rejects_malformed_inference_autocast_dtype(),
+        _check_extract_persists_inference_autocast_dtype_from_runtime_manifest(),
+        _check_extract_force_rejects_second_inference_autocast_dtype(),
         _check_missing_video_id_raises_extract_error(),
         _check_setuptools_ceiling_matches_distribution_name_not_substring(),
         _check_setuptools_lock_version_boundary_and_corruption(),
         _check_normalize_distribution_name_collapses_separator_runs(),
         _check_sam3_runtime_lock_pins_setuptools_below_pkg_resources_removal(),
+        _check_sam3_runtime_worker_declares_same_inference_autocast_policy(),
     ]
     if not all(checks):
         print("\nsam3 extract selftest FALHOU", file=sys.stderr)
