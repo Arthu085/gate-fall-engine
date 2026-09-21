@@ -1216,6 +1216,16 @@ def _parse_leading_version_tuple(text: str) -> tuple[int, ...] | None:
     return tuple(int(part) for part in match.group(1).split("."))
 
 
+def _parse_whole_version_tuple(text: str) -> tuple[int, ...] | None:
+    # O texto da versão precisa ocupar o restante inteiro da cláusula (só
+    # espaços são tolerados nas bordas): um sufixo não numérico como
+    # `<82junk` ou `<=81.5.2rc1` é entrada malformada e reprova.
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)*)\s*", text)
+    if match is None:
+        return None
+    return tuple(int(part) for part in match.group(1).split("."))
+
+
 def _pad_version_tuples(
     left: tuple[int, ...], right: tuple[int, ...]
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
@@ -1276,6 +1286,11 @@ def _pyproject_declares_setuptools_ceiling_below_pkg_resources_removal(
     for constraint in constraints:
         if not isinstance(constraint, str):
             continue
+        if ";" in constraint:
+            # Um marcador de ambiente torna o teto condicional: no ambiente em
+            # que o marcador é falso não há teto e o setuptools pode resolver
+            # >= 82, removendo pkg_resources.
+            continue
         clauses = [part.strip() for part in constraint.split(",")]
         if not clauses:
             continue
@@ -1285,13 +1300,13 @@ def _pyproject_declares_setuptools_ceiling_below_pkg_resources_removal(
         clauses[0] = remainder
         for clause in clauses:
             if clause.startswith("<="):
-                version = _parse_leading_version_tuple(clause[2:])
+                version = _parse_whole_version_tuple(clause[2:])
                 if version is not None and _version_lt(
                     version, _SETUPTOOLS_PKG_RESOURCES_REMOVAL_VERSION
                 ):
                     return True
             elif clause.startswith("<"):
-                version = _parse_leading_version_tuple(clause[1:])
+                version = _parse_whole_version_tuple(clause[1:])
                 if version is not None and _version_le(
                     version, _SETUPTOOLS_PKG_RESOURCES_REMOVAL_VERSION
                 ):
@@ -1492,6 +1507,57 @@ def _check_setuptools_ceiling_matches_distribution_name_not_substring() -> bool:
     )
 
 
+def _check_setuptools_ceiling_rejects_environment_markers_and_trailing_garbage() -> bool:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir)
+        # Um marcador de ambiente torna o teto condicional: no ambiente em que
+        # o marcador é falso não há teto algum e o setuptools pode subir para
+        # >=82, removendo pkg_resources e quebrando o worker isolado.
+        markers_rejected = all(
+            not _pyproject_declares_setuptools_ceiling_below_pkg_resources_removal(
+                _write_pyproject_with_constraint(root, constraint)
+            )
+            for constraint in (
+                "setuptools<82; python_version<'3.12'",
+                "setuptools<82; sys_platform=='win32'",
+                # O marcador viaja na última cláusula de um conjunto múltiplo.
+                "setuptools>=77.0.3,<82; python_version<'3.12'",
+            )
+        )
+        trailing_garbage_rejected = all(
+            not _pyproject_declares_setuptools_ceiling_below_pkg_resources_removal(
+                _write_pyproject_with_constraint(root, constraint)
+            )
+            for constraint in (
+                "setuptools<82junk",
+                "setuptools<=81.5.2rc1",
+            )
+        )
+        well_formed_accepted = all(
+            _pyproject_declares_setuptools_ceiling_below_pkg_resources_removal(
+                _write_pyproject_with_constraint(root, constraint)
+            )
+            for constraint in (
+                # Restrição literal de sam3_runtime/pyproject.toml.
+                "setuptools>=77.0.3,<82",
+                "setuptools<82",
+                "setuptools <= 81",
+            )
+        )
+    ok = markers_rejected and trailing_garbage_rejected and well_formed_accepted
+    return _check(
+        "_pyproject_declares_setuptools_ceiling_below_pkg_resources_removal: "
+        "o texto da versão precisa ser o restante inteiro da cláusula "
+        "(apenas espaços à direita) — marcadores de ambiente "
+        "(`; python_version<'3.12'`, `; sys_platform=='win32'`, inclusive "
+        "sobre a última cláusula de setuptools>=77.0.3,<82) tornam o teto "
+        "condicional e reprovam, sufixo não numérico reprova nos dois "
+        "operadores (<82junk, <=81.5.2rc1), e as formas bem formadas "
+        "(setuptools>=77.0.3,<82, setuptools<82, setuptools <= 81) "
+        "continuam passando", ok
+    )
+
+
 def _check_setuptools_lock_version_boundary_and_corruption() -> bool:
     with tempfile.TemporaryDirectory() as temporary_dir:
         root = Path(temporary_dir)
@@ -1642,6 +1708,7 @@ def run_sam3_selftest() -> None:
         _check_extract_force_rejects_second_inference_autocast_dtype(),
         _check_missing_video_id_raises_extract_error(),
         _check_setuptools_ceiling_matches_distribution_name_not_substring(),
+        _check_setuptools_ceiling_rejects_environment_markers_and_trailing_garbage(),
         _check_setuptools_lock_version_boundary_and_corruption(),
         _check_normalize_distribution_name_collapses_separator_runs(),
         _check_sam3_runtime_lock_pins_setuptools_below_pkg_resources_removal(),

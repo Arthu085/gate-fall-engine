@@ -358,10 +358,16 @@ obrigatório: no torch 2.14 o padrão `including_emulation=True` responde `True`
 em `sm_75` (GTX 1650) apenas porque um tensor bfloat16 pode ser alocado, o que
 anularia em silêncio o recuo para FP16 em hardware pré-Ampere.
 
-O mecanismo do recuo FP16 é que `_addmm_activation` está na lista de
-operações de precisão reduzida do autocast do torch: sob um autocast FP16, o
-op **deve** ser despachado em FP16 na própria fronteira da operação,
-sobrepondo-se à conversão BF16 fixa do upstream em vez de conviver com ela.
+O mecanismo **esperado** do recuo FP16 não é um despacho FP16 do próprio
+`_addmm_activation`: no runtime fixado (torch 2.14.0) esse op está
+registrado no autocast de **CPU**, mas **não** está na lista de precisão
+reduzida do autocast **CUDA**. Sob um autocast FP16 em CUDA, portanto, a
+primeira projeção fundida do upstream pode muito bem continuar saindo em
+BF16. O que se espera que reconcilie a divergência é o `linear`/`fc2`
+**seguinte**, esse sim elegível ao autocast CUDA: sob o contexto FP16 ele
+leva a ativação BF16 e os parâmetros FP32 a um dtype comum. Isso é o
+mecanismo **esperado**, pendente do smoke real de um vídeo — não uma
+reconciliação garantida nem comportamento validado.
 Como o ramo de CPU, o recuo FP16 é uma política **não exercitada em hardware
 real**: nenhum dos dois ramos (BF16 ou FP16) chegou a rodar até aqui, e na GPU
 de desenvolvimento (`sm_75`, GTX 1650) FP16 é justamente o ramo que será
@@ -387,11 +393,12 @@ nenhuma extração do Le2i foi concluída em CPU até aqui.
 ### Setup único e isolado
 
 ```bash
-cd sam3_runtime && uv sync
+uv sync --project sam3_runtime --locked
 ```
 
-`sam3_runtime/uv.lock` é commitado: `uv sync` materializa o ambiente a
-partir desse lock em vez de resolvê-lo do zero. `ensure_sam3_runtime_available`
+`sam3_runtime/uv.lock` é commitado: `uv sync --project sam3_runtime --locked`
+materializa o ambiente exatamente a partir desse lock, falhando em vez de
+regravá-lo caso ele esteja desatualizado. `ensure_sam3_runtime_available`
 falha alto (`FileNotFoundError`) se `sam3_runtime/uv.lock` não existir no
 diretório do runtime, e o worker falha na inicialização
 (`Sam3SourceRevisionError`, saída não-zero) se não conseguir resolver
@@ -476,7 +483,8 @@ uv run python -m gatefall.sam3.extract extract --video-id <ENV/VIDEO> [--runtime
 ```
 
 Extrai `V_t` de um único vídeo e grava o `.h5`. Requer `sam3_runtime/`
-sincronizado (`uv sync`) e o checkpoint do SAM 3 disponível. Um `.h5`
+sincronizado (`uv sync --project sam3_runtime --locked`) e o checkpoint do
+SAM 3 disponível. Um `.h5`
 existente e válido é pulado, a menos que `--force` seja passado (ver
 limitação 1 acima sobre o lock).
 

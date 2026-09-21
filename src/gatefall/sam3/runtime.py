@@ -209,7 +209,8 @@ class Sam3RuntimeSegmenter:
         if not manifest_line:
             raise RuntimeError(
                 "runtime SAM 3 encerrou antes de imprimir o manifesto de "
-                "inicialização — verifique `uv sync` em sam3_runtime/"
+                "inicialização — verifique `uv sync --project sam3_runtime "
+                "--locked`"
             )
         try:
             self._runtime_manifest = json.loads(manifest_line.decode("utf-8"))
