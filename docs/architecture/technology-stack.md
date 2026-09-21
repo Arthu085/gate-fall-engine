@@ -16,12 +16,15 @@
 | MkDocs Material | Site desta documentação |
 | Pyright | Verificação estática obrigatória do Python |
 | DINOv3 | Backbone congelado ViT-B/16 (LVD-1689M); extração offline de embeddings visuais do braço B implementada, fusão e treino ainda pendentes |
-| SAM 3 | **Planejado** para descritores de máscara congelados do braço C |
+| SAM 3 | Backbone congelado; extração offline do descritor `V_t` do braço C implementada, fusão e treino ainda pendentes |
 
 O pipeline é monocular RGB. YOLO-Pose não é ajustado durante o treino; somente
 a TCN do braço A é treinada. Do braço B está implementada apenas a extração
 offline de features DINOv3: nenhuma fusão, cabeça ou TCN do braço B é
-treinada. O braço C não está implementado nesta etapa.
+treinada. Do braço C está implementada apenas a fundação de extração offline
+do descritor `V_t` do SAM 3 (ver [Fundação SAM
+3](../data/sam3-foundation.md)): C0, C1, fusão, gate, treino e avaliação por
+eventos do braço C permanecem pendentes.
 
 ## Licenças
 

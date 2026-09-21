@@ -33,6 +33,8 @@ jobs:
           uv run python -m gatefall.data.fusion_dataset selftest
           uv run python -m gatefall.dinov3.extract selftest
           uv run python -m gatefall.dinov3.quality selftest
+          uv run python -m gatefall.sam3.selection selftest
+          uv run python -m gatefall.sam3.extract selftest
           uv run python -m gatefall.features.standardize selftest
           uv run python -m gatefall.features.standardize_dinov3 selftest
           uv run python -m gatefall.train.baseline_a selftest

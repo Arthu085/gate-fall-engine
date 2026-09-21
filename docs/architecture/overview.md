@@ -18,8 +18,9 @@ avaliação
 
 `gatefall.datasets.base.DatasetAdapter` expõe apenas identificador, caminhos
 canônicos, nomes de classes, manifesto, grade, resolução de vídeo, os caminhos
-específicos da fonte de pose (`pose_root` e `pose_stats_path`) e a raiz das
-features DINOv3 (`dinov3_root`); o contrato não reserva nada além disso. O primeiro adapter,
+específicos da fonte de pose (`pose_root` e `pose_stats_path`), a raiz das
+features DINOv3 (`dinov3_root`) e a raiz das features SAM 3 (`sam3_root`); o
+contrato não reserva nada além disso. O primeiro adapter,
 `gatefall.datasets.le2i.Le2iDatasetAdapter`, pode delegar a implementações em
 `gatefall.data.le2i`; as camadas de pose, features genéricas, treino e
 avaliação não importam esses módulos diretamente.

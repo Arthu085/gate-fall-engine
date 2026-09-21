@@ -7,9 +7,10 @@ isolados (ver [OmniFall](../data/omnifall.md) e [relatório de
 generalização](../eval/le2i-cv-generalization.md)); as sub-CLIs de
 `gatefall.dinov3.extract`, `gatefall.features.standardize_dinov3` e
 `gatefall.train.b0_fusion`, `gatefall.eval.b0_events`,
-`gatefall.features.quality_extract`, `gatefall.train.b1_gate` e
-`gatefall.eval.b1_events` são a exceção e aceitam somente `--dataset le2i`
-(ver [features DINOv3](../data/dinov3-features.md)). “Dados” indica acesso ao
+`gatefall.features.quality_extract`, `gatefall.train.b1_gate`,
+`gatefall.eval.b1_events` e `gatefall.sam3.extract` são a exceção e aceitam
+somente `--dataset le2i` (ver [features DINOv3](../data/dinov3-features.md)
+e [fundação SAM 3](../data/sam3-foundation.md)). “Dados” indica acesso ao
 dataset real; “GPU/pesos” indica necessidade ou benefício de aceleração e
 pesos. Links apontam para o contrato detalhado.
 
@@ -78,6 +79,12 @@ pesos. Links apontam para o contrato detalhado.
 | `uv run python -m gatefall.features.standardize_dinov3 build [--dataset le2i] [--force]` | Calcula estatísticas DINOv3 só do treino | grade + HDF5 → JSON versionado; muta atomicamente; preserva existente; `--force` recalcula | Sim | Não | [Padronização DINOv3](../data/dinov3-standardization.md#como-executar) |
 | `uv run python -m gatefall.features.standardize_dinov3 report [--dataset le2i]` | Valida stats DINOv3 e aplicação nos splits | grade + HDF5 + JSON → stdout; não muta | Sim | Não | [Padronização DINOv3](../data/dinov3-standardization.md#como-executar) |
 | `uv run python -m gatefall.data.fusion_dataset selftest` | Testa o dataset de janelas fundidas pose+DINOv3 | Casos sintéticos → stdout; não muta | Não | Não | [Treino B0](../train/b0-fusion.md) |
+| `uv run python -m gatefall.sam3.selection selftest` | Testa a política de seleção contínua de instância do braço C (aquisição, continuidade por IoU, desempate por score, lacuna de detecção) | Casos sintéticos → stdout; não muta | Não | Não | [Fundação SAM 3](../data/sam3-foundation.md) |
+| `uv run python -m gatefall.sam3.extract selftest` | Testa descritores `V_t`, armazenamento, guarda de protocolo `cs` e fixtures de alinhamento de quadro do braço C contra um segmentador falso | Casos sintéticos → stdout; não muta | Não | Não | [Fundação SAM 3](../data/sam3-foundation.md) |
+| `uv run python -m gatefall.sam3.extract extract --video-id ENV/VIDEO [--runtime-dir DIR] [--checkpoint PATH] [--force] [--dataset le2i]` | Extrai `V_t` do SAM 3 de um único vídeo; requer `sam3_runtime/` sincronizado (`uv sync`) e checkpoint disponível | vídeo + runtime isolado do SAM 3 → HDF5 por vídeo; muta; pula existente válido; `--force` reextrai | Sim | Checkpoint SAM 3 (local); GPU recomendada | [Fundação SAM 3](../data/sam3-foundation.md) |
+| `uv run python -m gatefall.sam3.extract extract-all [--runtime-dir DIR] [--checkpoint PATH] [--force] [--dataset le2i]` | Extrai `V_t` do SAM 3 de todos os vídeos da grade, reutilizando o mesmo subprocesso do runtime | vídeos + runtime isolado do SAM 3 → `data/features/le2i/sam3/**/*.h5`; muta; pula válidos; `--force` reextrai; aborta o lote se o subprocesso morrer no meio | Sim | Checkpoint SAM 3 (local); GPU recomendada | [Fundação SAM 3](../data/sam3-foundation.md) |
+| `uv run python -m gatefall.sam3.extract report [--dataset le2i]` | Valida cobertura e homogeneidade de proveniência dos `V_t` do SAM 3 já extraídos | grade + HDF5 → stdout; não muta | Sim | Não | [Fundação SAM 3](../data/sam3-foundation.md) |
+| `uv run python -m gatefall.sam3.extract verify-frame-alignment [--runtime-dir DIR] [--checkpoint PATH] [--dataset le2i]` | Confere que `decode_frames` retorna o quadro correto para o `src_index` pedido, recomputando vídeos inteiros de uma amostra fixa (a seleção de instância tem estado causal) | vídeo + runtime isolado do SAM 3 + HDF5 → stdout; somente leitura, não muta | Sim | Checkpoint SAM 3 (local); GPU recomendada | [Fundação SAM 3](../data/sam3-foundation.md) |
 
 ## Treino, avaliação e desenvolvimento
 
