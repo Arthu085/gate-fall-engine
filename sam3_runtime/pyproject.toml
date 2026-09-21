@@ -13,3 +13,6 @@ dependencies = [
 
 [tool.uv]
 package = false
+constraint-dependencies = [
+    "setuptools>=77.0.3,<82",
+]

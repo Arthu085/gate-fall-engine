@@ -22,6 +22,15 @@ Le2i. Só `uv run python -m gatefall.sam3.extract verify-frame-alignment`
 roda o hardware real, e mesmo assim valida apenas alinhamento de quadro, não
 qualidade de máscara.
 
+Uma tentativa real de smoke test do worker chegou a ser feita e **falhou na
+inicialização**, antes de qualquer inferência, com
+`ModuleNotFoundError: No module named 'pkg_resources'` (ver
+[teto de `setuptools`](#teto-de-setuptools-no-sam3_runtime) abaixo). Essa
+falha motivou o teto de `setuptools` agora fixado no ambiente isolado, mas
+**não implica que a extração real funcione agora**: a inicialização do
+worker e a qualidade das máscaras continuam não verificadas e serão
+revalidadas manualmente; o smoke test não foi rerrodado nesta mudança.
+
 ## Somente o protocolo cs
 
 Todas as operações de `gatefall.sam3` aceitam apenas `--dataset le2i` (Le2i
@@ -181,6 +190,48 @@ sobrecarga de IPC do protocolo de fio; esse custo só é pago no caminho de
 extração real (`extract`/`extract-all`/`verify-frame-alignment`), nunca na
 CI, que só roda os `selftest` sintéticos contra um segmentador falso.
 
+### Teto de `setuptools` no `sam3_runtime/`
+
+O commit `2345a4ad109ac29c569da749c91d84f10dc08c40` do SAM 3 ainda importa
+`pkg_resources` em `sam3/model_builder.py` (usado para localizar o asset do
+tokenizer BPE), e o `setuptools` removeu `pkg_resources` a partir da versão
+`82.0.0`. `sam3_runtime/pyproject.toml` declara, sob `[tool.uv]`:
+
+```toml
+constraint-dependencies = ["setuptools>=77.0.3,<82"]
+```
+
+Isso é uma entrada de `constraint-dependencies`, não uma dependência normal,
+porque o código do runtime nunca importa `setuptools` diretamente — ele só
+chega de forma transitiva via `torch`, que declara `setuptools>=77.0.3` sem
+teto superior. O piso `>=77.0.3` espelha o próprio piso do `torch`, então o
+teto nunca aperta o que o `torch` já exige, só impede a resolução de subir
+para uma versão sem `pkg_resources`. Com esse teto, `sam3_runtime/uv.lock`
+foi regenerado e agora resolve `setuptools==81.0.0` (antes, `84.0.0`); só a
+entrada de `setuptools` e um novo bloco `[manifest] constraints` mudaram no
+lock, nenhuma outra dependência foi afetada.
+
+A evidência que motivou esse teto foi um smoke test real do SAM 3 que
+falhou na inicialização do worker com
+`ModuleNotFoundError: No module named 'pkg_resources'`, antes de qualquer
+inferência — quando o runtime isolado havia instalado `setuptools==84.0.0`.
+Isso prova apenas que o piso está fechado; **não prova** que a extração real
+funciona (ver o aviso de honestidade no topo desta página).
+
+Uma checagem sintética em `extract selftest`
+(`_check_sam3_runtime_lock_pins_setuptools_below_pkg_resources_removal` e
+seus auxiliares) lê `sam3_runtime/pyproject.toml` e `sam3_runtime/uv.lock`
+como dado inerte, só com `tomllib` da biblioteca padrão — sem tocar em
+modelo, runtime, checkpoint ou GPU — e falha se qualquer uma destas duas
+condições não se sustentar isoladamente: (1) uma cláusula de
+`constraint-dependencies` identifica a distribuição `setuptools` (por nome
+normalizado conforme a PEP 503, então `setuptools-scm` e afins não contam)
+com um teto superior estritamente abaixo de `82`; e (2) todo stanza
+`setuptools` do lock commitado resolve abaixo de `82`. A checagem falha
+fechada diante de arquivo ausente ou malformado. Ela garante apenas que os
+dois arquivos declarados são consistentes entre si — não que o worker real
+sobe nem que as máscaras produzidas são válidas.
+
 ### Setup único e isolado
 
 ```bash
@@ -240,11 +291,13 @@ uv run python -m gatefall.sam3.extract selftest
 Roda checagens sintéticas dos descritores, do armazenamento, da guarda de
 protocolo `cs`, das fixtures de alinhamento de quadro, da construção do
 comando/caminhos do worker (`build_worker_invocation`,
-`resolve_runtime_project_dir`, `resolve_checkpoint_path`) e das rejeições do
+`resolve_runtime_project_dir`, `resolve_checkpoint_path`), das rejeições do
 gate de `sam3 report` (proveniência ausente/vazia/malformada, `.h5`
-estruturalmente inválido), tudo contra um segmentador falso injetado — não
-toca no checkpoint do SAM 3, no sub-projeto `sam3_runtime/` nem no dataset
-real.
+estruturalmente inválido) e do
+[teto de `setuptools`](#teto-de-setuptools-no-sam3_runtime) declarado em
+`sam3_runtime/pyproject.toml`/`uv.lock`, tudo contra um segmentador falso
+injetado ou lendo arquivos como dado inerte — não toca no checkpoint do SAM
+3, no sub-projeto `sam3_runtime/` nem no dataset real.
 
 ```bash
 uv run python -m gatefall.sam3.extract extract --video-id <ENV/VIDEO> [--runtime-dir DIR] [--checkpoint PATH] [--force] [--dataset le2i]
