@@ -8,7 +8,9 @@ instância, armazenamento e proveniência. Ela **não implementa** C0, C1, um
 `q_visual` específico do SAM, fusão, gate, cross-attention, treino da TCN do
 braço C nem avaliação por eventos — e **não fecha o PEND-015**.
 
-## Aviso de honestidade: o que os selftests provam e o que não provam
+## O que a CI prova e o que foi validado manualmente
+
+### CI: somente selftests sintéticos
 
 `uv run python -m gatefall.sam3.selection selftest` e
 `uv run python -m gatefall.sam3.extract selftest` rodam apenas contra
@@ -16,47 +18,62 @@ fixtures sintéticas e um segmentador falso injetado (`Sam3Segmenter`
 protocolo, sem `torch`/`sam3`). Eles validam a matemática dos
 descritores, a política de seleção contínua, o armazenamento HDF5, a
 verificação de proveniência e o alinhamento de quadro — nada disso exercita
-o modelo SAM 3 real. **A extração real ainda não foi rodada**:
-não há evidência de que o SAM 3 produza máscaras válidas sobre vídeo real do
-Le2i. Os três comandos que sobem o worker real do SAM 3 via
-`Sam3RuntimeSegmenter` são `extract`, `extract-all` e
-`verify-frame-alignment`; os comandos `selftest` e `sam3 report` são livres
-de hardware (`report` apenas abre os `.h5` já gravados e nunca constrói o
-modelo nem sobe o runtime isolado).
-E mesmo `verify-frame-alignment` valida apenas alinhamento de quadro, não
-qualidade de máscara.
+o modelo SAM 3 real, e a CI nunca sobe o runtime isolado. Os três comandos
+que sobem o worker real do SAM 3 via `Sam3RuntimeSegmenter` são `extract`,
+`extract-all` e `verify-frame-alignment`; os comandos `selftest` e
+`sam3 report` são livres de hardware (`report` apenas abre os `.h5` já
+gravados e nunca constrói o modelo nem sobe o runtime isolado).
 
-Uma primeira tentativa real de smoke test do worker **falhou na
-inicialização**, antes de qualquer inferência, com
-`ModuleNotFoundError: No module named 'pkg_resources'` (ver
-[teto de `setuptools`](#teto-de-setuptools-no-sam3_runtime) abaixo). Essa
-falha motivou o teto de `setuptools` agora fixado no ambiente isolado.
+### Validação manual em hardware real
 
-Uma segunda tentativa real de smoke test, já com o teto de `setuptools` em
-vigor, confirmou que esse bloqueio foi superado: o ambiente isolado resolve
-`setuptools==81.0.0`, o `import pkg_resources` funciona, e a inicialização do
-worker avança além desse ponto. A inicialização então falhou de novo, ainda
-**antes da construção do modelo**, com
-`ModuleNotFoundError: No module named 'einops'` (ver
-[dependências adicionadas por lacuna de empacotamento upstream](#dependencias-adicionadas-por-lacuna-de-empacotamento-upstream)
-abaixo). Isso motivou as três dependências novas declaradas em
-`sam3_runtime/pyproject.toml`. **Nenhuma dessas duas correções implica que a
-extração real funcione**: a construção do modelo e a qualidade das máscaras
-sobre vídeo real do Le2i continuam inteiramente não verificadas.
+A extração real foi validada manualmente, fora da CI, no head `faf4cf2`:
 
-Uma terceira tentativa real de smoke test esbarrou primeiro em um OOM de
-memória do host WSL — uma limitação de ambiente, não um defeito do
-repositório — superado após aumentar a alocação de memória do WSL. A rodada
-corrigida atravessou a importação dos pacotes, a construção do modelo, o
-carregamento do checkpoint, a configuração do dispositivo e a impressão do
-manifesto de inicialização do worker, e **chegou ao primeiro quadro real do
-Le2i**, onde falhou dentro de `Sam3Processor.set_image()` com
-`RuntimeError: mat1 and mat2 must have the same dtype, but got BFloat16 and
-Float` (ver [política de precisão de inferência (autocast)](#politica-de-precisao-de-inferencia-autocast)
-abaixo). O `EOFError` observado do lado do processo pai foi apenas
-consequência da saída do worker, não uma falha de protocolo. **A extração
-real continua não comprovada**: nenhuma máscara válida sobre vídeo real do
-Le2i foi produzida até aqui.
+- **Vídeo único em duas GPUs.** Em uma GTX 1650 local e em uma Tesla T4 do
+  Kaggle, `extract` sobre `coffee_room_01/video_1` concluiu a construção do
+  modelo, o carregamento do checkpoint e a inferência real, com `K=62`
+  quadros e `n_present=60`, sob autocast CUDA FP16
+  (`sam3_inference_autocast_dtype=float16`) e proveniência HDF5 válida.
+- **Lote completo na T4.** `extract-all` gravou os 190 vídeos / 30.494
+  quadros do Le2i; 28.591 quadros (`93,76%`) têm `present==1`.
+- **Gate de integridade.** `sam3 report` passou em todas as checagens de
+  cobertura, estrutura, split e proveniência.
+- **Alinhamento de quadro.** `verify-frame-alignment` terminou com código de
+  retorno 0 na amostra fixa (`coffee_room_01/video_1` e `home_01/video_1`),
+  sem falhas; um empate exato entre vizinhos foi reportado como
+  inconclusivo, por design.
+
+Essa validação cobre a fundação offline e nada além dela: construção do
+modelo, recuo para FP16, extração do Le2i, integridade dos artefatos e
+alinhamento de quadro. Ela não audita a qualidade semântica de cada máscara
+(`verify-frame-alignment` valida apenas alinhamento de quadro), não exercita
+os ramos BF16 e de CPU e não implementa nem valida C0, C1, `q_visual`
+específico do SAM, treino da fusão, cross-attention ou avaliação de alarme.
+
+### Histórico: falhas anteriores à validação final
+
+As tentativas abaixo precederam a validação acima e ficam registradas porque
+motivaram as correções atuais do runtime isolado. Nenhuma delas descreve o
+estado atual.
+
+1. A primeira tentativa real de smoke test do worker falhou na
+   inicialização, antes de qualquer inferência, com
+   `ModuleNotFoundError: No module named 'pkg_resources'` (ver
+   [teto de `setuptools`](#teto-de-setuptools-no-sam3_runtime) abaixo).
+2. A segunda, já com o teto de `setuptools` em vigor (`setuptools==81.0.0`,
+   `import pkg_resources` funcionando), falhou de novo antes da construção do
+   modelo com `ModuleNotFoundError: No module named 'einops'` (ver
+   [dependências adicionadas por lacuna de empacotamento upstream](#dependencias-adicionadas-por-lacuna-de-empacotamento-upstream)
+   abaixo).
+3. A terceira esbarrou primeiro em um OOM de memória do host WSL — uma
+   limitação de ambiente, não um defeito do repositório — superado após
+   aumentar a alocação de memória do WSL. A rodada corrigida atravessou a
+   construção do modelo, o carregamento do checkpoint e o manifesto de
+   inicialização do worker, e falhou no primeiro quadro real do Le2i dentro
+   de `Sam3Processor.set_image()` com `RuntimeError: mat1 and mat2 must have
+   the same dtype, but got BFloat16 and Float` (ver
+   [política de precisão de inferência (autocast)](#politica-de-precisao-de-inferencia-autocast)
+   abaixo). O `EOFError` observado do lado do processo pai foi apenas
+   consequência da saída do worker, não uma falha de protocolo.
 
 ## Somente o protocolo cs
 
@@ -254,8 +271,8 @@ A evidência que motivou esse teto foi um smoke test real do SAM 3 que
 falhou na inicialização do worker com
 `ModuleNotFoundError: No module named 'pkg_resources'`, antes de qualquer
 inferência — quando o runtime isolado havia instalado `setuptools==84.0.0`.
-Isso prova apenas que o piso está fechado; **não prova** que a extração real
-funciona (ver o aviso de honestidade no topo desta página).
+Isso prova apenas que o piso está fechado; a extração real só foi validada
+depois (ver [validação manual em hardware real](#validacao-manual-em-hardware-real)).
 
 Uma checagem sintética em `extract selftest`
 (`_check_sam3_runtime_lock_pins_setuptools_below_pkg_resources_removal` e
@@ -318,9 +335,9 @@ from sam3.model.sam3_image_processor import Sam3Processor
 
 Ambas as importações têm sucesso. Isso prova apenas que o grafo de módulos
 Python resolve; **não é** uma inicialização de modelo bem-sucedida nem uma
-extração real do Le2i. Nem a construção do modelo SAM 3 nem a qualidade de
-máscara sobre vídeo real do Le2i foram verificadas nesta rodada — ambas
-permanecem em aberto (ver o aviso de honestidade no topo desta página).
+extração real do Le2i. A construção do modelo e a extração real foram
+validadas depois (ver
+[validação manual em hardware real](#validacao-manual-em-hardware-real)).
 
 ### Política de precisão de inferência (autocast)
 
@@ -358,20 +375,23 @@ obrigatório: no torch 2.14 o padrão `including_emulation=True` responde `True`
 em `sm_75` (GTX 1650) apenas porque um tensor bfloat16 pode ser alocado, o que
 anularia em silêncio o recuo para FP16 em hardware pré-Ampere.
 
-O mecanismo **esperado** do recuo FP16 não é um despacho FP16 do próprio
+O recuo FP16 não depende de um despacho FP16 do próprio
 `_addmm_activation`: no runtime fixado (torch 2.14.0) esse op está
 registrado no autocast de **CPU**, mas **não** está na lista de precisão
 reduzida do autocast **CUDA**. Sob um autocast FP16 em CUDA, portanto, a
-primeira projeção fundida do upstream pode muito bem continuar saindo em
-BF16. O que se espera que reconcilie a divergência é o `linear`/`fc2`
-**seguinte**, esse sim elegível ao autocast CUDA: sob o contexto FP16 ele
-leva a ativação BF16 e os parâmetros FP32 a um dtype comum. Isso é o
-mecanismo **esperado**, pendente do smoke real de um vídeo — não uma
-reconciliação garantida nem comportamento validado.
-Como o ramo de CPU, o recuo FP16 é uma política **não exercitada em hardware
-real**: nenhum dos dois ramos (BF16 ou FP16) chegou a rodar até aqui, e na GPU
-de desenvolvimento (`sm_75`, GTX 1650) FP16 é justamente o ramo que será
-tomado.
+primeira projeção fundida do upstream pode continuar saindo em BF16. O que
+reconcilia a divergência é o `linear`/`fc2` **seguinte**, esse sim elegível
+ao autocast CUDA: sob o contexto FP16 ele leva a ativação BF16 e os
+parâmetros FP32 a um dtype comum.
+
+O ramo FP16 foi exercitado em hardware real: a GTX 1650 e a Tesla T4
+(ambas `sm_75`, sem BF16 nativo) concluíram a inferência sob
+`sam3_inference_autocast_dtype=float16` sem erro de dtype, incluindo o lote
+completo na T4 (ver
+[validação manual em hardware real](#validacao-manual-em-hardware-real)).
+Isso comprova o comportamento de ponta a ponta, não uma instrumentação dos
+dtypes intermediários. O ramo BF16 em CUDA continua **não exercitado em
+hardware real**.
 
 BF16 e FP16 **não** produzem artefatos intercambiáveis: a precisão reduzida
 desloca os scores comparados com o `confidence_threshold = 0.5` de filtragem
