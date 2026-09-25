@@ -52,6 +52,7 @@ nav:
       - Padronização de features DINOv3: data/dinov3-standardization.md
       - Features de qualidade (q_pose, q_visual): data/quality-features.md
       - Fundação SAM 3 (braço C): data/sam3-foundation.md
+      - Índice de qualidade SAM 3: data/sam3-quality.md
       - Padronização do descritor SAM 3: data/sam3-standardization.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
