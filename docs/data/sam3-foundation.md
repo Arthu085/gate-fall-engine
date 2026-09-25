@@ -7,9 +7,10 @@ etapa cobre apenas a fundação de dados: descritores de máscara, seleção de
 instância, armazenamento e proveniência. Ela **conclui os requisitos
 técnicos do PEND-015** — implementação e validação real da fundação offline
 do SAM 3 (ver [validação manual em hardware real](#validacao-manual-em-hardware-real))
-—, que pode ser fechado quando este PR for mergeado. C0, C1, um `q_visual`
-específico do SAM, fusão, gate, cross-attention, treino da TCN do braço C e
-avaliação por eventos continuam como trabalho subsequente.
+—, que pode ser fechado quando este PR for mergeado. A fusão C0, que consome
+estes descritores, está em [Treino — Arma C0](../train/c0-fusion.md); C1, um
+`q_visual` específico do SAM, gate, cross-attention e avaliação por eventos
+continuam como trabalho subsequente.
 
 ## O que a CI prova e o que foi validado manualmente
 

@@ -17,6 +17,7 @@ from gatefall.data.windowing import build_window_index, window_frame_indices
 
 _POSE_DIM = 134
 _VISUAL_DIM = 1536
+_SAM3_VISUAL_DIM = 10
 _N_FRAMES_A = 30
 _N_FRAMES_B = 32
 
@@ -228,6 +229,53 @@ def check_both_sources_share_same_wrong_k_raises() -> bool:
     )
 
 
+def check_sam3_visual_dim_shares_frame_indices_and_rejects_dinov3_width() -> bool:
+    n_frames_by_video = {"video_a": _N_FRAMES_A}
+    frames = _make_frames(n_frames_by_video)
+    pose_loader = _synthetic_pose_loader(n_frames_by_video)
+
+    def sam3_loader(video_id: str) -> np.ndarray:
+        n_frames = n_frames_by_video[video_id]
+        base = ((np.arange(n_frames, dtype=np.float32) + 1) * 1000.0).reshape(n_frames, 1)
+        return np.tile(base, (1, _SAM3_VISUAL_DIM))
+
+    dataset = FusionWindowDataset(
+        frames,
+        split="train",
+        stride=1,
+        pose_loader=pose_loader,
+        visual_loader=sam3_loader,
+        visual_dim=_SAM3_VISUAL_DIM,
+    )
+    x_pose, x_visual, _label, (_video_id, k_end) = dataset[len(dataset) - 1]
+    expected_rows = window_frame_indices(k_end, _N_FRAMES_A).astype(np.float32) + 1
+    aligned = (
+        x_visual.shape == (WINDOW_FRAMES, _SAM3_VISUAL_DIM)
+        and bool(np.array_equal(x_pose[:, 0], expected_rows))
+        and bool(np.array_equal(x_visual[:, 0], expected_rows * 1000.0))
+    )
+
+    rejected = False
+    try:
+        FusionWindowDataset(
+            frames,
+            split="train",
+            stride=1,
+            pose_loader=pose_loader,
+            visual_loader=_synthetic_visual_loader(n_frames_by_video),
+            visual_dim=_SAM3_VISUAL_DIM,
+        )
+    except ValueError:
+        rejected = True
+
+    return _check(
+        f"com visual_dim={_SAM3_VISUAL_DIM} (SAM 3 V_t, arma C0), pose e V_t "
+        "saem dos mesmos índices de quadro causais, e um array de largura "
+        f"{_VISUAL_DIM} é recusado",
+        aligned and rejected,
+    )
+
+
 def run_fusion_dataset_selftest() -> bool:
     checks = [
         check_pose_and_visual_windows_share_frame_indices(),
@@ -235,6 +283,7 @@ def run_fusion_dataset_selftest() -> bool:
         check_wrong_visual_feature_dim_raises(),
         check_wrong_pose_feature_dim_raises(),
         check_both_sources_share_same_wrong_k_raises(),
+        check_sam3_visual_dim_shares_frame_indices_and_rejects_dinov3_width(),
     ]
     ok = all(checks)
     if not ok:

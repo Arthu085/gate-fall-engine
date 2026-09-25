@@ -1,4 +1,8 @@
-"""Dataset de janelas fundidas pose+DINOv3 (arma B0) e CLI de selftest."""
+"""Dataset de janelas fundidas pose+visual (armas B0 e C0) e CLI de selftest.
+
+A fonte visual é o DINOv3 (1536-d) no B0 e o descritor SAM 3 V_t (10-d) no
+C0; `visual_dim` só muda a largura esperada, nunca o janelamento causal.
+"""
 
 import argparse
 from collections.abc import Callable
@@ -22,7 +26,9 @@ class FusionWindowDataset:
         pose_loader: Callable[[str], np.ndarray],
         visual_loader: Callable[[str], np.ndarray],
         drop_ignored: bool = True,
+        visual_dim: int = _VISUAL_DIM,
     ) -> None:
+        self._visual_dim = visual_dim
         self._pose_loader = pose_loader
         self._visual_loader = visual_loader
         split_frames = cast(pd.DataFrame, frames[frames["split"] == split])
@@ -63,10 +69,10 @@ class FusionWindowDataset:
                     f"video_id={video_id!r}: pose array shape {pose_array.shape} "
                     f"tem feature_dim != {_POSE_DIM}"
                 )
-            if visual_array.shape[1] != _VISUAL_DIM:
+            if visual_array.shape[1] != self._visual_dim:
                 raise ValueError(
                     f"video_id={video_id!r}: visual array shape "
-                    f"{visual_array.shape} tem feature_dim != {_VISUAL_DIM}"
+                    f"{visual_array.shape} tem feature_dim != {self._visual_dim}"
                 )
             self._pose_cache[video_id] = pose_array
             self._visual_cache[video_id] = visual_array
