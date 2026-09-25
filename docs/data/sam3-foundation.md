@@ -4,9 +4,12 @@
 braço C a partir do backbone congelado **SAM 3** (runtime oficial
 `facebookresearch/sam3`). Esta
 etapa cobre apenas a fundação de dados: descritores de máscara, seleção de
-instância, armazenamento e proveniência. Ela **não implementa** C0, C1, um
-`q_visual` específico do SAM, fusão, gate, cross-attention, treino da TCN do
-braço C nem avaliação por eventos — e **não fecha o PEND-015**.
+instância, armazenamento e proveniência. Ela **conclui os requisitos
+técnicos do PEND-015** — implementação e validação real da fundação offline
+do SAM 3 (ver [validação manual em hardware real](#validacao-manual-em-hardware-real))
+—, que pode ser fechado quando este PR for mergeado. C0, C1, um `q_visual`
+específico do SAM, fusão, gate, cross-attention, treino da TCN do braço C e
+avaliação por eventos continuam como trabalho subsequente.
 
 ## O que a CI prova e o que foi validado manualmente
 
