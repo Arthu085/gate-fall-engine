@@ -1,0 +1,61 @@
+{
+  "source": "sam3",
+  "dataset": "le2i",
+  "split": "train",
+  "target_fps": 10.0,
+  "window_frames": 24,
+  "stride": 4,
+  "window_count": 5219,
+  "feature_dim": 10,
+  "channel_names": [
+    "present",
+    "mask_area_norm",
+    "centroid_x_norm",
+    "centroid_y_norm",
+    "bbox_w_norm",
+    "bbox_h_norm",
+    "fill_ratio",
+    "eccentricity",
+    "sin_2theta",
+    "cos_2theta"
+  ],
+  "mean": [
+    0.9793542824295842,
+    0.03807457088957974,
+    0.5211513028962221,
+    0.5191778130455187,
+    0.17129146985297986,
+    0.4660004643682207,
+    0.4805719499911252,
+    0.8989978409459413,
+    -0.02544739518475391,
+    -0.6577135779735989
+  ],
+  "std": [
+    0.14219518949816262,
+    0.020539076389661806,
+    0.1945262789531408,
+    0.16229123631117287,
+    0.08264887489563218,
+    0.16970991752870196,
+    0.1177463429718295,
+    0.15809143265852674,
+    0.44134695678002767,
+    0.5927330139603261
+  ],
+  "guarded_count": 0,
+  "guarded_mask": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "frames_hash": "2a563bb04d507f19732baf3bcda7aba7e51ba54b826aa3b0054f74cb67631a61",
+  "sam3_features_sha256": "6605fa839144c3e93b681b1ec619337d51711c9afc3a8a9044f3b6963dd32cfb"
+}

@@ -16,7 +16,7 @@
 | MkDocs Material | Site desta documentação |
 | Pyright | Verificação estática obrigatória do Python |
 | DINOv3 | Backbone congelado ViT-B/16 (LVD-1689M); extração offline de embeddings visuais do braço B, fusão (B0 e B1) e avaliação por eventos implementadas |
-| SAM 3 | Backbone congelado; extração offline do descritor `V_t` do braço C implementada, fusão e treino ainda pendentes |
+| SAM 3 | Backbone congelado; extração offline do descritor `V_t` do braço C e fusão C0 implementadas, C1 e avaliação por eventos ainda pendentes |
 
 O pipeline é monocular RGB. YOLO-Pose, DINOv3 e SAM 3 são backbones
 congelados: nenhum deles é ajustado durante o treino, que alcança apenas as
@@ -26,10 +26,12 @@ implementadas e rodando em CI a fusão B0 (concatenação pose+DINOv3 seguida de
 TCN dilatada rasa, `gatefall.train.b0_fusion`), a fusão adaptativa B1 (gate
 escalar por timestep sobre a mesma TCN, `gatefall.train.b1_gate`) e a
 avaliação por eventos de ambas (`gatefall.eval.b0_events` e
-`gatefall.eval.b1_events`). Do braço C está implementada apenas a fundação de
+`gatefall.eval.b1_events`). Do braço C estão implementadas a fundação de
 extração offline do descritor `V_t` do SAM 3 (ver [Fundação SAM
-3](../data/sam3-foundation.md)): C0, C1, fusão, gate, treino e avaliação por
-eventos do braço C permanecem pendentes.
+3](../data/sam3-foundation.md)) e a fusão C0 (concatenação pose+`V_t` seguida
+da mesma TCN, `gatefall.train.c0_fusion`, ver [Treino — Arma
+C0](../train/c0-fusion.md)); C1, gate e avaliação por eventos do braço C
+permanecem pendentes.
 
 ## Licenças
 

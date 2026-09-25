@@ -13,8 +13,8 @@ O projeto é organizado em três braços experimentais:
   DINOv3, a arma B0 (fusão por concatenação simples com pose) e a arma B1
   (fusão adaptativa por gate escalar) implementadas.
 - **Braço C — YOLO-Pose + SAM 3 + TCN:** extração offline do descritor de
-  máscara `V_t` do SAM 3 implementada; fusão, gate, treino e avaliação
-  ainda pendentes.
+  máscara `V_t` do SAM 3 e a arma C0 (fusão por concatenação simples com
+  pose) implementadas; C1, gate e avaliação por eventos ainda pendentes.
 
 Este projeto é **Built with DINOv3**.
 
@@ -207,9 +207,13 @@ classificação utilizados nos demais braços.
 A fundação de extração offline do descritor de máscara `V_t` está
 implementada: veja [Fundação SAM 3](docs/data/sam3-foundation.md) para o
 schema do HDF5 produzido, a fórmula do descritor, a política de seleção de
-instância e o isolamento de ambiente do runtime SAM 3. Fusão, gate,
-cross-attention, treino e avaliação por eventos do braço C ainda estão
-pendentes.
+instância e o isolamento de ambiente do runtime SAM 3.
+
+A arma C0 (fusão por concatenação simples entre pose e `V_t` projetados,
+seguida da mesma TCN do braço A) também está implementada: veja
+[Padronização do descritor SAM 3](docs/data/sam3-standardization.md) e
+[Treino — Arma C0](docs/train/c0-fusion.md). C1, gate, cross-attention e
+avaliação por eventos do braço C ainda estão pendentes.
 
 ---
 
@@ -268,9 +272,11 @@ braço B.
 ### Braço C
 
 - [Fundação SAM 3](docs/data/sam3-foundation.md)
+- [Padronização do descritor SAM 3](docs/data/sam3-standardization.md)
+- [Treino da arma C0 (fusão pose + SAM 3)](docs/train/c0-fusion.md)
 
-Documentação adicional (fusão, treino, avaliação) será incluída durante o
-restante da implementação do braço C.
+Documentação adicional será incluída durante o restante da implementação do
+braço C.
 
 Para abrir a documentação localmente:
 

@@ -4,9 +4,10 @@ O GateFall é um projeto acadêmico de detecção de quedas em vídeo RGB monocu
 O braço A (pose + TCN) está implementado; do braço B (DINOv3), a extração
 offline de features, a arma B0 (fusão por concatenação simples com pose) e a
 arma B1 (fusão adaptativa por gate escalar sobre os proxies de qualidade) já
-estão implementadas; do braço C (SAM 3) está implementada apenas a fundação de
-extração offline do descritor de máscara `V_t`, com fusão, gate, treino e
-avaliação ainda pendentes.
+estão implementadas; do braço C (SAM 3) estão implementadas a fundação de
+extração offline do descritor de máscara `V_t` e a arma C0 (fusão por
+concatenação simples com pose), com C1, gate e avaliação por eventos ainda
+pendentes.
 
 ## Comece aqui
 
@@ -33,6 +34,8 @@ avaliação ainda pendentes.
 - [Treino da arma B0 (fusão pose + DINOv3)](train/b0-fusion.md)
 - [Features de qualidade (`q_pose`, `q_visual`)](data/quality-features.md)
 - [Treino da arma B1 (fusão adaptativa por gate)](train/b1-adaptive-gate.md)
+- [Padronização do descritor SAM 3](data/sam3-standardization.md)
+- [Treino da arma C0 (fusão pose + SAM 3)](train/c0-fusion.md)
 - [Avaliação por eventos](eval/baseline-a-events.md)
 
 Os resultados históricos ficam em `runs/reference/`; novas reproduções ficam

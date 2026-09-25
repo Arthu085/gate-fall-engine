@@ -52,10 +52,12 @@ nav:
       - Padronização de features DINOv3: data/dinov3-standardization.md
       - Features de qualidade (q_pose, q_visual): data/quality-features.md
       - Fundação SAM 3 (braço C): data/sam3-foundation.md
+      - Padronização do descritor SAM 3: data/sam3-standardization.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
       - Arma B0 (fusão pose + DINOv3): train/b0-fusion.md
       - Arma B1 (fusão adaptativa por gate): train/b1-adaptive-gate.md
+      - Arma C0 (fusão pose + SAM 3): train/c0-fusion.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md
   - Avaliação:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
