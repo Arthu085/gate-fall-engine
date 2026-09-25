@@ -73,6 +73,7 @@ class _SyntheticDatasetAdapter:
     pose_root: Path = Path("pose")
     pose_stats_path: Path = Path("pose_stats.json")
     quality_root: Path = Path("quality")
+    sam3_root: Path = Path("sam3")
     identifier: str = "le2i"
     label_names: tuple[str, ...] = LE2I_LABEL_NAMES
 

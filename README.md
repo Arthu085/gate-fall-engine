@@ -12,7 +12,9 @@ O projeto é organizado em três braços experimentais:
 - **Braço B — YOLO-Pose + DINOv3 + TCN:** extração offline de features
   DINOv3, a arma B0 (fusão por concatenação simples com pose) e a arma B1
   (fusão adaptativa por gate escalar) implementadas.
-- **Braço C — YOLO-Pose + SAM 3 + TCN:** planejado.
+- **Braço C — YOLO-Pose + SAM 3 + TCN:** extração offline do descritor de
+  máscara `V_t` do SAM 3 implementada; fusão, gate, treino e avaliação
+  ainda pendentes.
 
 Este projeto é **Built with DINOv3**.
 
@@ -198,27 +200,16 @@ B1](docs/train/b1-adaptive-gate.md). A orquestração das armas B em
 
 ### Braço C — YOLO-Pose + SAM 3 + TCN
 
-O braço C utilizará informações de pose combinadas com representações derivadas do **SAM 3**, preservando o mesmo protocolo temporal e estrutura de classificação utilizados nos demais braços.
+O braço C combinará informações de pose com representações derivadas do
+**SAM 3**, preservando o mesmo protocolo temporal e estrutura de
+classificação utilizados nos demais braços.
 
-O pipeline do braço C ainda está em desenvolvimento.
-
-Quando implementado, esta seção concentrará:
-
-- comando principal de execução;
-- requisitos específicos do SAM 3;
-- geração e armazenamento das representações utilizadas;
-- composição do vetor de features por timestep;
-- treinamento;
-- avaliação;
-- artefatos produzidos;
-- runbook específico do braço C.
-
-Documentação prevista:
-
-- Runbook do pipeline C
-- Extração de features SAM 3
-- Treino do braço C
-- Avaliação do braço C
+A fundação de extração offline do descritor de máscara `V_t` está
+implementada: veja [Fundação SAM 3](docs/data/sam3-foundation.md) para o
+schema do HDF5 produzido, a fórmula do descritor, a política de seleção de
+instância e o isolamento de ambiente do runtime SAM 3. Fusão, gate,
+cross-attention, treino e avaliação por eventos do braço C ainda estão
+pendentes.
 
 ---
 
@@ -276,7 +267,10 @@ braço B.
 
 ### Braço C
 
-Documentação específica será adicionada durante a implementação do braço C.
+- [Fundação SAM 3](docs/data/sam3-foundation.md)
+
+Documentação adicional (fusão, treino, avaliação) será incluída durante o
+restante da implementação do braço C.
 
 Para abrir a documentação localmente:
 

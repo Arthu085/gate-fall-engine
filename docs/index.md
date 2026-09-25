@@ -4,7 +4,9 @@ O GateFall é um projeto acadêmico de detecção de quedas em vídeo RGB monocu
 O braço A (pose + TCN) está implementado; do braço B (DINOv3), a extração
 offline de features, a arma B0 (fusão por concatenação simples com pose) e a
 arma B1 (fusão adaptativa por gate escalar sobre os proxies de qualidade) já
-estão implementadas; o braço C (SAM 3) está planejado.
+estão implementadas; do braço C (SAM 3) está implementada apenas a fundação de
+extração offline do descritor de máscara `V_t`, com fusão, gate, treino e
+avaliação ainda pendentes.
 
 ## Comece aqui
 
