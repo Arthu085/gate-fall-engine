@@ -109,15 +109,17 @@ inclui:
   com `q_sam3` constante nas cinco severidades não definem correlação e são
   contados em `constant_q_events`, em vez de entrarem como zero.
 
-### Execução piloto no Le2i
+### Resultado de referência no Le2i
 
-Uma execução piloto com `--events-per-class 1` rodou numa GTX 1650
-(`sam3_inference_autocast_dtype=float16`, igual aos artefatos gravados, com
-checkpoint e revisão upstream coincidentes). Ela selecionou 17 eventos, um
-por classe de `train` e de `val`, com hash
-`f9b71e820aedd4bb22725fac2e677dda6f2f9e0148093302c1864321c119b01c`; `test`
-não participou. A execução levou cerca de 70 minutos (quase 290 inferências,
-cerca de 15 s por quadro nesse hardware).
+A execução de referência (`--events-per-class 8`) rodou numa GTX 1650 em cerca
+de 8 horas (aproximadamente 2.040 inferências, cerca de 15 s por quadro nesse
+hardware). O worker reportou `sam3_inference_autocast_dtype=float16`, igual
+aos artefatos gravados, com checkpoint e revisão upstream coincidentes. Ela
+selecionou 120 eventos de `train`/`val` com hash
+`c75fdd70087975cc7c3739c15a9c2a5a00439aadcc765ef6e2009e8d7016c9de`, o mesmo da
+[validação DINOv3](dinov3-quality.md#resultado-de-referencia-no-le2i); `test`
+não participou. Algumas classes de `val` têm menos de oito eventos elegíveis
+(rótulo `3`: 6; `5`: 1; `8`: 6; `9`: 3).
 
 **Distribuição limpa (todos os quadros de `train`/`val`).** Com detecção, a
 mediana de `q_sam3` por classe fica entre `0,935` e `0,970`. A maior parte da
@@ -126,34 +128,36 @@ grande parte `IGNORE`, cuja taxa de `present` é `0,10`) valem `0`. Quadros
 com várias instâncias não recebem índice menor (mediana `0,968` contra `0,964`
 com uma instância em `train`), o que confirma que `n_instances` não mede
 degradação. O `q_sam3` reinferido no quadro limpo coincidiu com o gravado em
-16 de 17 eventos (`|Δ| ≤ 1e-3`, diferença máxima `0,0015`).
+116 de 120 eventos (`|Δ| ≤ 1e-3`, diferença máxima `0,0054`).
 
 | Degradação | Não crescente | Queda limpo → máx. | Spearman intraevento severidade × q, mediana [Q25, Q75] | Spearman intraevento q × IoU, mediana [Q25, Q75] |
 | --- | ---: | ---: | ---: | ---: |
-| Blur | 0,941 | 17/17 | −0,97 [−1,00, −0,90] | 1,00 [1,00, 1,00] |
-| Contraste | 0,838 | 15/17 | −0,90 [−0,97, −0,82] | 0,89 [0,82, 0,97] |
-| Sobre-exposição | 0,853 | 16/17 | −0,90 [−1,00, −0,90] | 0,90 [0,90, 1,00] |
-| Subexposição | 0,853 | 16/17 | −1,00 [−1,00, −0,90] | 1,00 [0,90, 1,00] |
+| Blur | 0,931 | 120/120 | −0,97 [−1,00, −0,90] | 1,00 [0,99, 1,00] |
+| Contraste | 0,792 | 108/120 | −0,90 [−1,00, −0,67] | 0,90 [0,67, 1,00] |
+| Sobre-exposição | 0,827 | 107/120 | −0,90 [−1,00, −0,90] | 0,90 [0,90, 1,00] |
+| Subexposição | 0,825 | 111/120 | −0,90 [−1,00, −0,70] | 0,90 [0,70, 1,00] |
 
-Nenhum evento teve `q_sam3` constante. Medianas agregadas nos extremos:
+Nenhum evento teve `q_sam3` constante. A correlação intraevento
+severidade × `q_sam3` foi negativa em 100% dos eventos no blur e em 89–92%
+nas degradações fotométricas. Medianas agregadas nos extremos:
 
 | Condição | `q_sam3` mediana | `present` | IoU mediana |
 | --- | ---: | ---: | ---: |
-| Limpa | 0,960 | 1,00 | 1,000 |
-| Blur, raio 12 | 0,000 | 0,12 | 0,000 |
-| Contraste, ganho 0,125 | 0,942 | 1,00 | 0,968 |
-| Sobre-exposição, ganho 0,125 | 0,937 | 1,00 | 0,947 |
-| Subexposição, ganho 0,125 | 0,938 | 1,00 | 0,969 |
+| Limpa | 0,956 | 1,000 | 1,000 |
+| Blur, raio 12 | 0,000 | 0,142 | 0,000 |
+| Contraste, ganho 0,125 | 0,933 | 1,000 | 0,969 |
+| Sobre-exposição, ganho 0,125 | 0,923 | 0,975 | 0,954 |
+| Subexposição, ganho 0,125 | 0,930 | 0,992 | 0,970 |
 
 Leitura: dentro de cada evento, `q_sam3` cai com a severidade e acompanha a
-fidelidade da máscara nas quatro degradações, o que apoia congelar a
-definição. A resposta é, porém, assimétrica: o blur derruba a detecção
-(`present` vai a `0,12` no raio 12), enquanto as degradações fotométricas
-movem a mediana só de `0,960` para cerca de `0,94`, porque o SAM 3 continua
-segmentando bem a pessoa. Por isso a correlação agregada entre eventos é
-fraca nessas três (Pearson `q × IoU` de `0,12` a `0,64`) e forte no blur
-(`0,99`). O piloto tem um evento por classe; a execução de referência com
-oito eventos por classe é a evidência que decide o congelamento.
+fidelidade da máscara nas quatro degradações, o que sustenta congelar esta
+definição como a proxy operacional da fonte SAM 3. A resposta é, porém,
+assimétrica: o blur derruba a detecção (`present` vai a `0,142` no raio 12),
+enquanto as degradações fotométricas movem a mediana só de `0,956` para
+`0,92–0,93`, porque o SAM 3 continua segmentando bem a pessoa. Por isso a
+correlação agregada entre eventos é moderada nessas três (Pearson `q × IoU`
+de `0,39` a `0,78`) e forte no blur (`0,99`). Esses resultados não demonstram
+calibração probabilística nem validam uma política de fusão.
 
 ## Limitações
 
