@@ -85,8 +85,12 @@ def run_report(dataset_name: str = "le2i") -> None:
         )
         sys.exit(1)
 
-    stats = load_stats(stats_path)
-    validate_stats_layout(stats)
+    try:
+        stats = load_stats(stats_path)
+        validate_stats_layout(stats)
+    except (ValueError, TypeError, KeyError) as exc:
+        print(f"{stats_path}: estatísticas inválidas: {exc}; rode `build --force`", file=sys.stderr)
+        sys.exit(1)
     frames = adapter.load_frames()
     names = stats.feature_names
     excluded_mask = excluded_dimension_mask(names)

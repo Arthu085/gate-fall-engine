@@ -137,7 +137,9 @@ persistidas são comparadas com o layout de feature vivo em
 máscara de exclusão, `stride`, `source`, `split`) — se `_BLOCKS` for
 reordenado ou estendido sem recalcular as estatísticas, essa checagem falha
 antes de construir ou indexar máscaras dependentes da dimensão, evitando que
-um layout obsoleto esconda o erro original com `IndexError`; a
+um layout obsoleto esconda o erro original com `IndexError`. Metadados
+incompatíveis ou JSON inválido encerram o comando com código 1 e uma mensagem
+indicando o arquivo e a necessidade de reconstruir as estatísticas. A
 contagem de janelas de treino em
 `TRAIN_STRIDE` bate com `EXPECTED_USABLE_WINDOWS_STRIDE4["train"]`; `mean` e
 `std` têm shape `[134]` e são finitos; depois de aplicar a padronização, a

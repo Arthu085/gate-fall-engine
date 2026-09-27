@@ -8,7 +8,11 @@ dimensão degenerada e do round-trip de persistência contra futuras mudanças.
 import json
 import sys
 import tempfile
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -319,6 +323,52 @@ def check_stale_feature_layout_fails_explicitly() -> bool:
     )
 
 
+def check_report_rejects_invalid_metadata() -> bool:
+    from gatefall.features import standardize
+
+    names = feature_names()
+    stats = StandardizationStats(
+        source=SOURCE_NAME,
+        split=TRAIN_SPLIT,
+        target_fps=10.0,
+        window_frames=24,
+        stride=TRAIN_STRIDE,
+        window_count=1,
+        feature_dim=EXPECTED_D,
+        feature_names=names[:-1],
+        excluded_mask=[False] * EXPECTED_D,
+        mean=[0.0] * EXPECTED_D,
+        std=[1.0] * EXPECTED_D,
+        guarded_count=0,
+        guarded_mask=[False] * EXPECTED_D,
+        frames_hash="deadbeef",
+    )
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = Path(tmp_dir) / "stats.json"
+        adapter = SimpleNamespace(
+            pose_stats_path=path,
+            frames_path=Path(tmp_dir) / "frames.parquet",
+        )
+        with patch.object(standardize, "get_dataset", return_value=adapter):
+            errors = []
+            for payload in (json.dumps(stats.to_dict()), "{"):
+                path.write_text(payload, encoding="utf-8")
+                stderr = StringIO()
+                try:
+                    with redirect_stderr(stderr):
+                        standardize.run_report()
+                except SystemExit as exc:
+                    errors.append(
+                        exc.code == 1 and "estatísticas inválidas" in stderr.getvalue()
+                    )
+                else:
+                    errors.append(False)
+    return _check(
+        "report rejeita feature_names truncados e JSON inválido sem traceback",
+        all(errors),
+    )
+
+
 def run_standardization_selftest() -> None:
     checks = [
         check_known_input_mean0_std1(),
@@ -328,6 +378,7 @@ def run_standardization_selftest() -> None:
         check_streaming_matches_batch(),
         check_stale_stats_rejected(),
         check_stale_feature_layout_fails_explicitly(),
+        check_report_rejects_invalid_metadata(),
     ]
     with tempfile.TemporaryDirectory() as tmp_dir:
         checks.append(check_save_load_round_trip(Path(tmp_dir)))

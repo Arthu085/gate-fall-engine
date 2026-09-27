@@ -6,7 +6,11 @@ persistência e o frescor contra `frames.parquet` e o conjunto de `.h5`."""
 import json
 import sys
 import tempfile
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -170,6 +174,30 @@ def check_freshness_rejects_stale_frames_and_features() -> bool:
     )
 
 
+def check_report_rejects_invalid_metadata() -> bool:
+    from gatefall.features import standardize_sam3
+
+    stats = _fit(_make_windows(np.random.default_rng(5), 4, 0.0, 1.0))
+    stats.channel_names = stats.channel_names[:-1]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = Path(tmp_dir) / "stats.json"
+        path.write_text(json.dumps(stats.to_dict()), encoding="utf-8")
+        adapter = SimpleNamespace(identifier="le2i")
+        stderr = StringIO()
+        with (
+            patch.object(standardize_sam3, "get_dataset", return_value=adapter),
+            patch.object(standardize_sam3, "SAM3_STATS_PATH", path),
+            redirect_stderr(stderr),
+        ):
+            try:
+                standardize_sam3.run_report()
+            except SystemExit as exc:
+                ok = exc.code == 1 and "channel_names" in stderr.getvalue()
+            else:
+                ok = False
+    return _check("report SAM 3 rejeita layout inválido sem traceback", ok)
+
+
 def run_sam3_standardization_selftest() -> bool:
     checks = [
         check_layout_rejects_wrong_feature_dim_and_source(),
@@ -177,6 +205,7 @@ def run_sam3_standardization_selftest() -> bool:
         check_constant_channel_guarded(),
         check_save_load_round_trip(),
         check_freshness_rejects_stale_frames_and_features(),
+        check_report_rejects_invalid_metadata(),
     ]
     ok = all(checks)
     if not ok:

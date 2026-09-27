@@ -80,3 +80,5 @@ uv run python -m gatefall.features.standardize_sam3 report [--dataset le2i]
 Revalida as estatísticas persistidas contra o layout, `frames.parquet`, o
 digest atual dos `.h5`, a contagem de janelas de treino, `mean≈0`/`std≈1` no
 treino padronizado e a ausência de valores não finitos em `val`/`test`.
+JSON inválido ou layout incompatível encerra o comando com código 1 e indica
+o arquivo a reconstruir.
