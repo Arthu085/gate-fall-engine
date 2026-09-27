@@ -1,4 +1,4 @@
-"""Orquestração reproduzível do pipeline completo do braço A."""
+"""Orquestração reproduzível dos pipelines experimentais."""
 
 import argparse
 import shlex
@@ -8,7 +8,16 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS
-from gatefall.runs import default_run_dir
+from gatefall.runs import default_run_dir, default_run_dir_for_arm
+
+
+SUPPORTED_ARMS = ("A", "B0", "B1", "C0", "C1")
+ARM_MODULES = {
+    "B0": ("gatefall.train.b0_fusion", "b0_fusion", "gatefall.eval.b0_events"),
+    "B1": ("gatefall.train.b1_gate", "b1_adaptive_gate", "gatefall.eval.b1_events"),
+    "C0": ("gatefall.train.c0_fusion", "c0_fusion", None),
+    "C1": ("gatefall.train.c1_gate", "c1_adaptive_gate", "gatefall.eval.c1_events"),
+}
 
 
 @dataclass(frozen=True)
@@ -40,8 +49,10 @@ def build_pipeline(
 ) -> list[PipelineStep]:
     if dataset not in ("le2i", "le2i-cv"):
         raise ValueError(f"dataset não suportado: {dataset!r}")
-    if arm != "A":
+    if arm not in SUPPORTED_ARMS:
         raise ValueError(f"braço não suportado: {arm!r}")
+    if dataset == "le2i-cv" and arm != "A":
+        raise ValueError(f"braço {arm!r} não suporta --dataset {dataset!r}; use le2i")
 
     is_cv = dataset == "le2i-cv"
     run_dir = str(default_run_dir(dataset))
@@ -76,23 +87,67 @@ def build_pipeline(
         _module_step("Validar padronização", "gatefall.features.standardize", "selftest"),
         _module_step("Construir padronização", "gatefall.features.standardize", "build", "--dataset", dataset, supports_force=True),
         _module_step("Relatar padronização", "gatefall.features.standardize", "report", "--dataset", dataset),
-        _module_step("Validar TCN e métricas", "gatefall.train.baseline_a", "selftest"),
-        _module_step("Treinar braço A", "gatefall.train.baseline_a", "train", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
-        _module_step("Validar protocolo de eventos", "gatefall.eval.baseline_a_events", "selftest"),
-        _module_step("Avaliar eventos", "gatefall.eval.baseline_a_events", "evaluate", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
     ]
-    if is_cv:
-        steps.append(
-            _module_step(
-                "Relatar generalização",
-                "gatefall.eval.generalization_report",
-                "report",
-                "--dataset",
-                dataset,
-                "--output",
-                f"{run_dir}/generalization_report.json",
-            )
+    if arm == "A":
+        steps.extend(
+            [
+                _module_step("Validar TCN e métricas", "gatefall.train.baseline_a", "selftest"),
+                _module_step("Treinar braço A", "gatefall.train.baseline_a", "train", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
+                _module_step("Validar protocolo de eventos", "gatefall.eval.baseline_a_events", "selftest"),
+                _module_step("Avaliar eventos", "gatefall.eval.baseline_a_events", "evaluate", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
+            ]
         )
+        if is_cv:
+            steps.append(
+                _module_step(
+                    "Relatar generalização",
+                    "gatefall.eval.generalization_report",
+                    "report",
+                    "--dataset",
+                    dataset,
+                    "--output",
+                    f"{run_dir}/generalization_report.json",
+                )
+            )
+    else:
+        train_module, run_name, event_module = ARM_MODULES[arm]
+        run_dir = str(default_run_dir_for_arm(dataset, run_name))
+        if arm in ("B0", "B1"):
+            steps.extend([
+                _module_step("Validar extração DINOv3", "gatefall.dinov3.extract", "selftest"),
+                _module_step("Extrair features DINOv3", "gatefall.dinov3.extract", "extract-all", "--dataset", dataset, supports_force=True),
+                _module_step("Relatar features DINOv3", "gatefall.dinov3.extract", "report", "--dataset", dataset),
+                _module_step("Validar padronização DINOv3", "gatefall.features.standardize_dinov3", "selftest"),
+                _module_step("Construir padronização DINOv3", "gatefall.features.standardize_dinov3", "build", "--dataset", dataset, supports_force=True),
+                _module_step("Relatar padronização DINOv3", "gatefall.features.standardize_dinov3", "report", "--dataset", dataset),
+            ])
+            if arm == "B1":
+                steps.extend([
+                    _module_step("Validar features de qualidade", "gatefall.features.quality_extract", "selftest"),
+                    _module_step("Extrair features de qualidade", "gatefall.features.quality_extract", "extract-all", "--dataset", dataset, supports_force=True),
+                    _module_step("Relatar features de qualidade", "gatefall.features.quality_extract", "report", "--dataset", dataset),
+                ])
+        else:
+            steps.extend([
+                _module_step("Validar extração SAM 3", "gatefall.sam3.extract", "selftest"),
+                _module_step("Extrair features SAM 3", "gatefall.sam3.extract", "extract-all", "--dataset", dataset, supports_force=True),
+                _module_step("Relatar features SAM 3", "gatefall.sam3.extract", "report", "--dataset", dataset),
+                _module_step("Validar padronização SAM 3", "gatefall.features.standardize_sam3", "selftest"),
+                _module_step("Construir padronização SAM 3", "gatefall.features.standardize_sam3", "build", "--dataset", dataset, supports_force=True),
+                _module_step("Relatar padronização SAM 3", "gatefall.features.standardize_sam3", "report", "--dataset", dataset),
+            ])
+            if arm == "C1":
+                steps.append(_module_step("Validar proxy de qualidade SAM 3", "gatefall.sam3.quality", "selftest"))
+        steps.extend([
+            _module_step(f"Validar braço {arm}", train_module, "selftest"),
+            _module_step(f"Treinar braço {arm}", train_module, "train", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
+            _module_step(f"Relatar classificação do braço {arm}", train_module, "report", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
+        ])
+        if event_module is not None:
+            steps.extend([
+                _module_step("Validar protocolo de eventos", event_module, "selftest"),
+                _module_step("Avaliar eventos", event_module, "evaluate", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
+            ])
     if not force:
         return steps
     return [
@@ -137,7 +192,7 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
     run_parser = subparsers.add_parser("run", help="Executa o pipeline completo")
     run_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
-    run_parser.add_argument("--arm", default="A", choices=("A",))
+    run_parser.add_argument("--arm", default="A", choices=SUPPORTED_ARMS)
     run_parser.add_argument("--dry-run", action="store_true")
     run_parser.add_argument("--force", action="store_true")
     subparsers.add_parser(
@@ -146,7 +201,10 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command == "run":
-        steps = build_pipeline(args.dataset, args.arm, args.force)
+        try:
+            steps = build_pipeline(args.dataset, args.arm, args.force)
+        except ValueError as exc:
+            parser.error(str(exc))
         raise SystemExit(execute_pipeline(steps, dry_run=args.dry_run))
     if args.command == "selftest":
         from gatefall.pipeline_selftest import run_pipeline_selftest

@@ -207,7 +207,7 @@ os novos arquivos, com rollback em caso de falha.
 ## Fora do escopo desta entrega
 
 B1 implementa apenas o gate escalar mínimo sobre `q_pose` e `q_visual`. Não
-fazem parte desta entrega: orquestração de B1 em `gatefall.pipeline`, braço C
+fazem parte desta entrega: braço C
 (SAM 3), configurações C0/C1, atenção cruzada entre as duas fontes, ablações de gate
 vetorial, buscas de hiperparâmetro (inclusive inicialização deliberada do bias
 do gate), retuning do protocolo de alarme e suporte a `le2i-cv`.

@@ -37,7 +37,7 @@ nav:
       - Visão geral: architecture/overview.md
       - Tecnologias: architecture/technology-stack.md
   - Execução:
-      - Pipeline do braço A: runbooks/pipeline-a.md
+      - Pipelines experimentais: runbooks/pipeline-a.md
       - Referência de comandos: reference/commands.md
       - Referências finais do Le2i: reference/le2i-runs.md
   - Dados:

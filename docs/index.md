@@ -7,7 +7,7 @@ arma B1 (fusão adaptativa por gate escalar sobre os proxies de qualidade) já
 estão implementadas; do braço C (SAM 3) estão implementadas a fundação de
 extração offline do descritor de máscara `V_t`, a arma C0 (fusão por
 concatenação simples com pose) e a arma C1 (gate adaptativo), com avaliação
-por eventos de C1 ainda pendente.
+por eventos.
 
 ## Comece aqui
 
@@ -21,8 +21,8 @@ por eventos de C1 ainda pendente.
   preparação.
 - [Referência de comandos](reference/commands.md): sintaxe, pré-requisitos,
   efeitos e recursos necessários.
-- [Runbook do pipeline A](runbooks/pipeline-a.md): reprodução completa em um
-  comando ou depuração etapa a etapa.
+- [Runbook dos pipelines experimentais](runbooks/pipeline-a.md): reprodução
+  completa em um comando ou depuração etapa a etapa.
 
 ## Contratos científicos
 
