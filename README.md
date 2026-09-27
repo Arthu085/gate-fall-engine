@@ -13,8 +13,8 @@ O projeto é organizado em três braços experimentais:
   DINOv3, a arma B0 (fusão por concatenação simples com pose) e a arma B1
   (fusão adaptativa por gate escalar) implementadas.
 - **Braço C — YOLO-Pose + SAM 3 + TCN:** extração offline do descritor de
-  máscara `V_t` do SAM 3 e a arma C0 (fusão por concatenação simples com
-  pose) implementadas; C1, gate e avaliação por eventos ainda pendentes.
+  máscara `V_t` do SAM 3, a arma C0 (fusão por concatenação simples) e
+  a arma C1 (gate adaptativo) implementadas; avaliação por eventos de C1 pendente.
 
 Este projeto é **Built with DINOv3**.
 
@@ -212,8 +212,9 @@ instância e o isolamento de ambiente do runtime SAM 3.
 A arma C0 (fusão por concatenação simples entre pose e `V_t` projetados,
 seguida da mesma TCN do braço A) também está implementada: veja
 [Padronização do descritor SAM 3](docs/data/sam3-standardization.md) e
-[Treino — Arma C0](docs/train/c0-fusion.md). C1, gate, cross-attention e
-avaliação por eventos do braço C ainda estão pendentes.
+[Treino — Arma C0](docs/train/c0-fusion.md). A arma C1 também está implementada:
+veja [Treino — Arma C1](docs/train/c1-adaptive-gate.md). A avaliação por
+eventos de C1 ainda está pendente.
 
 ---
 
@@ -274,6 +275,7 @@ braço B.
 - [Fundação SAM 3](docs/data/sam3-foundation.md)
 - [Padronização do descritor SAM 3](docs/data/sam3-standardization.md)
 - [Treino da arma C0 (fusão pose + SAM 3)](docs/train/c0-fusion.md)
+- [Treino da arma C1 (gate adaptativo com SAM 3)](docs/train/c1-adaptive-gate.md)
 
 Documentação adicional será incluída durante o restante da implementação do
 braço C.

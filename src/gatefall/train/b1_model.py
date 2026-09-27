@@ -33,6 +33,7 @@ class B1AdaptiveGateClassifier(nn.Module):
         dilations: list[int] | None = None,
         dropout: float = 0.3,
         num_classes: int = NUM_CLASSES,
+        visual_dim: int = VISUAL_DIM,
     ) -> None:
         super().__init__()
         self.e_p = nn.Sequential(
@@ -41,7 +42,7 @@ class B1AdaptiveGateClassifier(nn.Module):
             nn.ReLU(),
         )
         self.e_v = nn.Sequential(
-            nn.Linear(VISUAL_DIM, PROJECTION_DIM),
+            nn.Linear(visual_dim, PROJECTION_DIM),
             nn.LayerNorm(PROJECTION_DIM),
             nn.ReLU(),
         )

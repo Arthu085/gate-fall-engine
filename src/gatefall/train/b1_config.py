@@ -125,7 +125,7 @@ def save_config(config: B1TrainConfig, path: Path, force: bool) -> bool:
             "lido não bate byte a byte com o conteúdo gravado"
         )
 
-    print(f"{path}: configuração de treino B1 gravada (run_name={config.run_name})")
+    print(f"{path}: configuração de treino {config.arm} gravada (run_name={config.run_name})")
     return True
 
 

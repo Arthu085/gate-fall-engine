@@ -1,11 +1,10 @@
-"""Loop de treino e avaliação do B1AdaptiveGateClassifier sobre janelas
-pose+DINOv3 padronizadas e qualidade crua."""
+"""Loop compartilhado de treino para gates B1/C1 com qualidade crua."""
 
 import json
 import os
 import shutil
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
@@ -20,6 +19,8 @@ from gatefall.features.dinov3_standardization import Dinov3StandardizationStats
 from gatefall.features.dinov3_standardization import apply_standardization as apply_visual_standardization
 from gatefall.features.standardization import StandardizationStats
 from gatefall.features.standardization import apply_standardization as apply_pose_standardization
+from gatefall.features.sam3_standardization import Sam3StandardizationStats
+from gatefall.features.sam3_standardization import apply_standardization as apply_sam3_standardization
 from gatefall.hashing import sha256_file
 from gatefall.runs import validate_local_run_dir
 from gatefall.train.b1_artifacts import REQUIRED_B1_TRAINING_ARTIFACTS, validate_b1_training_run
@@ -46,7 +47,7 @@ class _StandardizedGatedFusionTorchDataset(Dataset):
         self,
         source: _GatedFusionWindowSource,
         pose_stats: StandardizationStats,
-        visual_stats: Dinov3StandardizationStats,
+        visual_stats: Dinov3StandardizationStats | Sam3StandardizationStats,
     ) -> None:
         self._source = source
         self._pose_stats = pose_stats
@@ -60,9 +61,7 @@ class _StandardizedGatedFusionTorchDataset(Dataset):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
         pose_window, visual_window, quality_window, label, _diag = self._source[index]
         standardized_pose = apply_pose_standardization(pose_window, self._pose_stats)
-        standardized_visual = apply_visual_standardization(visual_window, self._visual_stats)
-        # A qualidade NÃO é padronizada: q_pose e q_visual entram no gate como
-        # proxies operacionais crus em [0, 1].
+        standardized_visual = _standardize_visual(visual_window, self._visual_stats)
         return (
             torch.from_numpy(standardized_pose),
             torch.from_numpy(standardized_visual),
@@ -77,6 +76,14 @@ def _collect_labels(source: _GatedFusionWindowSource) -> np.ndarray:
         _, _, _, label, _diag = source[i]
         labels[i] = label
     return labels
+
+
+def _standardize_visual(
+    window: np.ndarray, stats: Dinov3StandardizationStats | Sam3StandardizationStats
+) -> np.ndarray:
+    if isinstance(stats, Sam3StandardizationStats):
+        return apply_sam3_standardization(window, stats)
+    return apply_visual_standardization(window, stats)
 
 
 def _class_weights(train_labels: np.ndarray, num_classes: int) -> torch.Tensor:
@@ -157,11 +164,12 @@ def run_b1_training(
     val_source: _GatedFusionWindowSource,
     test_source: _GatedFusionWindowSource,
     pose_stats: StandardizationStats,
-    visual_stats: Dinov3StandardizationStats,
+    visual_stats: Dinov3StandardizationStats | Sam3StandardizationStats,
     config: B1TrainConfig,
     run_dir: Path,
     force: bool,
     label_names: tuple[str, ...],
+    validate_run: Callable[..., B1TrainConfig] = validate_b1_training_run,
 ) -> dict | None:
     validate_local_run_dir(run_dir)
     guard_not_foreign_arm_run_dir(run_dir, config.arm)
@@ -170,7 +178,7 @@ def run_b1_training(
     if run_dir.exists() and not force:
         if len(present) == len(required):
             try:
-                validate_b1_training_run(
+                validate_run(
                     run_dir,
                     expected_config=config,
                     fields_allowed_to_differ=frozenset({"trainable_param_count"}),
@@ -217,6 +225,7 @@ def run_b1_training(
         dilations=config.dilations,
         dropout=config.dropout,
         num_classes=config.num_classes,
+        visual_dim=config.visual_dim,
     ).to(device)
 
     train_labels = _collect_labels(train_source)
@@ -293,7 +302,7 @@ def run_b1_training(
     for name in required:
         if not (temporary_dir / name).is_file():
             raise RuntimeError(f"treino não produziu o artefato obrigatório: {name}")
-    validate_b1_training_run(temporary_dir, expected_config=config)
+    validate_run(temporary_dir, expected_config=config)
     run_dir.parent.mkdir(parents=True, exist_ok=True)
     if run_dir.exists():
         if not force:
