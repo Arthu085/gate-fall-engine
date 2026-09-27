@@ -15,8 +15,8 @@ data/
 └── scratch/
 
 runs/
-├── reference/le2i/baseline_a/   # evidência histórica versionada
-├── local/le2i/baseline_a/       # reprodução local ignorada pelo Git
+├── reference/le2i/{baseline_a,b0_fusion,b1_adaptive_gate,c0_fusion,c1_adaptive_gate}/
+├── local/le2i/<arma>/           # reprodução local ignorada pelo Git
 └── local/le2i_cv/baseline_a/    # reprodução local do protocolo cv, ignorada pelo Git
 ```
 
@@ -37,8 +37,11 @@ mede.
 | `processed` | Manifesto e grade temporal específicos do dataset |
 | `features` | Features offline, agrupadas em um HDF5 por vídeo |
 | `scratch` | Diagnósticos descartáveis |
-| `runs/reference` | Configurações e métricas canônicas, somente leitura |
+| `runs/reference` | Evidência textual canônica de classificação e, quando disponível, eventos; somente leitura |
 | `runs/local` | Checkpoints e métricas de reproduções locais |
+
+A [política de referências finais](../reference/le2i-runs.md) define os arquivos
+de cada arma e registra por que C0 não possui avaliação de eventos.
 
 ## Migração dos caminhos legados
 

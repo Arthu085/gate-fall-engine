@@ -1,0 +1,55 @@
+run_name: c1_adaptive_gate
+arm: C1
+seed: 42
+window_frames: 24
+train_stride: 4
+eval_stride: 1
+num_classes: 10
+kernel_size: 3
+dilations:
+- 1
+- 2
+- 4
+channels:
+- 32
+- 32
+- 32
+dropout: 0.3
+receptive_field: 29
+optimizer_name: adamw
+lr: 0.001
+weight_decay: 0.01
+grad_clip_norm: 1.0
+lr_schedule_name: cosine
+batch_size: 64
+epochs: 30
+loss_name: cross_entropy
+class_weighted: true
+pose_dim: 134
+visual_dim: 10
+projection_dim: 128
+fused_dim: 256
+gate_input_dim: 2
+gate_output_dim: 1
+gate_activation: sigmoid
+gate_weighted_branch: pose
+pose_standardization_stats_path: src/gatefall/features/stats/pose_le2i_cs.json
+pose_standardization_stats_sha256: 9604b8a60c403f4da3eb750508e0cc1192c158dfeff189ce2692a8be45dff47e
+visual_standardization_stats_path: src/gatefall/features/stats/sam3_le2i_cs.json
+visual_standardization_stats_sha256: 7cc21fce8af50ea362e5ddf50ab169212dcc4984d24b433b973657b012a0633f
+quality_features_path: derived:pose+sam3
+quality_features_sha256: 4b23371d244e6bd4ab4c34e764c91834974d5197e79d6139248952e993f761eb
+trainable_param_count: 67885
+sam3_features_path: data/features/le2i/sam3
+sam3_features_sha256: 6605fa839144c3e93b681b1ec619337d51711c9afc3a8a9044f3b6963dd32cfb
+sam3_provenance:
+  model_name: facebook/sam3
+  text_prompt: person
+  sam3_checkpoint_sha256: 9999e2341ceef5e136daa386eecb55cb414446a00ac2b55eb2dfd2f7c3cf8c9e
+  sam3_runtime_lock_sha256: c415d323bab829a47ba51461b963effa4b23995a9ebd835bd8078ef329f7eda9
+  sam3_source_revision: 2345a4ad109ac29c569da749c91d84f10dc08c40
+  sam3_inference_autocast_dtype: float16
+  target_fps: '10.0'
+pose_features_sha256: 6357da317d3a6c53db91307bb6c8302332f663773f4582ba7c6e7b45c9e33168
+pose_quality_source: gatefall.pose.quality.compute_pose_quality
+visual_quality_source: gatefall.sam3.quality.compute_sam3_quality
