@@ -83,4 +83,5 @@ persistido com o layout DINOv3 atual, valida a contagem de janelas de
 treino, checa que a média/desvio pós-padronização ficam a menos de `1e-3` de
 0/1 nas dimensões padronizadas, confere ausência de valor não finito em
 `val`/`test` após aplicar a padronização, e valida que o `frames_hash`
-persistido bate com o arquivo atual.
+persistido bate com o arquivo atual. JSON inválido ou layout incompatível
+encerra o comando com código 1 e indica o arquivo a reconstruir.

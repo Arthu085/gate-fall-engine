@@ -7,7 +7,11 @@ vazamento), da guarda de dimensão degenerada e do round-trip de persistência.
 import json
 import sys
 import tempfile
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -280,6 +284,30 @@ def check_freshness_rejects_stale_frames_hash() -> bool:
     )
 
 
+def check_report_rejects_invalid_metadata() -> bool:
+    from gatefall.features import standardize_dinov3
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = Path(tmp_dir) / "stats.json"
+        path.write_text(
+            json.dumps(_identity_stats(FEATURE_DIM - 1).to_dict()), encoding="utf-8"
+        )
+        adapter = SimpleNamespace(identifier="le2i")
+        stderr = StringIO()
+        with (
+            patch.object(standardize_dinov3, "get_dataset", return_value=adapter),
+            patch.object(standardize_dinov3, "DINOV3_STATS_PATH", path),
+            redirect_stderr(stderr),
+        ):
+            try:
+                standardize_dinov3.run_report()
+            except SystemExit as exc:
+                ok = exc.code == 1 and "feature_dim" in stderr.getvalue()
+            else:
+                ok = False
+    return _check("report DINOv3 rejeita layout inválido sem traceback", ok)
+
+
 def run_dinov3_standardization_selftest() -> bool:
     checks = [
         check_layout_rejects_wrong_feature_dim(),
@@ -291,6 +319,7 @@ def run_dinov3_standardization_selftest() -> bool:
         check_stale_stats_rejected(),
         check_stale_stats_rejects_wrong_dataset(),
         check_freshness_rejects_stale_frames_hash(),
+        check_report_rejects_invalid_metadata(),
     ]
     ok = all(checks)
     if not ok:

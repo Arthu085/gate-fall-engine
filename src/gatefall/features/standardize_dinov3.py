@@ -73,8 +73,15 @@ def run_report(dataset_name: str = "le2i") -> None:
         )
         sys.exit(1)
 
-    stats = load_stats(DINOV3_STATS_PATH)
-    validate_stats_layout(stats, dataset_name=adapter.identifier)
+    try:
+        stats = load_stats(DINOV3_STATS_PATH)
+        validate_stats_layout(stats, dataset_name=adapter.identifier)
+    except (ValueError, TypeError, KeyError) as exc:
+        print(
+            f"{DINOV3_STATS_PATH}: estatísticas inválidas: {exc}; rode `build --force`",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     frames = adapter.load_frames()
     expected_usable_windows = EXPECTED_USABLE_WINDOWS_STRIDE4[adapter.identifier]
 
