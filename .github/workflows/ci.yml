@@ -47,6 +47,7 @@ jobs:
           # Agregado da arma C0: sam3 features, sam3 standardization, fusion
           # dataset, c0 model, c0 config, c0 engine, c0 artifacts, c0 fusion.
           uv run python -m gatefall.train.c0_fusion selftest
+          uv run python -m gatefall.train.c1_gate selftest
           uv run python -m gatefall.features.standardize_sam3 selftest
           uv run python -m gatefall.eval.baseline_a_events selftest
           uv run python -m gatefall.eval.b0_events selftest

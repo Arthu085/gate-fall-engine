@@ -24,10 +24,12 @@ class GatedFusionWindowDataset:
         visual_loader: Callable[[str], np.ndarray],
         quality_loader: Callable[[str], np.ndarray],
         drop_ignored: bool = True,
+        visual_dim: int = _VISUAL_DIM,
     ) -> None:
         self._pose_loader = pose_loader
         self._visual_loader = visual_loader
         self._quality_loader = quality_loader
+        self._visual_dim = visual_dim
         split_frames = cast(pd.DataFrame, frames[frames["split"] == split])
         self._windows = build_window_index(
             split_frames, stride=stride, drop_ignored=drop_ignored
@@ -76,10 +78,10 @@ class GatedFusionWindowDataset:
                     f"video_id={video_id!r}: pose array shape {pose_array.shape} "
                     f"tem feature_dim != {_POSE_DIM}"
                 )
-            if visual_array.shape[1] != _VISUAL_DIM:
+            if visual_array.shape[1] != self._visual_dim:
                 raise ValueError(
                     f"video_id={video_id!r}: visual array shape "
-                    f"{visual_array.shape} tem feature_dim != {_VISUAL_DIM}"
+                    f"{visual_array.shape} tem feature_dim != {self._visual_dim}"
                 )
             if quality_array.ndim != 2 or quality_array.shape[1] != QUALITY_CHANNELS:
                 raise ValueError(

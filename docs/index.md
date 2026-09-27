@@ -5,9 +5,9 @@ O braço A (pose + TCN) está implementado; do braço B (DINOv3), a extração
 offline de features, a arma B0 (fusão por concatenação simples com pose) e a
 arma B1 (fusão adaptativa por gate escalar sobre os proxies de qualidade) já
 estão implementadas; do braço C (SAM 3) estão implementadas a fundação de
-extração offline do descritor de máscara `V_t` e a arma C0 (fusão por
-concatenação simples com pose), com C1, gate e avaliação por eventos ainda
-pendentes.
+extração offline do descritor de máscara `V_t`, a arma C0 (fusão por
+concatenação simples com pose) e a arma C1 (gate adaptativo), com avaliação
+por eventos de C1 ainda pendente.
 
 ## Comece aqui
 
@@ -36,6 +36,7 @@ pendentes.
 - [Treino da arma B1 (fusão adaptativa por gate)](train/b1-adaptive-gate.md)
 - [Padronização do descritor SAM 3](data/sam3-standardization.md)
 - [Treino da arma C0 (fusão pose + SAM 3)](train/c0-fusion.md)
+- [Treino da arma C1 (gate adaptativo com SAM 3)](train/c1-adaptive-gate.md)
 - [Avaliação por eventos](eval/baseline-a-events.md)
 
 Os resultados históricos ficam em `runs/reference/`; novas reproduções ficam
