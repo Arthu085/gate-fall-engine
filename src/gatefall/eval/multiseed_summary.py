@@ -1,4 +1,4 @@
-"""Sumário multi-seed da arma A: agrega treinos independentes com seeds distintas.
+"""Sumário multi-seed das armas A, B0, B1, C0 e C1.
 
 Ferramenta somente leitura, conceitualmente separada do bootstrap agrupado por
 sujeito (`gatefall.eval.grouped_bootstrap`): aqui a unidade agregada é o
@@ -7,12 +7,12 @@ a réplica de reamostragem sobre um único checkpoint fixo. Este módulo nunca
 mistura as duas noções de variação — jamais combina réplicas de bootstrap com
 seeds de treino na mesma estatística.
 
-Cada `--run-dir` deve ser um run local já treinado e avaliado da arma A
-(config.yaml/metrics.json/checkpoint.pt/alarm_protocol.yaml/event_metrics.json
-completos e íntegros), diferindo apenas na seed. O módulo valida que toda a
-configuração fora do campo `seed` é idêntica entre os runs (via um fingerprint
-sha256 normalizado), guarda por seed os blocos de classificação e de evento
-validados na íntegra (confusion_matrix, per_class, latências por evento) e
+Cada `--run-dir` deve ser um run local completo da arma selecionada,
+diferindo apenas na seed e nos campos de auditoria permitidos pelo validador.
+As armas A, B0, B1 e C1 exigem avaliação de evento íntegra; C0 agrega apenas
+classificação. O módulo valida um fingerprint sha256 da configuração
+normalizada, guarda por seed os blocos de classificação e, quando aplicável,
+evento validados na íntegra (confusion_matrix, per_class, latências por evento) e
 agrega estatísticas descritivas (n/mean/std/min/max) sobre `macro_f1_restricted`
 e `f1_by_class` (splits train/val/test), `per_class` (splits train/val/test),
 a projeção binária queda/caído derivada da confusion_matrix (splits
@@ -30,23 +30,59 @@ import tempfile
 import uuid
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import torch
+import yaml
 
 from gatefall.datasets import get_dataset
 from gatefall.datasets.base import DatasetAdapter
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
+from gatefall.dinov3.dataset_guard import ensure_dinov3_dataset_supported
 from gatefall.eval.alarm_protocol import (
     BASELINE_A_ALARM_PROTOCOL,
     load_alarm_protocol,
     save_alarm_protocol,
 )
 from gatefall.eval.baseline_a_events import EVENT_SPLIT_FIELDS, validate_event_metrics
+from gatefall.features.dinov3_standardization import load_stats as load_visual_stats
+from gatefall.features.dinov3_standardization import (
+    validate_stats_freshness as validate_visual_stats_freshness,
+)
+from gatefall.features.dinov3_standardization import (
+    validate_stats_layout as validate_visual_stats_layout,
+)
+from gatefall.features.quality_storage import quality_set_sha256
+from gatefall.features.standardization import load_stats as load_pose_stats
+from gatefall.features.standardization import validate_stats_layout as validate_pose_stats_layout
+from gatefall.features.standardize_dinov3 import DINOV3_STATS_PATH
 from gatefall.hashing import sha256_file
 from gatefall.runs import validate_local_run_dir
+from gatefall.sam3.dataset_guard import ensure_sam3_dataset_supported
 from gatefall.train.artifacts import validate_training_run
+from gatefall.train.b0_artifacts import validate_b0_training_run
+from gatefall.train.b0_config import B0_FUSION_CONFIG, B0TrainConfig
+from gatefall.train.b0_config import save_config as save_b0_config
+from gatefall.train.b0_model import B0FusionClassifier
+from gatefall.train.b0_run import resolve_b0_config
+from gatefall.train.b1_artifacts import validate_b1_training_run
+from gatefall.train.b1_config import B1_ADAPTIVE_GATE_CONFIG, B1TrainConfig
+from gatefall.train.b1_config import save_config as save_b1_config
+from gatefall.train.b1_model import B1AdaptiveGateClassifier
+from gatefall.train.b1_run import resolve_b1_config
+from gatefall.train.c0_artifacts import validate_c0_training_run
+from gatefall.train.c0_config import C0_FUSION_CONFIG, C0TrainConfig
+from gatefall.train.c0_config import save_config as save_c0_config
+from gatefall.train.c0_fusion import _resolve_config as resolve_c0_config
+from gatefall.train.c0_fusion import _validated_inputs as validated_sam3_inputs
+from gatefall.train.c0_model import C0FusionClassifier
+from gatefall.train.c1_artifacts import validate_c1_training_run
+from gatefall.train.c1_config import C1_ADAPTIVE_GATE_CONFIG, C1TrainConfig
+from gatefall.train.c1_config import save_config as save_c1_config
+from gatefall.train.c1_gate import _resolve_config as resolve_c1_config
+from gatefall.train.c1_model import C1AdaptiveGateClassifier
 from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig, save_config
 from gatefall.train.metrics import (
     BINARY_POSITIVE_LABELS,
@@ -61,6 +97,10 @@ MULTISEED_SUMMARY_JSON_FILE = "multiseed_summary.json"
 MULTISEED_SUMMARY_CSV_FILE = "multiseed_summary.csv"
 
 MIN_SEEDS = 2
+ARMS = ("A", "B0", "B1", "C0", "C1")
+EVENT_ARMS = frozenset({"A", "B0", "B1", "C1"})
+RunConfig = TrainConfig | B0TrainConfig | B1TrainConfig | C0TrainConfig | C1TrainConfig
+AUDIT_FIELDS = frozenset({"seed", "trainable_param_count"})
 
 CLASSIFICATION_SPLITS: tuple[str, ...] = ("train", "val", "test")
 EVENT_SPLITS: tuple[str, ...] = ("val", "test")
@@ -102,9 +142,11 @@ BINARY_FIELDS: tuple[str, ...] = (
 CSV_COLUMNS = ["split", "metric_group", "entity", "metric", "n", "mean", "std", "min", "max"]
 
 
-def _config_fingerprint(config: TrainConfig) -> str:
+def _config_fingerprint(config: RunConfig) -> str:
     data = config.to_dict()
     data.pop("seed", None)
+    if config.arm != "A":
+        data.pop("trainable_param_count", None)
     payload = json.dumps(data, sort_keys=True).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
@@ -190,27 +232,27 @@ def _aggregate_all(seed_reports: list[dict], adapter: DatasetAdapter) -> dict:
         for split in CLASSIFICATION_SPLITS
     }
 
-    events = {
-        split: {
-            field: _aggregate_stats(
-                [
-                    value
-                    for report in seed_reports
-                    if (value := _extract_event_scalar(report["events"][split], field))
-                    is not None
-                ]
-            )
-            for field in EVENT_SCALAR_FIELDS
-        }
-        for split in EVENT_SPLITS
-    }
-
-    return {
+    aggregate = {
         "classification": classification,
         "per_class": per_class,
         "binary_fall_fallen": binary_fall_fallen,
-        "events": events,
     }
+    if "events" in seed_reports[0]:
+        aggregate["events"] = {
+            split: {
+                field: _aggregate_stats(
+                    [
+                        value
+                        for report in seed_reports
+                        if (value := _extract_event_scalar(report["events"][split], field))
+                        is not None
+                    ]
+                )
+                for field in EVENT_SCALAR_FIELDS
+            }
+            for split in EVENT_SPLITS
+        }
+    return aggregate
 
 
 def _csv_rows_from_aggregate(aggregate: dict, adapter: DatasetAdapter) -> list[dict]:
@@ -265,29 +307,84 @@ def _csv_rows_from_aggregate(aggregate: dict, adapter: DatasetAdapter) -> list[d
                 }
             )
 
-    for split in EVENT_SPLITS:
-        for field in EVENT_SCALAR_FIELDS:
-            rows.append(
-                {
-                    "split": split,
-                    "metric_group": "events",
-                    "entity": "",
-                    "metric": field,
-                    **aggregate["events"][split][field],
-                }
-            )
+    if "events" in aggregate:
+        for split in EVENT_SPLITS:
+            for field in EVENT_SCALAR_FIELDS:
+                rows.append(
+                    {
+                        "split": split,
+                        "metric_group": "events",
+                        "entity": "",
+                        "metric": field,
+                        **aggregate["events"][split][field],
+                    }
+                )
 
     return rows
 
 
-def _resolve_shared_expected(dataset_name: str) -> TrainConfig:
+def _resolve_shared_expected(dataset_name: str, arm: str = "A") -> RunConfig:
+    if arm not in ARMS:
+        raise ValueError(f"arma não suportada: {arm!r}")
+    if arm != "A" and dataset_name != "le2i":
+        raise ValueError(f"arma {arm} suporta somente le2i")
     adapter = get_dataset(dataset_name)
     stats_path = adapter.pose_stats_path
-    return replace(
-        BASELINE_A_CONFIG,
-        standardization_stats_path=str(stats_path),
-        standardization_stats_sha256=sha256_file(stats_path),
-    )
+    if arm == "A":
+        return replace(
+            BASELINE_A_CONFIG,
+            standardization_stats_path=str(stats_path),
+            standardization_stats_sha256=sha256_file(stats_path),
+        )
+    if arm in {"B0", "B1"}:
+        ensure_dinov3_dataset_supported(adapter)
+        pose_stats = load_pose_stats(stats_path)
+        validate_pose_stats_layout(pose_stats)
+        visual_stats = load_visual_stats(DINOV3_STATS_PATH)
+        validate_visual_stats_layout(visual_stats, dataset_name=dataset_name)
+        validate_visual_stats_freshness(visual_stats, adapter.frames_path)
+        common = (
+            stats_path,
+            sha256_file(stats_path),
+            DINOV3_STATS_PATH,
+            sha256_file(DINOV3_STATS_PATH),
+        )
+        if arm == "B0":
+            return resolve_b0_config(B0_FUSION_CONFIG.seed, *common)
+        return resolve_b1_config(
+            B1_ADAPTIVE_GATE_CONFIG.seed,
+            *common,
+            adapter.quality_root,
+            quality_set_sha256(
+                [str(video_id) for video_id in adapter.load_frames()["video_id"].unique()],
+                quality_root=adapter.quality_root,
+            ),
+        )
+    ensure_sam3_dataset_supported(adapter)
+    inputs = validated_sam3_inputs(adapter, dataset_name)
+    if arm == "C0":
+        return resolve_c0_config(C0_FUSION_CONFIG.seed, adapter, inputs)
+    return resolve_c1_config(C1_ADAPTIVE_GATE_CONFIG.seed, adapter, inputs)
+
+
+def _validate_arm_training_run(run_dir: Path, expected: RunConfig) -> RunConfig:
+    if expected.arm == "A":
+        assert isinstance(expected, TrainConfig)
+        return validate_training_run(
+            run_dir, expected_config=expected, fields_allowed_to_differ=frozenset({"seed"})
+        )
+    allowed = AUDIT_FIELDS
+    if expected.arm == "B0":
+        assert isinstance(expected, B0TrainConfig)
+        return validate_b0_training_run(run_dir, expected, allowed)
+    if expected.arm == "B1":
+        assert isinstance(expected, B1TrainConfig)
+        return validate_b1_training_run(run_dir, expected, allowed)
+    if expected.arm == "C0":
+        assert isinstance(expected, C0TrainConfig)
+        return validate_c0_training_run(run_dir, expected, allowed)
+    assert isinstance(expected, C1TrainConfig)
+    return validate_c1_training_run(run_dir, expected, allowed)
 
 
 def _reject_duplicate_run_dirs(run_dirs: list[Path]) -> None:
@@ -315,7 +412,7 @@ def _require_classification_diagnostics(final_split: dict, run_dir: Path, split:
 
 
 def _summarize(
-    run_dirs: list[Path], shared_expected: TrainConfig, adapter: DatasetAdapter
+    run_dirs: list[Path], shared_expected: RunConfig, adapter: DatasetAdapter
 ) -> tuple[dict, list[dict]]:
     if len(run_dirs) < MIN_SEEDS:
         raise ValueError(
@@ -331,11 +428,7 @@ def _summarize(
 
     for run_dir in run_dirs:
         validate_local_run_dir(run_dir, adapter.identifier)
-        config = validate_training_run(
-            run_dir,
-            expected_config=shared_expected,
-            fields_allowed_to_differ=frozenset({"seed"}),
-        )
+        config = _validate_arm_training_run(run_dir, shared_expected)
 
         if config.seed in seen_seeds:
             raise RuntimeError(
@@ -350,42 +443,14 @@ def _summarize(
             fingerprint_run_dir = run_dir
         elif run_fingerprint != fingerprint:
             raise RuntimeError(
-                f"config.yaml em {run_dir} diverge (fora do campo seed) da "
+                f"config.yaml em {run_dir} diverge (fora dos campos permitidos) da "
                 f"configuração de {fingerprint_run_dir}"
-            )
-
-        alarm_protocol_path = run_dir / "alarm_protocol.yaml"
-        if not alarm_protocol_path.is_file():
-            raise RuntimeError(f"alarm_protocol.yaml ausente em {run_dir}")
-        protocol = load_alarm_protocol(alarm_protocol_path)
-        if protocol != BASELINE_A_ALARM_PROTOCOL:
-            raise RuntimeError(
-                f"alarm_protocol.yaml em {run_dir} incompatível com o "
-                "protocolo congelado do braço A"
             )
 
         checkpoint_path = run_dir / "checkpoint.pt"
         metrics_path = run_dir / "metrics.json"
-        event_metrics_path = run_dir / "event_metrics.json"
-        if not event_metrics_path.is_file():
-            raise RuntimeError(f"event_metrics.json ausente em {run_dir}")
-
         with metrics_path.open(encoding="utf-8") as stream:
             metrics = json.load(stream)
-        with event_metrics_path.open(encoding="utf-8") as stream:
-            event_metrics = json.load(stream)
-
-        try:
-            validate_event_metrics(
-                event_metrics,
-                config,
-                checkpoint_path,
-                alarm_protocol_path,
-                training_metrics_path=metrics_path,
-                require_hashes=True,
-            )
-        except (ValueError, OSError) as exc:
-            raise RuntimeError(f"event_metrics.json inválido em {run_dir}: {exc}") from exc
 
         classification: dict[str, dict] = {}
         binary_fall_fallen: dict[str, dict] = {}
@@ -397,20 +462,46 @@ def _summarize(
                 final_split["confusion_matrix"], BINARY_POSITIVE_LABELS
             )
 
-        events = {
-            split: event_metrics["splits"][split] for split in EVENT_SPLITS
+        seed_report = {
+            "seed": config.seed,
+            "run_dir": str(run_dir),
+            "checkpoint_sha256": sha256_file(checkpoint_path),
+            "classification": classification,
+            "binary_fall_fallen": binary_fall_fallen,
         }
+        if config.arm in EVENT_ARMS:
+            alarm_protocol_path = run_dir / "alarm_protocol.yaml"
+            if not alarm_protocol_path.is_file():
+                raise RuntimeError(f"alarm_protocol.yaml ausente em {run_dir}")
+            protocol = load_alarm_protocol(alarm_protocol_path)
+            if protocol != BASELINE_A_ALARM_PROTOCOL:
+                raise RuntimeError(
+                    f"alarm_protocol.yaml em {run_dir} incompatível com o "
+                    f"protocolo congelado da arma {config.arm}"
+                )
 
-        seed_reports.append(
-            {
-                "seed": config.seed,
-                "run_dir": str(run_dir),
-                "checkpoint_sha256": sha256_file(checkpoint_path),
-                "classification": classification,
-                "binary_fall_fallen": binary_fall_fallen,
-                "events": events,
+            event_metrics_path = run_dir / "event_metrics.json"
+            if not event_metrics_path.is_file():
+                raise RuntimeError(f"event_metrics.json ausente em {run_dir}")
+            with event_metrics_path.open(encoding="utf-8") as stream:
+                event_metrics = json.load(stream)
+            try:
+                validate_event_metrics(
+                    event_metrics,
+                    config,
+                    checkpoint_path,
+                    alarm_protocol_path,
+                    training_metrics_path=metrics_path,
+                    require_hashes=True,
+                )
+            except (ValueError, OSError, TypeError, KeyError) as exc:
+                raise RuntimeError(
+                    f"event_metrics.json inválido em {run_dir}: {exc}"
+                ) from exc
+            seed_report["events"] = {
+                split: event_metrics["splits"][split] for split in EVENT_SPLITS
             }
-        )
+        seed_reports.append(seed_report)
 
     assert fingerprint is not None
     aggregate = _aggregate_all(seed_reports, adapter)
@@ -464,9 +555,10 @@ def run_summarize(
     run_dirs: list[Path],
     output_dir: Path,
     force: bool,
+    arm: str = "A",
 ) -> bool:
     adapter = get_dataset(dataset_name)
-    shared_expected = _resolve_shared_expected(dataset_name)
+    shared_expected = _resolve_shared_expected(dataset_name, arm)
     report, csv_rows = _summarize(run_dirs, shared_expected, adapter)
     return _write_multiseed_summary_outputs(output_dir, report, csv_rows, force)
 
@@ -539,6 +631,51 @@ def _synthetic_classification_arrays(offset: int) -> tuple[np.ndarray, np.ndarra
     return y_true, y_pred
 
 
+def _synthetic_arm_config(arm: str, seed: int, epochs: int) -> RunConfig:
+    if arm == "A":
+        return replace(
+            BASELINE_A_CONFIG,
+            seed=seed,
+            epochs=epochs,
+            standardization_stats_path="synthetic",
+            standardization_stats_sha256="synthetic",
+        )
+    common = dict(
+        seed=seed,
+        epochs=epochs,
+        pose_standardization_stats_path="synthetic",
+        pose_standardization_stats_sha256="synthetic",
+        visual_standardization_stats_path="synthetic",
+        visual_standardization_stats_sha256="synthetic",
+    )
+    if arm == "B0":
+        return replace(B0_FUSION_CONFIG, **common)
+    if arm == "B1":
+        return replace(
+            B1_ADAPTIVE_GATE_CONFIG,
+            **common,
+            quality_features_path="synthetic",
+            quality_features_sha256="synthetic",
+        )
+    sam3 = dict(
+        sam3_features_path="synthetic",
+        sam3_features_sha256="synthetic",
+        sam3_provenance={"synthetic": "synthetic"},
+    )
+    if arm == "C0":
+        return replace(C0_FUSION_CONFIG, **common, **sam3)
+    if arm == "C1":
+        return replace(
+            C1_ADAPTIVE_GATE_CONFIG,
+            **common,
+            **sam3,
+            quality_features_path="synthetic",
+            quality_features_sha256="synthetic",
+            pose_features_sha256="synthetic",
+        )
+    raise ValueError(f"arma não suportada: {arm!r}")
+
+
 def _write_synthetic_seed_run(
     run_dir: Path,
     seed: int,
@@ -547,26 +684,42 @@ def _write_synthetic_seed_run(
     val_event: dict,
     test_event: dict,
     epochs: int = 1,
-) -> TrainConfig:
-    config = replace(
-        BASELINE_A_CONFIG,
-        seed=seed,
-        epochs=epochs,
-        standardization_stats_path="synthetic",
-        standardization_stats_sha256="synthetic",
-    )
+    arm: str = "A",
+) -> RunConfig:
+    config = _synthetic_arm_config(arm, seed, epochs)
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / "config.yaml"
     checkpoint_path = run_dir / "checkpoint.pt"
-    save_config(config, config_path, force=True)
-    model = TCNClassifier(
-        input_dim=config.input_dim,
-        channels=config.channels,
-        kernel_size=config.kernel_size,
-        dilations=config.dilations,
-        dropout=config.dropout,
-        num_classes=config.num_classes,
-    )
+    if isinstance(config, C1TrainConfig):
+        save_c1_config(config, config_path, force=True)
+        model = C1AdaptiveGateClassifier(
+            config.channels, config.kernel_size, config.dilations,
+            config.dropout, config.num_classes,
+        )
+    elif isinstance(config, B1TrainConfig):
+        save_b1_config(config, config_path, force=True)
+        model = B1AdaptiveGateClassifier(
+            config.channels, config.kernel_size, config.dilations,
+            config.dropout, config.num_classes,
+        )
+    elif isinstance(config, C0TrainConfig):
+        save_c0_config(config, config_path, force=True)
+        model = C0FusionClassifier(
+            config.channels, config.kernel_size, config.dilations,
+            config.dropout, config.num_classes,
+        )
+    elif isinstance(config, B0TrainConfig):
+        save_b0_config(config, config_path, force=True)
+        model = B0FusionClassifier(
+            config.channels, config.kernel_size, config.dilations,
+            config.dropout, config.num_classes,
+        )
+    else:
+        save_config(config, config_path, force=True)
+        model = TCNClassifier(
+            config.input_dim, config.channels, config.kernel_size,
+            config.dilations, config.dropout, config.num_classes,
+        )
     torch.save(model.state_dict(), checkpoint_path)
 
     macro_f1, f1_by_class = restricted_macro_f1(y_true, y_pred, config.num_classes)
@@ -600,21 +753,22 @@ def _write_synthetic_seed_run(
     with metrics_path.open("w", encoding="utf-8") as stream:
         json.dump(metrics, stream)
 
-    alarm_protocol_path = run_dir / "alarm_protocol.yaml"
-    save_alarm_protocol(BASELINE_A_ALARM_PROTOCOL, alarm_protocol_path, force=True)
+    if arm in EVENT_ARMS:
+        alarm_protocol_path = run_dir / "alarm_protocol.yaml"
+        save_alarm_protocol(BASELINE_A_ALARM_PROTOCOL, alarm_protocol_path, force=True)
 
-    event_metrics_path = run_dir / "event_metrics.json"
-    event_report = {
-        "run_name": config.run_name,
-        "checkpoint_path": str(checkpoint_path),
-        "alarm_protocol_path": str(alarm_protocol_path),
-        "splits": {"val": val_event, "test": test_event},
-        "checkpoint_sha256": sha256_file(checkpoint_path),
-        "training_metrics_sha256": sha256_file(metrics_path),
-        "alarm_protocol_sha256": sha256_file(alarm_protocol_path),
-    }
-    with event_metrics_path.open("w", encoding="utf-8") as stream:
-        json.dump(event_report, stream)
+        event_metrics_path = run_dir / "event_metrics.json"
+        event_report = {
+            "run_name": config.run_name,
+            "checkpoint_path": str(checkpoint_path),
+            "alarm_protocol_path": str(alarm_protocol_path),
+            "splits": {"val": val_event, "test": test_event},
+            "checkpoint_sha256": sha256_file(checkpoint_path),
+            "training_metrics_sha256": sha256_file(metrics_path),
+            "alarm_protocol_sha256": sha256_file(alarm_protocol_path),
+        }
+        with event_metrics_path.open("w", encoding="utf-8") as stream:
+            json.dump(event_report, stream)
 
     return config
 
@@ -1164,6 +1318,171 @@ def _selftest_writer_honors_force() -> bool:
         )
 
 
+def _synthetic_pair(root: Path, arm: str) -> tuple[list[Path], RunConfig]:
+    y_true, y_pred = _synthetic_classification_arrays(offset=0)
+    event = _build_event_split(1, 1, 1.0, 1.0, 1.0, 0.0, 0, 1.0, 1.0)
+    run_dirs = [root / "seed1", root / "seed2"]
+    first = _write_synthetic_seed_run(
+        run_dirs[0], 1, y_true, y_pred, event, event, arm=arm
+    )
+    _write_synthetic_seed_run(run_dirs[1], 2, y_true, y_pred, event, event, arm=arm)
+    return run_dirs, replace(first, seed=42)
+
+
+def _rewrite_synthetic_config(run_dir: Path, changes: dict) -> None:
+    config_path = run_dir / "config.yaml"
+    with config_path.open(encoding="utf-8") as stream:
+        config = yaml.safe_load(stream)
+    config.update(changes)
+    with config_path.open("w", encoding="utf-8") as stream:
+        yaml.safe_dump(config, stream, sort_keys=False)
+    metrics_path = run_dir / "metrics.json"
+    with metrics_path.open(encoding="utf-8") as stream:
+        metrics = json.load(stream)
+    metrics["config_sha256"] = sha256_file(config_path)
+    with metrics_path.open("w", encoding="utf-8") as stream:
+        json.dump(metrics, stream)
+    event_path = run_dir / "event_metrics.json"
+    if event_path.is_file():
+        with event_path.open(encoding="utf-8") as stream:
+            events = json.load(stream)
+        events["training_metrics_sha256"] = sha256_file(metrics_path)
+        with event_path.open("w", encoding="utf-8") as stream:
+            json.dump(events, stream)
+
+
+def _selftest_all_arms() -> bool:
+    adapter = get_dataset("le2i")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for arm in ARMS:
+            run_dirs, expected = _synthetic_pair(root / arm, arm)
+            report, rows = _summarize(run_dirs, expected, adapter)
+            has_events = arm in EVENT_ARMS
+            if (
+                report["arm"] != arm
+                or report["n_seeds"] != 2
+                or ("events" in report["aggregate"]) != has_events
+                or any(("events" in seed) != has_events for seed in report["seeds"])
+                or any(row["metric_group"] == "events" for row in rows) != has_events
+            ):
+                return _check("todas as armas preservam seu contrato de métricas", False)
+            _rewrite_synthetic_config(run_dirs[1], {"lr": 0.5})
+            try:
+                _summarize(run_dirs, expected, adapter)
+            except RuntimeError as exc:
+                if "lr" not in str(exc):
+                    return _check("configuração científica divergente é rejeitada", False)
+            else:
+                return _check("configuração científica divergente é rejeitada", False)
+            _rewrite_synthetic_config(run_dirs[1], {"lr": expected.lr})
+            if has_events:
+                event_path = run_dirs[1] / "event_metrics.json"
+                with event_path.open(encoding="utf-8") as stream:
+                    event_report = json.load(stream)
+                event_report["checkpoint_sha256"] = "incompatível"
+                with event_path.open("w", encoding="utf-8") as stream:
+                    json.dump(event_report, stream)
+                try:
+                    _summarize(run_dirs, expected, adapter)
+                except RuntimeError as exc:
+                    if "checkpoint_sha256" not in str(exc):
+                        return _check("hash de evento inválido é rejeitado", False)
+                else:
+                    return _check("hash de evento inválido é rejeitado", False)
+                (run_dirs[1] / "event_metrics.json").unlink()
+                try:
+                    _summarize(run_dirs, expected, adapter)
+                except RuntimeError as exc:
+                    if "event_metrics.json ausente" not in str(exc):
+                        return _check("armas com evento exigem evidência completa", False)
+                else:
+                    return _check("armas com evento exigem evidência completa", False)
+            else:
+                if (run_dirs[1] / "event_metrics.json").exists():
+                    return _check("C0 dispensa artefatos de evento", False)
+                (run_dirs[1] / "event_metrics.json").write_text("{}", encoding="utf-8")
+                c0_report, c0_rows = _summarize(run_dirs, expected, adapter)
+                if "events" in c0_report["aggregate"] or any(
+                    row["metric_group"] == "events" for row in c0_rows
+                ):
+                    return _check("C0 omite evento mesmo se houver arquivo extra", False)
+        return _check(
+            "A/B0/B1/C0/C1: classificação validada; evento obrigatório exceto C0",
+            True,
+        )
+
+
+def _selftest_arm_and_config_guards() -> bool:
+    adapter = get_dataset("le2i")
+    cv_rejected = True
+    for arm in ARMS[1:]:
+        try:
+            _resolve_shared_expected("le2i-cv", arm)
+        except ValueError:
+            continue
+        cv_rejected = False
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        runs, expected = _synthetic_pair(root / "b0", "B0")
+        duplicate_path = False
+        try:
+            _summarize([runs[0], runs[0]], expected, adapter)
+        except ValueError as exc:
+            duplicate_path = "duplicado" in str(exc)
+        _rewrite_synthetic_config(runs[1], {"seed": 1})
+        duplicate_seed = False
+        try:
+            _summarize(runs, expected, adapter)
+        except RuntimeError as exc:
+            duplicate_seed = "seed duplicada" in str(exc)
+        _rewrite_synthetic_config(runs[1], {"seed": 2, "lr": 0.5})
+        mismatch = False
+        try:
+            _summarize(runs, expected, adapter)
+        except RuntimeError as exc:
+            mismatch = "lr" in str(exc)
+        _rewrite_synthetic_config(runs[1], {"lr": expected.lr, "trainable_param_count": 123})
+        allowed_report, _ = _summarize(runs, expected, adapter)
+        audit_allowed = allowed_report["n_seeds"] == 2
+
+        c0_runs, _ = _synthetic_pair(root / "c0", "C0")
+        mixed = False
+        try:
+            _summarize([runs[0], c0_runs[0]], expected, adapter)
+        except RuntimeError as exc:
+            mixed = str(c0_runs[0]) in str(exc)
+        return _check(
+            "paths/seeds duplicados, arma mista e configuração científica divergente rejeitados; campo de auditoria permitido",
+            duplicate_path and duplicate_seed and mismatch and mixed and audit_allowed and cv_rejected,
+        )
+
+
+def _selftest_arm_a_output_compatibility() -> bool:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        runs, expected = _synthetic_pair(root / "a", "A")
+        default_out = root / "default"
+        explicit_out = root / "explicit"
+        with patch.object(sys.modules[__name__], "_resolve_shared_expected", return_value=expected):
+            run_summarize("le2i", runs, default_out, False)
+            run_summarize("le2i", runs, explicit_out, False, arm="A")
+        with (default_out / MULTISEED_SUMMARY_JSON_FILE).open(encoding="utf-8") as stream:
+            report = json.load(stream)
+        rows = pd.read_csv(default_out / MULTISEED_SUMMARY_CSV_FILE)
+        valid = (
+            list(report) == ["arm", "config_fingerprint_sha256", "n_seeds", "seeds", "aggregate"]
+            and list(report["aggregate"]) == ["classification", "per_class", "binary_fall_fallen", "events"]
+            and len(rows) == 340
+            and list(rows) == CSV_COLUMNS
+            and all(
+                (default_out / name).read_bytes() == (explicit_out / name).read_bytes()
+                for name in (MULTISEED_SUMMARY_JSON_FILE, MULTISEED_SUMMARY_CSV_FILE)
+            )
+        )
+        return _check("A mantém esquema e bytes JSON/CSV do caminho padrão", valid)
+
+
 def run_multiseed_summary_selftest() -> bool:
     checks = [
         _selftest_aggregate_stats_known_array(),
@@ -1177,6 +1496,9 @@ def run_multiseed_summary_selftest() -> bool:
         _selftest_malformed_run_dir_raises(),
         _selftest_fewer_than_min_seeds_raises(),
         _selftest_writer_honors_force(),
+        _selftest_all_arms(),
+        _selftest_arm_and_config_guards(),
+        _selftest_arm_a_output_compatibility(),
     ]
     ok = all(checks)
     if not ok:
@@ -1198,11 +1520,12 @@ def main() -> None:
     summarize_parser = subparsers.add_parser(
         "summarize",
         help=(
-            "Agrega macro_f1_restricted e métricas de evento sobre múltiplos "
-            "runs (seeds) já treinados e avaliados da arma A"
+            "Agrega classificação e, quando aplicável, eventos de múltiplos "
+            "runs da mesma arma com seeds distintas"
         ),
     )
     summarize_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    summarize_parser.add_argument("--arm", default="A", choices=ARMS)
     summarize_parser.add_argument(
         "--run-dir",
         type=Path,
@@ -1228,6 +1551,7 @@ def main() -> None:
             run_dirs=args.run_dirs,
             output_dir=args.output_dir,
             force=args.force,
+            arm=args.arm,
         )
     elif args.command == "selftest":
         run_selftest()

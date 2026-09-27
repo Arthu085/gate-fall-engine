@@ -1,11 +1,11 @@
 # Avaliação — Sumário multi-seed
 
-`src/gatefall/eval/multiseed_summary.py` agrega treinos independentes do
-braço A que diferem apenas na seed, produzindo estatísticas descritivas
-(n/mean/desvio-padrão amostral/min/max) sobre as métricas congeladas de
-classificação e de evento. É somente leitura: nenhum artefato dos runs de
-entrada (`config.yaml`, `metrics.json`, `checkpoint.pt`,
-`alarm_protocol.yaml`, `event_metrics.json`) é modificado.
+`src/gatefall/eval/multiseed_summary.py` agrega treinos independentes de uma
+arma selecionada entre A, B0, B1, C0 e C1 no protocolo `le2i`, produzindo
+estatísticas descritivas (n/mean/desvio-padrão amostral/min/max). A, B0, B1
+e C1 agregam classificação e evento; C0 agrega apenas classificação, pois
+não há avaliação de evento contratada para essa arma. É somente leitura:
+nenhum artefato dos runs de entrada é modificado.
 
 ## Fronteira com o bootstrap agrupado por sujeito
 
@@ -16,7 +16,7 @@ variação nunca se misturam na mesma estatística:
 - **Sumário multi-seed** agrega **treinos independentes**: cada seed produz
   seu próprio `run_dir` completo, com checkpoint, config e métricas
   próprios. A variação capturada é a variação entre execuções de treino
-  independentes sob a mesma receita congelada (`CLAUDE.md`, invariante 1).
+  independentes sob a mesma receita congelada (`AGENTS.md`, invariante 1).
 - **Bootstrap agrupado por sujeito** reamostra sujeitos a partir de um
   **único checkpoint fixo**, sem retreinar nada. A variação capturada é
   incerteza de amostragem sobre a população de sujeitos avaliados, não
@@ -26,34 +26,31 @@ Nenhum dos dois seleciona, ranqueia ou promove nenhum run ou seed.
 
 ## Contrato de configuração
 
-Todos os `--run-dir` informados devem corresponder a runs locais já
-treinados e avaliados do braço A (`config.yaml`/`metrics.json`/
-`checkpoint.pt`/`alarm_protocol.yaml`/`event_metrics.json` completos e
-íntegros, validados com a mesma checagem de hash usada em
-`gatefall.eval.baseline_a_events`). `validate_training_run` foi estendido
-com o parâmetro `fields_allowed_to_differ`; este módulo é um dos únicos três
-chamadores que passa `{"seed"}` — `qualitative`,
-`alarm_protocol_sensitivity` e `grouped_bootstrap` continuam exigindo
-igualdade estrita de configuração, e nenhuma checagem de integridade ou
-hash foi enfraquecida.
+Todos os `--run-dir` devem pertencer à mesma arma e conter
+`config.yaml`/`metrics.json`/`checkpoint.pt` íntegros. O validador de treino
+da própria arma verifica configuração, métricas, hashes e checkpoint. A,
+B0, B1 e C1 exigem também `alarm_protocol.yaml` igual ao protocolo
+congelado e `event_metrics.json` validado com hashes de checkpoint,
+métricas de treino e protocolo. C0 não exige nem agrega esses arquivos.
 
 A ferramenta calcula um fingerprint sha256 da configuração de cada run com
-o campo `seed` removido e exige que todos os runs informados compartilhem o
-mesmo fingerprint — ou seja, que toda a configuração fora da seed seja
-idêntica. Também rejeita: menos de duas seeds, `--run-dir` duplicado (mesmo
-path resolvido) e seeds duplicadas entre runs distintos. O
-`alarm_protocol.yaml` de cada run deve ser igual ao protocolo congelado
-`BASELINE_A_ALARM_PROTOCOL`.
+`seed` removido. Para B0, B1, C0 e C1, remove também
+`trainable_param_count`, campo de auditoria já permitido pelos respectivos
+validadores. Todos os demais campos devem ser idênticos. Também rejeita menos
+de duas seeds, `--run-dir` duplicado (mesmo path resolvido), seeds duplicadas
+entre runs distintos e mistura de armas. `le2i-cv` permanece fora do escopo
+para as armas de fusão.
 
 ## Como executar
 
 ```bash
 uv run python -m gatefall.eval.multiseed_summary selftest
-uv run python -m gatefall.eval.multiseed_summary summarize [--dataset le2i] \
+uv run python -m gatefall.eval.multiseed_summary summarize [--dataset le2i] [--arm {A,B0,B1,C0,C1}] \
   --run-dir PATH [--run-dir PATH ...] --output-dir PATH [--force]
 ```
 
-`selftest` roda checagens sintéticas, sem modelo nem GPU. `summarize` exige
+`--arm` usa `A` por padrão, preservando o comando anterior. `selftest` roda
+checagens sintéticas, sem dataset real nem GPU. `summarize` exige
 pelo menos dois `--run-dir` (a flag é repetível), valida cada run
 integralmente e escreve `multiseed_summary.json`/`.csv` em `--output-dir`.
 Sem `--force`, se algum dos dois arquivos já existir, o comando é pulado e a
@@ -76,7 +73,7 @@ mensagem de skip nomeia exatamente o(s) arquivo(s) encontrado(s).
   `gatefall.train.baseline_a` e `grouped_bootstrap` usam a partir dos
   arrays de predição, agora expressa em termos da matriz de confusão
   (`gatefall.train.metrics.binary_projection_from_confusion_matrix`).
-- Evento (`events`): todo campo escalar de
+- Evento (`events`, somente A/B0/B1/C1): todo campo escalar de
   `event_metrics.json[splits][split]` (`sensitivity`, `fall_sensitivity`,
   `fall_or_fallen_sensitivity`, `false_alarms_per_hour`, `n_false_alarms`,
   `latency_seconds_mean`, `latency_seconds_median` e os demais campos
@@ -96,16 +93,17 @@ mensagem de skip nomeia exatamente o(s) arquivo(s) encontrado(s).
     completo (`tp`/`tn`/`fp`/`fn`/`support`/`precision`/`recall`/`f1`).
   - `binary_fall_fallen[split]` (train/val/test): derivado da
     `confusion_matrix` acima, sem rodar inferência de novo.
-  - `events[split]` (val/test): o bloco de split validado de
+  - `events[split]` (val/test, ausente para C0): o bloco de split validado de
     `event_metrics.json`, na íntegra, incluindo `latency_seconds.per_event`
     e as métricas binárias de janela.
   - `aggregate`: as mesmas famílias de métricas (`classification`,
-    `per_class`, `binary_fall_fallen`, `events`), cada métrica escalar
-    reduzida a `{n, mean, std, min, max}`.
+    `per_class`, `binary_fall_fallen` e `events` quando aplicável), cada
+    métrica escalar reduzida a `{n, mean, std, min, max}`.
 - `multiseed_summary.csv`: achatado, uma linha por
   `(split, metric_group, entity, metric)`, colunas `split`, `metric_group`,
   `entity`, `metric`, `n`, `mean`, `std`, `min`, `max`. `metric_group` é um
-  de `classification`, `per_class`, `binary`, `events`. `entity` carrega o
+  de `classification`, `per_class`, `binary`, `events`; C0 não tem linhas
+  `events`. `entity` carrega o
   nome da classe nas linhas `f1_by_class` (metric_group `classification`) e
   `per_class`; fica vazio nas demais. `f1_by_class` (por classe restrita,
   metric_group `classification`) é mantido deliberadamente distinto de
