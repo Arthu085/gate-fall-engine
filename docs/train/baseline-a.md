@@ -188,8 +188,10 @@ semântica de `verification_against_metrics_json`.
 
 ## Artefatos locais e referência histórica
 
-`runs/reference/le2i/baseline_a/config.yaml` e `metrics.json` são evidência
-histórica versionada. Desde o retreino sob o pipeline de features atual (ver
+`runs/reference/le2i/baseline_a/` contém `config.yaml`, `metrics.json`,
+`classification_report.json` e o par de eventos conforme a
+[política de referências finais](../reference/le2i-runs.md). Desde o retreino
+sob o pipeline de features atual (ver
 "Migração de referência: pipeline de features atual" abaixo), o conteúdo
 desses arquivos é a saída real e regenerada do run determinístico corrente,
 não apenas conteúdo movido de um caminho legado. O

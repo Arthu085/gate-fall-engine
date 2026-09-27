@@ -77,7 +77,9 @@ a [referência](../reference/commands.md) para pré-requisitos e efeitos.
 
 `runs/reference/le2i/baseline_a/` guarda evidência histórica versionada e não
 é destino aceito por treino ou avaliação. O pipeline seleciona exclusivamente
-`runs/local/le2i/baseline_a/`, ignorado pelo Git.
+`runs/local/le2i/baseline_a/`, ignorado pelo Git. A
+[política de referências finais](../reference/le2i-runs.md) cobre A, B0, B1,
+C0 e C1.
 
 O treino publica um run somente quando configuração, checkpoint e métricas são
 válidos e coerentes. Ele prepara e valida os artefatos em um diretório de
