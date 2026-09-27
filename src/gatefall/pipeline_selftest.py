@@ -1,4 +1,4 @@
-"""Selftest sintético da orquestração do pipeline do braço A."""
+"""Selftest sintético da orquestração dos pipelines experimentais."""
 
 import contextlib
 import io
@@ -65,121 +65,221 @@ def check_exact_command_order() -> bool:
         ("gatefall.eval.baseline_a_events", "selftest"),
         ("gatefall.eval.baseline_a_events", "evaluate"),
     ]
+    expected_arguments = [
+        (), (), (),
+        ("--dataset", "le2i"), ("--dataset", "le2i"), ("--dataset", "le2i"),
+        ("--dataset", "le2i"), ("--dataset", "le2i"), ("--dataset", "le2i"),
+        ("--dataset", "le2i"), ("--dataset", "le2i"),
+        ("--dataset", "le2i"), ("--dataset", "le2i"),
+        ("--dataset", "le2i"), ("--dataset", "le2i"),
+        ("--dataset", "le2i"), ("--dataset", "le2i"),
+        ("--dataset", "le2i"), ("--dataset", "le2i"),
+        (), ("--dataset", "le2i"), ("--dataset", "le2i"),
+        (), ("--dataset", "le2i", "--run-dir", "runs/local/le2i/baseline_a"),
+        (), ("--dataset", "le2i", "--run-dir", "runs/local/le2i/baseline_a"),
+    ]
+    expected_commands = [
+        (sys.executable, *signature, *arguments)
+        if signature[0].startswith("scripts/")
+        else (sys.executable, "-m", *signature, *arguments)
+        for signature, arguments in zip(expected, expected_arguments, strict=True)
+    ]
     all_use_current_python = all(step.command[0] == sys.executable for step in steps)
     return _check(
-        "plano: os 26 comandos estão na ordem exata e usam o Python atual",
-        actual == expected and all_use_current_python,
+        "plano: os 26 comandos A estão completos e na ordem exata",
+        actual == expected
+        and all_use_current_python
+        and [step.command for step in steps] == expected_commands,
     )
+
+
+def check_new_arm_command_order() -> bool:
+    shared = build_pipeline("le2i", "A")[:22]
+    expected_suffixes = {
+        "B0": [
+            ("gatefall.dinov3.extract", "selftest"),
+            ("gatefall.dinov3.extract", "extract-all", "--dataset", "le2i"),
+            ("gatefall.dinov3.extract", "report", "--dataset", "le2i"),
+            ("gatefall.features.standardize_dinov3", "selftest"),
+            ("gatefall.features.standardize_dinov3", "build", "--dataset", "le2i"),
+            ("gatefall.features.standardize_dinov3", "report", "--dataset", "le2i"),
+            ("gatefall.train.b0_fusion", "selftest"),
+            ("gatefall.train.b0_fusion", "train", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b0_fusion"),
+            ("gatefall.train.b0_fusion", "report", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b0_fusion"),
+            ("gatefall.eval.b0_events", "selftest"),
+            ("gatefall.eval.b0_events", "evaluate", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b0_fusion"),
+        ],
+        "B1": [
+            ("gatefall.dinov3.extract", "selftest"),
+            ("gatefall.dinov3.extract", "extract-all", "--dataset", "le2i"),
+            ("gatefall.dinov3.extract", "report", "--dataset", "le2i"),
+            ("gatefall.features.standardize_dinov3", "selftest"),
+            ("gatefall.features.standardize_dinov3", "build", "--dataset", "le2i"),
+            ("gatefall.features.standardize_dinov3", "report", "--dataset", "le2i"),
+            ("gatefall.features.quality_extract", "selftest"),
+            ("gatefall.features.quality_extract", "extract-all", "--dataset", "le2i"),
+            ("gatefall.features.quality_extract", "report", "--dataset", "le2i"),
+            ("gatefall.train.b1_gate", "selftest"),
+            ("gatefall.train.b1_gate", "train", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b1_adaptive_gate"),
+            ("gatefall.train.b1_gate", "report", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b1_adaptive_gate"),
+            ("gatefall.eval.b1_events", "selftest"),
+            ("gatefall.eval.b1_events", "evaluate", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b1_adaptive_gate"),
+        ],
+        "C0": [
+            ("gatefall.sam3.extract", "selftest"),
+            ("gatefall.sam3.extract", "extract-all", "--dataset", "le2i"),
+            ("gatefall.sam3.extract", "report", "--dataset", "le2i"),
+            ("gatefall.features.standardize_sam3", "selftest"),
+            ("gatefall.features.standardize_sam3", "build", "--dataset", "le2i"),
+            ("gatefall.features.standardize_sam3", "report", "--dataset", "le2i"),
+            ("gatefall.train.c0_fusion", "selftest"),
+            ("gatefall.train.c0_fusion", "train", "--dataset", "le2i", "--run-dir", "runs/local/le2i/c0_fusion"),
+            ("gatefall.train.c0_fusion", "report", "--dataset", "le2i", "--run-dir", "runs/local/le2i/c0_fusion"),
+        ],
+        "C1": [
+            ("gatefall.sam3.extract", "selftest"),
+            ("gatefall.sam3.extract", "extract-all", "--dataset", "le2i"),
+            ("gatefall.sam3.extract", "report", "--dataset", "le2i"),
+            ("gatefall.features.standardize_sam3", "selftest"),
+            ("gatefall.features.standardize_sam3", "build", "--dataset", "le2i"),
+            ("gatefall.features.standardize_sam3", "report", "--dataset", "le2i"),
+            ("gatefall.sam3.quality", "selftest"),
+            ("gatefall.train.c1_gate", "selftest"),
+            ("gatefall.train.c1_gate", "train", "--dataset", "le2i", "--run-dir", "runs/local/le2i/c1_adaptive_gate"),
+            ("gatefall.train.c1_gate", "report", "--dataset", "le2i", "--run-dir", "runs/local/le2i/c1_adaptive_gate"),
+            ("gatefall.eval.c1_events", "selftest"),
+            ("gatefall.eval.c1_events", "evaluate", "--dataset", "le2i", "--run-dir", "runs/local/le2i/c1_adaptive_gate"),
+        ],
+    }
+    for arm, suffix in expected_suffixes.items():
+        steps = build_pipeline("le2i", arm)
+        expected_commands = [(sys.executable, "-m", *command) for command in suffix]
+        if steps[:22] != shared or [step.command for step in steps[22:]] != expected_commands:
+            return _check("plano: B0, B1, C0 e C1 têm comandos na ordem exata", False)
+    return _check("plano: B0, B1, C0 e C1 têm comandos na ordem exata", True)
 
 
 def check_dry_run_executes_no_child() -> bool:
-    steps = build_pipeline(dataset="le2i", arm="A")
-    calls: list[tuple[str, ...]] = []
+    for arm in ("A", "B0", "B1", "C0", "C1"):
+        steps = build_pipeline(dataset="le2i", arm=arm)
+        calls: list[tuple[str, ...]] = []
 
-    def runner(command: Sequence[str]) -> int:
-        calls.append(tuple(command))
-        return 0
+        def runner(command: Sequence[str]) -> int:
+            calls.append(tuple(command))
+            return 0
 
-    exit_code = _execute_pipeline_silently(steps, runner=runner, dry_run=True)
-    return _check(
-        "dry-run: imprime o plano sem executar processos filhos",
-        exit_code == 0 and calls == [],
-    )
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            exit_code = execute_pipeline(steps, runner=runner, dry_run=True)
+        if exit_code != 0 or calls or output.getvalue().count("  " + sys.executable) != len(steps):
+            return _check("dry-run: todos os braços imprimem sem executar filhos", False)
+    return _check("dry-run: todos os braços imprimem sem executar filhos", True)
 
 
 def check_failure_stops_and_propagates_exit_code() -> bool:
-    steps = build_pipeline(dataset="le2i", arm="A")
-    failure_index = 9
-    child_exit_code = 17
-    calls: list[tuple[str, ...]] = []
+    for arm in ("A", "B0", "B1", "C0", "C1"):
+        steps = build_pipeline(dataset="le2i", arm=arm)
+        failure_index = 23 if arm != "A" else 9
+        child_exit_code = 17
+        calls: list[tuple[str, ...]] = []
 
-    def runner(command: Sequence[str]) -> int:
-        calls.append(tuple(command))
-        if len(calls) - 1 == failure_index:
-            return child_exit_code
-        return 0
+        def runner(command: Sequence[str]) -> int:
+            calls.append(tuple(command))
+            if len(calls) - 1 == failure_index:
+                return child_exit_code
+            return 0
 
-    exit_code = _execute_pipeline_silently(steps, runner=runner)
-    expected_calls = [tuple(step.command) for step in steps[: failure_index + 1]]
-    return _check(
-        "falha: interrompe antes do passo seguinte e propaga o exit code do filho",
-        exit_code == child_exit_code and calls == expected_calls,
-    )
+        exit_code = _execute_pipeline_silently(steps, runner=runner)
+        expected_calls = [tuple(step.command) for step in steps[: failure_index + 1]]
+        if exit_code != child_exit_code or calls != expected_calls:
+            return _check("falha: todos os braços param e propagam o exit code", False)
+    return _check("falha: todos os braços param e propagam o exit code", True)
 
 
 def check_success_reaches_final_step() -> bool:
-    steps = build_pipeline(dataset="le2i", arm="A")
-    calls: list[tuple[str, ...]] = []
+    final_commands = {
+        "A": ("gatefall.eval.baseline_a_events", "evaluate"),
+        "B0": ("gatefall.eval.b0_events", "evaluate"),
+        "B1": ("gatefall.eval.b1_events", "evaluate"),
+        "C0": ("gatefall.train.c0_fusion", "report"),
+        "C1": ("gatefall.eval.c1_events", "evaluate"),
+    }
+    for arm, final_command in final_commands.items():
+        steps = build_pipeline(dataset="le2i", arm=arm)
+        calls: list[tuple[str, ...]] = []
 
-    def runner(command: Sequence[str]) -> int:
-        calls.append(tuple(command))
-        return 0
+        def runner(command: Sequence[str]) -> int:
+            calls.append(tuple(command))
+            return 0
 
-    exit_code = _execute_pipeline_silently(steps, runner=runner)
-    return _check(
-        "sucesso: executa todos os passos e chega à avaliação de eventos",
-        exit_code == 0
-        and calls == [tuple(step.command) for step in steps]
-        and _command_signature(steps[-1])
-        == ("gatefall.eval.baseline_a_events", "evaluate"),
-    )
+        exit_code = _execute_pipeline_silently(steps, runner=runner)
+        if (
+            exit_code != 0
+            or calls != [step.command for step in steps]
+            or _command_signature(steps[-1]) != final_command
+        ):
+            return _check("sucesso: todos os braços chegam à última etapa", False)
+    return _check("sucesso: todos os braços chegam à última etapa", True)
 
 
 def check_force_only_on_supported_producers() -> bool:
-    normal_steps = build_pipeline(dataset="le2i", arm="A")
-    forced_steps = build_pipeline(dataset="le2i", arm="A", force=True)
-    forced_signatures = {
-        _command_signature(step) for step in forced_steps if "--force" in step.command
-    }
-    expected_forced = {
-        ("scripts/fetch_labels.py", "--force"),
-        ("scripts/extract_le2i.py", "--force"),
+    shared_forced = {
+        ("scripts/fetch_labels.py",),
+        ("scripts/fetch_labels.py", "--protocol"),
+        ("scripts/extract_le2i.py",),
         ("gatefall.data.ingest", "ingest"),
         ("gatefall.data.timegrid", "build"),
         ("gatefall.pose.extract", "extract-all"),
         ("gatefall.features.standardize", "build"),
-        ("gatefall.train.baseline_a", "train"),
-        ("gatefall.eval.baseline_a_events", "evaluate"),
     }
-    unchanged_without_force = all("--force" not in step.command for step in normal_steps)
-    force_count = sum(step.command.count("--force") for step in forced_steps)
-    return _check(
-        "force: aparece uma vez somente nos oito produtores suportados",
-        unchanged_without_force
-        and force_count == len(expected_forced)
-        and forced_signatures == expected_forced,
-    )
+    expected_by_arm = {
+        "A": {("gatefall.train.baseline_a", "train"), ("gatefall.eval.baseline_a_events", "evaluate")},
+        "B0": {("gatefall.dinov3.extract", "extract-all"), ("gatefall.features.standardize_dinov3", "build"), ("gatefall.train.b0_fusion", "train"), ("gatefall.train.b0_fusion", "report"), ("gatefall.eval.b0_events", "evaluate")},
+        "B1": {("gatefall.dinov3.extract", "extract-all"), ("gatefall.features.standardize_dinov3", "build"), ("gatefall.features.quality_extract", "extract-all"), ("gatefall.train.b1_gate", "train"), ("gatefall.train.b1_gate", "report"), ("gatefall.eval.b1_events", "evaluate")},
+        "C0": {("gatefall.sam3.extract", "extract-all"), ("gatefall.features.standardize_sam3", "build"), ("gatefall.train.c0_fusion", "train"), ("gatefall.train.c0_fusion", "report")},
+        "C1": {("gatefall.sam3.extract", "extract-all"), ("gatefall.features.standardize_sam3", "build"), ("gatefall.train.c1_gate", "train"), ("gatefall.train.c1_gate", "report"), ("gatefall.eval.c1_events", "evaluate")},
+    }
+    cases = [("le2i", arm) for arm in expected_by_arm] + [("le2i-cv", "A")]
+    for dataset, arm in cases:
+        arm_forced = expected_by_arm[arm]
+        normal_steps = build_pipeline(dataset, arm)
+        forced_steps = build_pipeline(dataset, arm, force=True)
+        if len(normal_steps) != len(forced_steps):
+            return _check("force: somente produtores compatíveis recebem --force", False)
+        for normal, forced in zip(normal_steps, forced_steps, strict=True):
+            should_force = _command_signature(normal) in shared_forced | arm_forced
+            expected = (*normal.command, "--force") if should_force else normal.command
+            if forced.command != expected or "--force" in normal.command:
+                return _check("force: somente produtores compatíveis recebem --force", False)
+    return _check("force: somente produtores compatíveis recebem --force", True)
 
 
 def check_output_is_always_local() -> bool:
-    for force in (False, True):
-        commands = [
-            " ".join(step.command)
-            for step in build_pipeline("le2i", "A", force=force)
-        ]
-        joined = "\n".join(commands)
-        local_run = "runs/local/le2i/baseline_a"
-        if "runs/reference" in joined or sum(local_run in command for command in commands) != 2:
-            return _check(
-                "saída: treino e avaliação usam sempre runs/local, nunca reference",
-                False,
-            )
+    expected_run_steps = {"A": 2, "B0": 3, "B1": 3, "C0": 2, "C1": 3}
+    run_names = {"A": "baseline_a", "B0": "b0_fusion", "B1": "b1_adaptive_gate", "C0": "c0_fusion", "C1": "c1_adaptive_gate"}
+    for arm, count in expected_run_steps.items():
+        for force in (False, True):
+            commands = [" ".join(step.command) for step in build_pipeline("le2i", arm, force=force)]
+            local_run = f"runs/local/le2i/{run_names[arm]}"
+            if "runs/reference" in "\n".join(commands) or sum(local_run in command for command in commands) != count:
+                return _check("saída: cada braço usa seu run local, nunca reference", False)
     return _check(
-        "saída: treino e avaliação usam sempre runs/local, nunca reference",
+        "saída: cada braço usa seu run local, nunca reference",
         True,
     )
 
 
 def check_invalid_dataset_and_arm_rejected_before_child() -> bool:
     rejected = 0
-    for dataset, arm in (("desconhecido", "A"), ("le2i", "D")):
+    invalid = (("desconhecido", "A"), ("le2i", "D"), *(("le2i-cv", arm) for arm in ("B0", "B1", "C0", "C1")))
+    for dataset, arm in invalid:
         try:
             build_pipeline(dataset=dataset, arm=arm)
-        except ValueError:
-            rejected += 1
+        except ValueError as exc:
+            if dataset != "le2i-cv" or "não suporta --dataset 'le2i-cv'" in str(exc):
+                rejected += 1
     return _check(
-        "validação: dataset e braço inválidos falham antes de qualquer filho",
-        rejected == 2,
+        "validação: dataset, braço e combinações incompatíveis são recusados",
+        rejected == len(invalid),
     )
 
 
@@ -226,10 +326,32 @@ def check_cv_step_list() -> bool:
         }
     )
     no_reference = all("runs/reference" not in " ".join(step.command) for step in steps)
+    expected_commands = []
+    for index, step in enumerate(build_pipeline("le2i", "A")):
+        if index < 2:
+            expected_commands.append((*step.command, "--protocol", "cv"))
+        else:
+            expected_commands.append(
+                tuple(
+                    part.replace("runs/local/le2i/baseline_a", "runs/local/le2i_cv/baseline_a")
+                    if part.startswith("runs/local/le2i/baseline_a")
+                    else "le2i-cv" if part == "le2i" else part
+                    for part in step.command
+                )
+            )
+    expected_commands.append(
+        (
+            sys.executable, "-m", "gatefall.eval.generalization_report", "report",
+            "--dataset", "le2i-cv", "--output",
+            "runs/local/le2i_cv/baseline_a/generalization_report.json",
+        )
+    )
     return _check(
-        "plano CV: 27 passos incluem geração/verificação de anotações CV, "
-        "run_dir de le2i_cv e relatório de generalização, nunca runs/reference",
-        actual == expected and run_dir_present and no_reference,
+        "plano CV: 27 comandos completos preservam o protocolo e o run_dir isolado",
+        actual == expected
+        and [step.command for step in steps] == expected_commands
+        and run_dir_present
+        and no_reference,
     )
 
 
@@ -252,6 +374,7 @@ def check_standardize_cli_dataset_contract() -> bool:
 def run_pipeline_selftest() -> None:
     checks = [
         check_exact_command_order(),
+        check_new_arm_command_order(),
         check_dry_run_executes_no_child(),
         check_failure_stops_and_propagates_exit_code(),
         check_success_reaches_final_step(),

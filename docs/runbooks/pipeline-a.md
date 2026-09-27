@@ -1,6 +1,6 @@
-# Pipeline completo do braço A
+# Pipelines experimentais
 
-## Rota principal
+## Rota principal do braço A
 
 Após `uv sync`, coloque `FallDataset.zip` em `data/raw/le2i/` e execute:
 
@@ -20,13 +20,13 @@ cross-environment, em artefatos isolados (`data/labels/omnifall_cv/`,
 ambientes (Le2i-CV)](../eval/le2i-cv-generalization.md) para o que esse
 protocolo mede e suas ressalvas.
 
-Use `--dry-run` para imprimir os 26 comandos sem executá-los. Use `--force`
+Use `--dry-run` para imprimir os 26 comandos de A sem executá-los. Use `--force`
 somente para uma reconstrução deliberada: ele é propagado aos produtores que
 o suportam, nunca às validações. A extração de pose exige os pesos do
 YOLO-Pose e se beneficia de GPU; treino e avaliação também se beneficiam de
 GPU. Aquisições de rede falham explicitamente quando indisponíveis.
 
-## Sequência exata
+## Sequência exata do braço A
 
 1. `python scripts/fetch_labels.py`
 2. `python scripts/fetch_labels.py --verify`
@@ -58,6 +58,43 @@ GPU. Aquisições de rede falham explicitamente quando indisponíveis.
 O prefixo real é o interpretador do `uv run` (`sys.executable`), não
 necessariamente a palavra literal `python`. O contador exibido é `[01/26]` a
 `[26/26]`.
+
+## Armas B0, B1, C0 e C1
+
+Com `--dataset le2i`, o orquestrador também aceita `--arm B0`, `B1`, `C0` ou
+`C1`. Somente A aceita `--dataset le2i-cv`; uma combinação incompatível é
+recusada antes de qualquer subprocesso.
+
+Cada arma executa os 22 primeiros passos de preparação, pose e padronização
+listados acima. Depois, executa o sufixo correspondente, sempre com seu
+próprio diretório em `runs/local/le2i/`:
+
+| Arma | Etapas após o passo 22 | Destino local | Total |
+| --- | --- | --- | --- |
+| B0 | `dinov3.extract`: selftest, extract-all, report; `features.standardize_dinov3`: selftest, build, report; `train.b0_fusion`: selftest, train, report; `eval.b0_events`: selftest, evaluate | `b0_fusion/` | 33 |
+| B1 | Extração e padronização DINOv3 de B0; `features.quality_extract`: selftest, extract-all, report; `train.b1_gate`: selftest, train, report; `eval.b1_events`: selftest, evaluate | `b1_adaptive_gate/` | 36 |
+| C0 | `sam3.extract`: selftest, extract-all, report; `features.standardize_sam3`: selftest, build, report; `train.c0_fusion`: selftest, train, report | `c0_fusion/` | 31 |
+| C1 | Extração e padronização SAM 3 de C0; `sam3.quality`: selftest; `train.c1_gate`: selftest, train, report; `eval.c1_events`: selftest, evaluate | `c1_adaptive_gate/` | 34 |
+
+```bash
+uv run python -m gatefall.pipeline run --dataset le2i --arm B0
+uv run python -m gatefall.pipeline run --dataset le2i --arm B1
+uv run python -m gatefall.pipeline run --dataset le2i --arm C0
+uv run python -m gatefall.pipeline run --dataset le2i --arm C1
+```
+
+B0 e B1 exigem os pesos e o runtime locais do DINOv3. B1 extrai também os
+sidecars de `q_pose` e `q_visual`. C0 e C1 exigem o runtime isolado e o
+checkpoint do SAM 3. C1 calcula `q_pose` e `q_sam3` a partir das features de
+pose e dos HDF5 do SAM 3 durante treino e avaliação; o selftest de
+`sam3.quality` verifica a fórmula. C0 termina no relatório de classificação,
+pois não há avaliação final por eventos para essa arma.
+
+Os comandos `report` de classificação recusam um arquivo já existente sem
+`--force`. Portanto, ao repetir um pipeline B0/B1/C0/C1 que já gerou
+`classification_report.json`, use `--force` se quiser substituí-lo. O mesmo
+flag chega apenas aos produtores que o aceitam, inclusive treino, relatório e
+avaliação; as guardas de integridade e isolamento de cada CLI continuam ativas.
 
 ## Artefatos e diagnóstico
 

@@ -9,8 +9,8 @@ generalização](../eval/le2i-cv-generalization.md)); as sub-CLIs de
 `gatefall.train.b0_fusion`, `gatefall.eval.b0_events`,
 `gatefall.features.quality_extract`, `gatefall.train.b1_gate`,
 `gatefall.eval.b1_events`, `gatefall.sam3.extract`, `gatefall.sam3.quality`,
-`gatefall.features.standardize_sam3`, `gatefall.train.c0_fusion` e `gatefall.train.c1_gate` são a
-exceção e aceitam
+`gatefall.features.standardize_sam3`, `gatefall.train.c0_fusion`,
+`gatefall.train.c1_gate` e `gatefall.eval.c1_events` são exceções e aceitam
 somente `--dataset le2i` (ver [features DINOv3](../data/dinov3-features.md)
 e [fundação SAM 3](../data/sam3-foundation.md)). “Dados” indica acesso ao
 dataset real; “GPU/pesos” indica necessidade ou benefício de aceleração e
@@ -20,8 +20,8 @@ pesos. Links apontam para o contrato detalhado.
 
 | Sintaxe | Propósito e pré-requisitos | Entrada → saída; mutação e idempotência | Dados | GPU/pesos | Detalhes |
 | --- | --- | --- | --- | --- | --- |
-| `uv run python -m gatefall.pipeline run [--dataset {le2i,le2i-cv}] [--arm A] [--dry-run] [--force]` | Reproduz todo o braço A; ambiente sincronizado e ZIP preparado | Executa os 26 estágios (27 com `--dataset le2i-cv`, que soma o relatório de generalização) → todos os artefatos locais; muta; rerun preserva saídas válidas; `--force` chega só a produtores compatíveis | Sim, exceto `--dry-run` | Sim nas fases de ML | [Runbook](../runbooks/pipeline-a.md) |
-| `uv run python -m gatefall.pipeline selftest` | Valida ordem, falha, dry-run, force e destino local, inclusive a lista de passos do `le2i-cv` | Entradas sintéticas → stdout; não muta; repetível | Não | Não | [Runbook](../runbooks/pipeline-a.md) |
+| `uv run python -m gatefall.pipeline run [--dataset {le2i,le2i-cv}] [--arm {A,B0,B1,C0,C1}] [--dry-run] [--force]` | Reproduz o braço escolhido; B0/B1/C0/C1 aceitam somente `le2i`; ambiente sincronizado, ZIP preparado e backbones locais exigidos conforme a arma | A: 26 estágios (27 em `le2i-cv`); B0: 33; B1: 36; C0: 31; C1: 34. Todos usam artefatos locais; `--force` chega só aos produtores compatíveis. O `report` de classificação das armas B/C recusa saída existente sem `--force` | Sim, exceto `--dry-run` | Sim nas fases de ML | [Runbook](../runbooks/pipeline-a.md) |
+| `uv run python -m gatefall.pipeline selftest` | Valida comandos e ordem de A, B0, B1, C0, C1 e A em `le2i-cv`, além de combinações rejeitadas, dry-run, fail-fast, force e destino local | Entradas sintéticas → stdout; não muta; repetível | Não | Não | [Runbook](../runbooks/pipeline-a.md) |
 | `uv run python scripts/fetch_labels.py [--protocol {cs,cv}] [--force]` | Baixa o snapshot OmniFall; requer rede | Fonte fixada → `data/labels/omnifall/` (`cs`) ou `data/labels/omnifall_cv/` (`cv`); muta; preserva existentes; `--force` baixa/sobrescreve | Não antes do comando | Não | [OmniFall](../data/omnifall.md) |
 | `uv run python scripts/fetch_labels.py --verify [--protocol {cs,cv}]` | Verifica hashes/proveniência; requer labels baixadas | Labels + `PROVENANCE.json` do protocolo escolhido → stdout; não muta; repetível; sem `--force` | Sim, labels | Não | [OmniFall](../data/omnifall.md) |
 | `uv run python scripts/extract_le2i.py [--zip PATH] [--force]` | Extrai o ZIP obtido manualmente | ZIP → `data/raw/le2i/<ambientes>`; muta; preserva extraídos; `--force` reextrai somente destinos conhecidos | Sim | Não | [Le2i](../data/le2i.md) |

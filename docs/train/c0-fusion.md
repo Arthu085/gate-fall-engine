@@ -127,4 +127,4 @@ cobrem `video_id`, `split` e `K`, não uma reordenação interna de linhas.
 C1 e qualquer gate adaptativo, um `q_visual` específico do SAM 3 (a fórmula
 do DINOv3 não é reutilizada), atenção cruzada, tracking de vídeo do SAM 3,
 SAM 3.1, prompts relacionados a queda, bboxes de pose como prompt, avaliação
-por eventos do C0 e orquestração em `gatefall.pipeline`.
+por eventos do C0.
