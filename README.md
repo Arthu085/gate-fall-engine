@@ -12,9 +12,9 @@ O projeto é organizado em três braços experimentais:
 - **Braço B — YOLO-Pose + DINOv3 + TCN:** extração offline de features
   DINOv3, a arma B0 (fusão por concatenação simples com pose) e a arma B1
   (fusão adaptativa por gate escalar) implementadas.
-- **Braço C — YOLO-Pose + SAM 3 + TCN:** extração offline do descritor de
-  máscara `V_t` do SAM 3, a arma C0 (fusão por concatenação simples) e
-  a arma C1 (gate adaptativo) implementadas; avaliação por eventos de C1 pendente.
+- **Braço C — YOLO-Pose + SAM 3 + TCN:** fundação de extração offline do
+  descritor de máscara `V_t` do SAM 3, armas C0 (fusão por concatenação simples)
+  e C1 (gate adaptativo), e avaliação por eventos e alarmes de C1 implementadas.
 
 Este projeto é **Built with DINOv3**.
 
@@ -200,7 +200,7 @@ B1](docs/train/b1-adaptive-gate.md). A orquestração das armas B em
 
 ### Braço C — YOLO-Pose + SAM 3 + TCN
 
-O braço C combinará informações de pose com representações derivadas do
+O braço C combina informações de pose com representações derivadas do
 **SAM 3**, preservando o mesmo protocolo temporal e estrutura de
 classificação utilizados nos demais braços.
 
@@ -214,7 +214,9 @@ seguida da mesma TCN do braço A) também está implementada: veja
 [Padronização do descritor SAM 3](docs/data/sam3-standardization.md) e
 [Treino — Arma C0](docs/train/c0-fusion.md). A arma C1 também está implementada:
 veja [Treino — Arma C1](docs/train/c1-adaptive-gate.md). A avaliação por
-eventos de C1 ainda está pendente.
+eventos e alarmes de C1 também está implementada e usa o protocolo de alarme
+congelado do braço A: veja [Avaliação por eventos de C1](docs/train/c1-adaptive-gate.md#avaliacao-por-eventos).
+Conforme o escopo experimental, C0 não possui avaliação final por eventos.
 
 ---
 
@@ -242,6 +244,8 @@ A CI do projeto também executa os selftests sintéticos, Pyright e a validaçã
 ## Documentação
 
 A documentação detalhada está organizada por responsabilidade.
+As [referências finais do Le2i](docs/reference/le2i-runs.md) reúnem os
+resultados textuais das armas A, B0, B1, C0 e C1.
 
 ### Arquitetura
 
@@ -276,9 +280,7 @@ braço B.
 - [Padronização do descritor SAM 3](docs/data/sam3-standardization.md)
 - [Treino da arma C0 (fusão pose + SAM 3)](docs/train/c0-fusion.md)
 - [Treino da arma C1 (gate adaptativo com SAM 3)](docs/train/c1-adaptive-gate.md)
-
-Documentação adicional será incluída durante o restante da implementação do
-braço C.
+- [Avaliação por eventos de C1](docs/train/c1-adaptive-gate.md#avaliacao-por-eventos)
 
 Para abrir a documentação localmente:
 
