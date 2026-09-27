@@ -8,9 +8,10 @@ instância, armazenamento e proveniência. Ela **conclui os requisitos
 técnicos do PEND-015** — implementação e validação real da fundação offline
 do SAM 3 (ver [validação manual em hardware real](#validacao-manual-em-hardware-real))
 —, que pode ser fechado quando este PR for mergeado. A fusão C0, que consome
-estes descritores, está em [Treino — Arma C0](../train/c0-fusion.md); C1, um
-`q_visual` específico do SAM, gate, cross-attention e avaliação por eventos
-continuam como trabalho subsequente.
+estes descritores, está em [Treino — Arma C0](../train/c0-fusion.md), e a
+proxy de qualidade específica do SAM 3 (`q_sam3`), em
+[Qualidade SAM 3](sam3-quality.md); C1, gate, cross-attention e avaliação por
+eventos continuam como trabalho subsequente.
 
 ## O que a CI prova e o que foi validado manualmente
 
