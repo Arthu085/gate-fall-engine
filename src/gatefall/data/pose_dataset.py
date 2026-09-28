@@ -34,6 +34,9 @@ class PoseWindowDataset:
     def __len__(self) -> int:
         return len(self._windows)
 
+    def label_at(self, index: int) -> int:
+        return int(self._windows["label"].iloc[index])
+
     def __getitem__(self, index: int) -> tuple[np.ndarray, int, tuple[str, int]]:
         row = self._windows.iloc[index]
         video_id = str(row["video_id"])

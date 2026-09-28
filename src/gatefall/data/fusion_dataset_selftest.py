@@ -7,6 +7,7 @@ fontes e a validação de layout (K e feature_dim) de cada uma.
 
 import sys
 from typing import Callable, cast
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,8 @@ import pandas as pd
 from gatefall.config import WINDOW_FRAMES
 from gatefall.data.fusion_dataset import FusionWindowDataset
 from gatefall.data.windowing import build_window_index, window_frame_indices
+from gatefall.train.b0_engine import _collect_labels as collect_b0_labels
+from gatefall.train.c0_engine import _collect_labels as collect_c0_labels
 
 _POSE_DIM = 134
 _VISUAL_DIM = 1536
@@ -276,6 +279,29 @@ def check_sam3_visual_dim_shares_frame_indices_and_rejects_dinov3_width() -> boo
     )
 
 
+def check_labels_match_items_without_materializing_windows() -> bool:
+    n_frames_by_video = {"video_a": _N_FRAMES_A, "video_b": _N_FRAMES_B}
+    frames = _make_frames(n_frames_by_video)
+    frames["label"] = frames["frame_index"] % 3
+    dataset = FusionWindowDataset(
+        frames,
+        split="train",
+        stride=2,
+        pose_loader=_synthetic_pose_loader(n_frames_by_video),
+        visual_loader=_synthetic_visual_loader(n_frames_by_video),
+    )
+    item_labels = np.array([dataset[i][2] for i in range(len(dataset))], dtype=np.int64)
+    with patch.object(dataset, "_features_for_video", side_effect=AssertionError):
+        b0_labels = collect_b0_labels(dataset)
+        c0_labels = collect_c0_labels(dataset)
+    return _check(
+        "rótulos B0/C0 seguem __getitem__ sem materializar janelas",
+        bool(np.array_equal(b0_labels, item_labels))
+        and bool(np.array_equal(c0_labels, item_labels))
+        and all(dataset.label_at(i) == item_labels[i] for i in range(len(dataset))),
+    )
+
+
 def run_fusion_dataset_selftest() -> bool:
     checks = [
         check_pose_and_visual_windows_share_frame_indices(),
@@ -284,6 +310,7 @@ def run_fusion_dataset_selftest() -> bool:
         check_wrong_pose_feature_dim_raises(),
         check_both_sources_share_same_wrong_k_raises(),
         check_sam3_visual_dim_shares_frame_indices_and_rejects_dinov3_width(),
+        check_labels_match_items_without_materializing_windows(),
     ]
     ok = all(checks)
     if not ok:

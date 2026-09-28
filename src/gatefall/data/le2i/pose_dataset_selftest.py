@@ -12,6 +12,7 @@ import pandas as pd
 from gatefall.config import IGNORE_LABEL, WINDOW_FRAMES
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
+from gatefall.train.engine import _collect_labels
 
 _D = 3
 _N_FRAMES_A = 30
@@ -173,12 +174,36 @@ def check_len_matches_usable_window_count() -> bool:
     return _check("len(dataset) == contagem de janelas úteis", len(dataset) == len(windows))
 
 
+def check_labels_match_items_without_loading_features() -> bool:
+    frames = _make_frames()
+    frames["label"] = frames["frame_index"] % 3
+    loads: list[str] = []
+
+    def loader(video_id: str) -> np.ndarray:
+        loads.append(video_id)
+        return _synthetic_feature_loader(
+            {"video_a": _N_FRAMES_A, "video_b": _N_FRAMES_B}
+        )(video_id)
+
+    dataset = PoseWindowDataset(frames, split="train", stride=2, feature_loader=loader)
+    direct = _collect_labels(dataset)
+    untouched = not loads and not dataset._feature_cache
+    item_labels = np.array([dataset[i][1] for i in range(len(dataset))], dtype=np.int64)
+    return _check(
+        "rótulos diretos seguem __getitem__ na mesma ordem sem carregar features",
+        untouched
+        and bool(np.array_equal(direct, item_labels))
+        and all(dataset.label_at(i) == item_labels[i] for i in range(len(dataset))),
+    )
+
+
 def run_pose_dataset_selftest() -> None:
     checks = [
         check_unpadded_window_matches_source_rows(),
         check_padded_window_repeats_leading_row(),
         check_ignore_label_dropped_only_at_window_end(),
         check_len_matches_usable_window_count(),
+        check_labels_match_items_without_loading_features(),
     ]
     if not all(checks):
         print("\npose dataset selftest FALHOU", file=sys.stderr)

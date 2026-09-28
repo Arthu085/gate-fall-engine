@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 import numpy as np
 import torch
@@ -72,9 +72,13 @@ class _StandardizedGatedFusionTorchDataset(Dataset):
 
 def _collect_labels(source: _GatedFusionWindowSource) -> np.ndarray:
     labels = np.empty(len(source), dtype=np.int64)
+    label_at = getattr(source, "label_at", None)
     for i in range(len(source)):
-        _, _, _, label, _diag = source[i]
-        labels[i] = label
+        if callable(label_at):
+            labels[i] = cast(int, label_at(i))
+        else:
+            _, _, _, label, _diag = source[i]
+            labels[i] = label
     return labels
 
 
