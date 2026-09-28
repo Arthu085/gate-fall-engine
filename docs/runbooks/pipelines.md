@@ -17,7 +17,7 @@ comportamento idempotente de cada produtor; validações rodam novamente.
 cross-environment, em artefatos isolados (`data/labels/omnifall_cv/`,
 `data/processed/le2i_cv/`, `runs/local/le2i_cv/baseline_a/`) e com uma etapa
 27 adicional que gera o relatório de generalização. Veja [Generalização entre
-ambientes (Le2i-CV)](../eval/le2i-cv-generalization.md) para o que esse
+ambientes (Le2i-CV)](../analysis/le2i-cv-generalization.md) para o que esse
 protocolo mede e suas ressalvas.
 
 Use `--dry-run` para imprimir os 26 comandos de A sem executá-los. Use `--force`
@@ -59,17 +59,17 @@ O prefixo real é o interpretador do `uv run` (`sys.executable`), não
 necessariamente a palavra literal `python`. O contador exibido é `[01/26]` a
 `[26/26]`.
 
-## Armas B0, B1, C0 e C1
+## Braços B0, B1, C0 e C1
 
 Com `--dataset le2i`, o orquestrador também aceita `--arm B0`, `B1`, `C0` ou
 `C1`. Somente A aceita `--dataset le2i-cv`; uma combinação incompatível é
 recusada antes de qualquer subprocesso.
 
-Cada arma executa os 22 primeiros passos de preparação, pose e padronização
+Cada braço executa os 22 primeiros passos de preparação, pose e padronização
 listados acima. Depois, executa o sufixo correspondente, sempre com seu
 próprio diretório em `runs/local/le2i/`:
 
-| Arma | Etapas após o passo 22 | Destino local | Total |
+| Braço | Etapas após o passo 22 | Destino local | Total |
 | --- | --- | --- | --- |
 | B0 | `dinov3.extract`: selftest, extract-all, report; `features.standardize_dinov3`: selftest, build, report; `train.baseline_b0`: selftest, train, report; `eval.b0_events`: selftest, evaluate | `b0_fusion/` | 33 |
 | B1 | Extração e padronização DINOv3 de B0; `features.quality_extract`: selftest, extract-all, report; `train.baseline_b1`: selftest, train, report; `eval.b1_events`: selftest, evaluate | `b1_adaptive_gate/` | 36 |
@@ -88,7 +88,7 @@ sidecars de `q_pose` e `q_visual`. C0 e C1 exigem o runtime isolado e o
 checkpoint do SAM 3. C1 calcula `q_pose` e `q_sam3` a partir das features de
 pose e dos HDF5 do SAM 3 durante treino e avaliação; o selftest de
 `sam3.quality` verifica a fórmula. C0 termina no relatório de classificação,
-pois não há avaliação final por eventos para essa arma.
+pois não há avaliação final por eventos para esse braço.
 
 Os comandos `report` de classificação recusam um arquivo já existente sem
 `--force`. Portanto, ao repetir um pipeline B0/B1/C0/C1 que já gerou

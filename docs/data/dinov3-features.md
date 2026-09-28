@@ -6,16 +6,16 @@ braço B a partir do backbone congelado **DINOv3**. A CLI fina
 `verify-determinism`, `verify-frame-alignment`, `selftest`) opera sobre a
 mesma grade temporal
 (`frames.parquet`) e o mesmo manifesto usados pelo braço A — nenhuma janela
-ou split é recalculado aqui. A padronização dessas features e a arma B0
+ou split é recalculado aqui. A padronização dessas features e o braço B0
 (fusão por concatenação simples com pose, seguida da mesma TCN) já estão
 implementadas — ver [Padronização de features
-DINOv3](dinov3-standardization.md) e [Treino — Arma
-B0](../train/b0-fusion.md).
+DINOv3](dinov3-standardization.md) e [Treino — Braço
+B0](../train/baseline-b0.md).
 
 A [qualidade visual DINOv3](dinov3-quality.md) documenta a proxy causal
 `q_visual`, calculada no quadro RGB redimensionado antes da normalização, e sua
-validação contra degradações controladas. A arma
-[B1](../train/b1-adaptive-gate.md) usa essa proxy na fusão adaptativa; ela não
+validação contra degradações controladas. O braço
+[B1](../train/baseline-b1.md) usa essa proxy na fusão adaptativa; ela não
 é uma probabilidade calibrada nem parte do vetor de features persistido nesta
 etapa.
 
@@ -138,7 +138,7 @@ sobrescreveria os `.h5` do `cs` gravando `env`, `split` e `subject` vindos do
 manifesto `cv`, e o `report` compararia as contagens de quadros do `cv` contra
 os totais por split do `cs`. A contaminação seria silenciosa. O braço DINOv3,
 portanto, não participa do [relatório de
-generalização](../eval/le2i-cv-generalization.md).
+generalização](../analysis/le2i-cv-generalization.md).
 
 ## Como executar
 

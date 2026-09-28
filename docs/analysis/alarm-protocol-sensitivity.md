@@ -1,9 +1,9 @@
-# Avaliação — Sensibilidade do protocolo de alarme (análise pós-hoc)
+# Análise — Sensibilidade do protocolo de alarme (análise pós-hoc)
 
 `src/gatefall/eval/analysis/alarm_protocol_sensitivity.py` é uma ferramenta de
 diagnóstico independente de estágio: varre `trigger_consecutive` e
-`refractory_period_s` em torno do protocolo de alarme congelado da arma A
-(ver [Avaliação — Braço A](baseline-a-events.md)) e recomputa as métricas de
+`refractory_period_s` em torno do protocolo de alarme congelado do braço A
+(ver [Avaliação — Braço A](../eval/baseline-a-events.md)) e recomputa as métricas de
 evento para cada combinação, reusando `split_event_report`. Não faz parte
 do pipeline padrão nem do lifecycle de
 `gatefall.eval.baseline_a` (lock/journal); é estritamente somente

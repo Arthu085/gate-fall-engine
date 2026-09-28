@@ -1,10 +1,10 @@
-# Avaliação — Sumário multi-seed
+# Análise — Sumário multi-seed
 
-`src/gatefall/eval/analysis/multiseed_summary.py` agrega treinos independentes de uma
-arma selecionada entre A, B0, B1, C0 e C1 no protocolo `le2i`, produzindo
+`src/gatefall/eval/analysis/multiseed_summary.py` agrega treinos independentes de um
+braço selecionado entre A, B0, B1, C0 e C1 no protocolo `le2i`, produzindo
 estatísticas descritivas (n/mean/desvio-padrão amostral/min/max). A, B0, B1
 e C1 agregam classificação e evento; C0 agrega apenas classificação, pois
-não há avaliação de evento contratada para essa arma. É somente leitura:
+não há avaliação de evento contratada para esse braço. É somente leitura:
 nenhum artefato dos runs de entrada é modificado.
 
 ## Fronteira com o bootstrap agrupado por sujeito
@@ -26,9 +26,9 @@ Nenhum dos dois seleciona, ranqueia ou promove nenhum run ou seed.
 
 ## Contrato de configuração
 
-Todos os `--run-dir` devem pertencer à mesma arma e conter
+Todos os `--run-dir` devem pertencer ao mesmo braço e conter
 `config.yaml`/`metrics.json`/`checkpoint.pt` íntegros. O validador de treino
-da própria arma verifica configuração, métricas, hashes e checkpoint. A,
+do próprio braço verifica configuração, métricas, hashes e checkpoint. A,
 B0, B1 e C1 exigem também `alarm_protocol.yaml` igual ao protocolo
 congelado e `event_metrics.json` validado com hashes de checkpoint,
 métricas de treino e protocolo. C0 não exige nem agrega esses arquivos.
@@ -38,8 +38,8 @@ A ferramenta calcula um fingerprint sha256 da configuração de cada run com
 `trainable_param_count`, campo de auditoria já permitido pelos respectivos
 validadores. Todos os demais campos devem ser idênticos. Também rejeita menos
 de duas seeds, `--run-dir` duplicado (mesmo path resolvido), seeds duplicadas
-entre runs distintos e mistura de armas. `le2i-cv` permanece fora do escopo
-para as armas de fusão.
+entre runs distintos e mistura de braços. `le2i-cv` permanece fora do escopo
+para os braços de fusão.
 
 ## Como executar
 
@@ -238,16 +238,16 @@ estão em `runs/local/le2i/baseline_a_multiseed/multiseed_summary.json` e
 ## Resultado da execução real — B0, B1, C0 e C1
 
 Os sumários locais de B0, B1, C0 e C1 registram cinco treinos
-independentes por arma, com seeds 42–46 e `n_seeds=5`. A execução real
+independentes por braço, com seeds 42–46 e `n_seeds=5`. A execução real
 foi feita pelo usuário fora da CI; os `selftest` da CI usam apenas runs
 sintéticos. Como `runs/local/**` não é versionado, os fingerprints, hashes
 e agregados abaixo preservam a evidência textual desta execução.
 
-Em cada arma, o checkpoint SHA-256 da seed 42 e suas métricas de
+Em cada braço, o checkpoint SHA-256 da seed 42 e suas métricas de
 classificação nos splits `train`, `val` e `test` conferem com
 `runs/reference/le2i/<arma>/metrics.json` e
 `classification_report.json`. A seed 42 permanece a referência canônica
-de todas as armas; nenhuma referência versionada foi substituída.
+de todos os braços; nenhuma referência versionada foi substituída.
 
 A variação entre seeds descreve inicialização e otimização sob a mesma
 receita. Ela não substitui a incerteza amostral do bootstrap agrupado por
@@ -257,7 +257,7 @@ usado para ajustar a receita ou selecionar modelos.
 Nesta execução de cinco seeds, B1 tem média de `macro_f1_restricted` maior
 que B0 na validação e no teste. C1 tem média maior que C0 na validação, mas
 menor no teste; a comparação C0/C1 é mista entre splits. Essas observações
-descritivas não alteram a referência canônica nem determinam seleção de arma.
+descritivas não alteram a referência canônica nem determinam seleção de braço.
 
 ### B0
 
@@ -360,7 +360,7 @@ Fingerprint SHA-256 da configuração normalizada: `7ce58d7ea967633a340396757acf
 | Teste | 5 | 0,6391 | 0,0071 | 0,6314 | 0,6461 |
 
 C0 tem apenas classificação; não há avaliação final de eventos
-contratada para essa arma.
+contratada para esse braço.
 
 Os valores completos por seed e agregados estão em
 `runs/local/le2i/c0_fusion_multiseed/multiseed_summary.json` e `.csv`.

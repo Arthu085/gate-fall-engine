@@ -1,6 +1,6 @@
-# Treino — Arma B0 (fusão pose + DINOv3 por concatenação)
+# Treino — Braço B0 (fusão pose + DINOv3 por concatenação)
 
-`src/gatefall/train/baseline_b0/` implementa a arma B0 do braço B: pose (134-d) e
+`src/gatefall/train/baseline_b0/` implementa o braço B0 do braço B: pose (134-d) e
 DINOv3 (1536-d) projetados separadamente e fundidos por concatenação
 simples, antes da mesma TCN causal dilatada do [Braço A](baseline-a.md).
 `src/gatefall/data/fusion_dataset.py` (`FusionWindowDataset`) devolve, por
@@ -86,7 +86,7 @@ igual, ancestral ou descendente do `run_dir` canônico do braço A — fecha o
 caminho onde um `--force` de B0 poderia ter sobrescrito ou destruído o run
 de referência do braço A — e `validate_local_run_dir(run_dir, dataset_name)`
 (a mesma guarda de isolamento entre protocolos do braço A, ver
-[Generalização (le2i-cv)](../eval/le2i-cv-generalization.md)) rejeita
+[Generalização (le2i-cv)](../analysis/le2i-cv-generalization.md)) rejeita
 qualquer `--run-dir` sob a árvore de runs local do `le2i-cv`. Cada guarda
 cobre o que a outra não alcança: a guarda compartilhada não detecta o
 próprio diretório do braço A (mesma raiz de protocolo), e a guarda do braço
@@ -131,33 +131,7 @@ B0 já treinado, sem alterar nenhum artefato existente — mesmas guardas de
 classificação: `report`"](baseline-a.md#diagnostico-de-classificacao-report)
 no braço A.
 
-### Avaliação por eventos
-
-```bash
-uv run python -m gatefall.eval.baseline_b0 selftest
-```
-
-Roda checagens sintéticas da inferência fundida, das guardas de protocolo e
-do lifecycle dos artefatos, sem acessar o dataset real nem um checkpoint.
-
-```bash
-uv run python -m gatefall.eval.baseline_b0 evaluate --dataset le2i \
-  --run-dir runs/local/le2i/b0_fusion
-```
-
-Avalia `val` e `test` de um run B0 completo usando pose e DINOv3 já
-extraídos, as duas estatísticas de padronização e o checkpoint treinado. Sem
-`--run-dir`, usa `runs/local/le2i/b0_fusion/`. A CLI aceita somente Le2i CS,
-rejeita o run do braço A e não oferece suporte a `le2i-cv`.
-
-A avaliação reutiliza `BASELINE_A_ALARM_PROTOCOL`, as mesmas métricas por
-evento e por janela e o mesmo lifecycle atômico com lock, journal, staging e
-hashes descrito em [Avaliação — Braço A](../eval/baseline-a-events.md). Ela
-publica `alarm_protocol.yaml` e `event_metrics.json` no próprio run B0. Sem
-`--force`, preserva um par de saídas íntegro e falha diante de artefatos
-parciais ou inconsistentes; com `--force`, reconstrói e substitui o par
-somente após validar os novos arquivos, com rollback em caso de falha. A
-operação não retreina nem retuna o modelo ou o protocolo.
+A avaliação por eventos está em [Avaliação — Braço B0](../eval/baseline-b0-events.md).
 
 ## Limitação conhecida: sem verificação de identidade de quadro
 
@@ -181,6 +155,6 @@ B0 implementa apenas fusão por concatenação simples. Não fazem parte desta
 entrega: gating por confiança entre pose e visual (`q_visual`), braço C
 (SAM 3), atenção cruzada entre as duas fontes e suporte a `le2i-cv` para B0.
 
-A ponderação adaptativa entre as duas fontes é a arma irmã B1, documentada em
-[Treino — Arma B1 (fusão adaptativa por gate)](b1-adaptive-gate.md); B0
+A ponderação adaptativa entre as duas fontes está no braço irmão B1, documentado em
+[Treino — Braço B1 (fusão adaptativa por gate)](baseline-b1.md); B0
 permanece inalterada.

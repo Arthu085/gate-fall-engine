@@ -29,11 +29,11 @@ avaliação por eventos de ambas (`gatefall.eval.baseline_b0` e
 `gatefall.eval.baseline_b1`). Do braço C estão implementadas a fundação de
 extração offline do descritor `V_t` do SAM 3 (ver [Fundação SAM
 3](../data/sam3-foundation.md)) e a fusão C0 (concatenação pose+`V_t` seguida
-da mesma TCN, `gatefall.train.baseline_c0`, ver [Treino — Arma
-C0](../train/c0-fusion.md)) e a fusão adaptativa C1 (gate por quadro,
-`gatefall.train.baseline_c1`, ver [Treino — Arma C1](../train/c1-adaptive-gate.md)).
+da mesma TCN, `gatefall.train.baseline_c0`, ver [Treino — Braço
+C0](../train/baseline-c0.md)) e a fusão adaptativa C1 (gate por quadro,
+`gatefall.train.baseline_c1`, ver [Treino — Braço C1](../train/baseline-c1.md)).
 A avaliação por eventos de C1 usa o protocolo de alarme congelado do braço A
-(`gatefall.eval.baseline_c1`; ver [Treino — Arma C1](../train/c1-adaptive-gate.md#avaliacao-por-eventos)).
+(`gatefall.eval.baseline_c1`; ver [Avaliação — Braço C1](../eval/baseline-c1-events.md)).
 
 ## Licenças
 

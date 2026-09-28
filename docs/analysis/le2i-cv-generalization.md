@@ -1,4 +1,4 @@
-# Generalização entre ambientes (Le2i-CV)
+# Análise — Generalização entre ambientes (Le2i-CV)
 
 Esta página documenta o protocolo Le2i `cv` (cross-view/cross-environment) e o
 run de referência do braço A treinado e avaliado sob ele. Ela relata fatos

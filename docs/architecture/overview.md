@@ -52,4 +52,4 @@ padronização, TCN ou avaliação.
 - Execuções reproduzidas ficam em `runs/local/<dataset>/` e são ignoradas.
 
 O orquestrador chama as CLIs existentes como subprocessos independentes; não
-reimplementa ciência. Consulte o [runbook](../runbooks/pipeline-a.md).
+reimplementa ciência. Consulte o [runbook](../runbooks/pipelines.md).

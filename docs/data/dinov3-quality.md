@@ -2,8 +2,8 @@
 
 `gatefall.dinov3.quality` calcula `q_visual`, uma proxy operacional de qualidade
 visual por quadro. O índice é causal, determinístico e limitado a `[0, 1]`, mas
-**não é uma confiança nem uma probabilidade calibrada**. A arma
-[B1](../train/b1-adaptive-gate.md) usa `q_visual` no gate adaptativo. Esta
+**não é uma confiança nem uma probabilidade calibrada**. O braço
+[B1](../train/baseline-b1.md) usa `q_visual` no gate adaptativo. Esta
 página documenta o cálculo e a validação da proxy, separados do treino de B1.
 
 ## Entrada e fórmula

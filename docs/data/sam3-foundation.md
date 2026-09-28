@@ -7,11 +7,11 @@ etapa cobre a fundação de dados: descritores de máscara, seleção de
 instância, armazenamento e proveniência. A implementação integrada e a
 [validação manual em hardware real](#validacao-manual-em-hardware-real)
 encerraram o PEND-015. A fusão C0, que consome
-estes descritores, está em [Treino — Arma C0](../train/c0-fusion.md), e a
+estes descritores, está em [Treino — Braço C0](../train/baseline-c0.md), e a
 proxy de qualidade específica do SAM 3 (`q_sam3`), em
-[Qualidade SAM 3](sam3-quality.md). A fusão C1 está em [Treino — Arma
-C1](../train/c1-adaptive-gate.md), que também documenta sua avaliação por
-eventos. Atenção cruzada está fora do escopo experimental mínimo, salvo
+[Qualidade SAM 3](sam3-quality.md). A fusão C1 está em [Treino — Braço
+C1](../train/baseline-c1.md), e sua avaliação por eventos está em
+[Avaliação — Braço C1](../eval/baseline-c1-events.md). Atenção cruzada está fora do escopo experimental mínimo, salvo
 reabertura explícita desse escopo.
 
 ## O que a CI prova e o que foi validado manualmente

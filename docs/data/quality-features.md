@@ -1,8 +1,8 @@
 # Features de qualidade (`q_pose`, `q_visual`)
 
 `gatefall.features.quality_extract` persiste offline, por vídeo, o par de
-proxies operacionais de qualidade por quadro consumido pelo gate adaptativo da
-[arma B1](../train/b1-adaptive-gate.md). Nenhuma fórmula nova é introduzida
+proxies operacionais de qualidade por quadro consumido pelo gate adaptativo do
+[braço B1](../train/baseline-b1.md). Nenhuma fórmula nova é introduzida
 aqui: `q_pose` vem de [`compute_pose_quality`](pose-quality.md) e `q_visual`
 vem de [`compute_visual_quality`](dinov3-quality.md), aplicado exatamente sobre
 o mesmo pré-processamento de quadro da extração DINOv3

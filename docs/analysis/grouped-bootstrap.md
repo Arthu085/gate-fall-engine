@@ -1,9 +1,9 @@
-# Avaliação — Bootstrap agrupado por sujeito (intervalo de confiança)
+# Análise — Bootstrap agrupado por sujeito (intervalo de confiança)
 
 `src/gatefall/eval/analysis/grouped_bootstrap.py` é uma ferramenta de diagnóstico
 independente de estágio: produz intervalos de confiança percentil por
 bootstrap para as métricas de classificação e de evento congeladas do braço A
-(ver [Avaliação — Braço A](baseline-a-events.md)), reusando uma única
+(ver [Avaliação — Braço A](../eval/baseline-a-events.md)), reusando uma única
 passada de inferência local por split. Não faz parte do pipeline padrão nem
 do lifecycle de `gatefall.eval.baseline_a` (lock/journal); é
 estritamente somente leitura contra `checkpoint.pt`/`config.yaml`/
