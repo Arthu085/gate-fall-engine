@@ -17,7 +17,7 @@ p-valor, nem seleção/ranking/promoção de modelo ou protocolo**.
 `BASELINE_A_ALARM_PROTOCOL` (`trigger_consecutive=3`,
 `refractory_period_s=5.0`) permanece a única configuração congelada do braço
 A; esta ferramenta apenas expõe incerteza em torno das métricas já
-congeladas, calculadas exatamente como em `baseline_a.py`/
+congeladas, calculadas exatamente como em `baseline_a/cli.py`/
 `split_event_report`. Os intervalos do split de teste aqui produzidos são
 estritamente descritivos e **não foram usados para nenhum ajuste ou
 seleção**.

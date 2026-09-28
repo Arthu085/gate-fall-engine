@@ -28,15 +28,15 @@ from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, feature_names
 from gatefall.runs import default_run_dir_for_arm
 from gatefall.sam3.descriptors import CHANNEL_NAMES, V_T_DIM
-from gatefall.train.c0_config import C0_FUSION_CONFIG
-from gatefall.train.c1_artifacts import (
+from gatefall.train.baseline_c0.config import C0_FUSION_CONFIG
+from gatefall.train.baseline_c1.artifacts import (
     load_compatible_c1_checkpoint,
     validate_c1_training_run,
 )
-from gatefall.train.c1_config import C1_ADAPTIVE_GATE_CONFIG
-from gatefall.train.c1_model import C1AdaptiveGateClassifier
-from gatefall.train.c1_run import comparison_run_dirs
-from gatefall.train.b1_model import B1AdaptiveGateClassifier
+from gatefall.train.baseline_c1.config import C1_ADAPTIVE_GATE_CONFIG
+from gatefall.train.baseline_c1.model import C1AdaptiveGateClassifier
+from gatefall.train.baseline_c1.run import comparison_run_dirs
+from gatefall.train.baseline_b1.model import B1AdaptiveGateClassifier
 
 
 def _check(name: str, condition: bool) -> bool:

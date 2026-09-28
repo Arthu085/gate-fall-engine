@@ -17,7 +17,7 @@ from gatefall.config import WINDOW_FRAMES
 from gatefall.data.gated_fusion_dataset import GatedFusionWindowDataset
 from gatefall.data.windowing import build_window_index, window_frame_indices
 from gatefall.features.quality_storage import QUALITY_CHANNELS
-from gatefall.train.b1_engine import _collect_labels
+from gatefall.train.baseline_b1.engine import _collect_labels
 
 _POSE_DIM = 134
 _VISUAL_DIM = 1536

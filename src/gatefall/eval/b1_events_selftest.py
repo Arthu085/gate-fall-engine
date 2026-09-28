@@ -37,12 +37,12 @@ from gatefall.features.standardization import (
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, feature_names
 from gatefall.runs import default_run_dir, default_run_dir_for_arm
-from gatefall.train.b0_config import B0_FUSION_CONFIG
-from gatefall.train.b1_artifacts import validate_b1_training_run
-from gatefall.train.b1_config import B1_ADAPTIVE_GATE_CONFIG
-from gatefall.train.b1_model import GATE_INPUT_DIM
-from gatefall.train.b1_run import repository_anchored_run_dir
-from gatefall.train.config import BASELINE_A_CONFIG
+from gatefall.train.baseline_b0.config import B0_FUSION_CONFIG
+from gatefall.train.baseline_b1.artifacts import validate_b1_training_run
+from gatefall.train.baseline_b1.config import B1_ADAPTIVE_GATE_CONFIG
+from gatefall.train.baseline_b1.model import GATE_INPUT_DIM
+from gatefall.train.baseline_b1.run import repository_anchored_run_dir
+from gatefall.train.baseline_a.config import BASELINE_A_CONFIG
 
 _VISUAL_DIM = 1536
 _QUALITY_VALUES = (0.25, 0.75)

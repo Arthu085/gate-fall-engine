@@ -22,10 +22,10 @@ from gatefall.eval.alarm_protocol import (
 )
 from gatefall.hashing import sha256_file
 from gatefall.runs import REFERENCE_RUN_ROOT, validate_local_run_dir
-from gatefall.train.artifacts import validate_training_run
-from gatefall.train.config import BASELINE_A_CONFIG, save_config
-from gatefall.train.metrics import RESTRICTED_CLASSES
-from gatefall.train.tcn import TCNClassifier
+from gatefall.train.baseline_a.artifacts import validate_training_run
+from gatefall.train.baseline_a.config import BASELINE_A_CONFIG, save_config
+from gatefall.train.shared.metrics import RESTRICTED_CLASSES
+from gatefall.train.shared.tcn import TCNClassifier
 
 
 def _check(name: str, condition: bool) -> bool:

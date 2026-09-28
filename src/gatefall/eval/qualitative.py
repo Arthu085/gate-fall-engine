@@ -54,9 +54,9 @@ from gatefall.pose.kinematics import (
 )
 from gatefall.pose.loading import PoseArrays, load_pose
 from gatefall.runs import validate_local_run_dir
-from gatefall.train.artifacts import load_compatible_checkpoint, validate_training_run
-from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig
-from gatefall.train.tcn import TCNClassifier
+from gatefall.train.baseline_a.artifacts import load_compatible_checkpoint, validate_training_run
+from gatefall.train.baseline_a.config import BASELINE_A_CONFIG, TrainConfig
+from gatefall.train.shared.tcn import TCNClassifier
 
 RUN_DIR = Path("runs/local/le2i/baseline_a")
 

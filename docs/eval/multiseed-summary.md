@@ -72,7 +72,7 @@ mensagem de skip nomeia exatamente o(s) arquivo(s) encontrado(s).
   (`{fall, fallen}`) — a mesma constante e a mesma lógica de projeção que
   `gatefall.train.baseline_a` e `grouped_bootstrap` usam a partir dos
   arrays de predição, agora expressa em termos da matriz de confusão
-  (`gatefall.train.metrics.binary_projection_from_confusion_matrix`).
+  (`gatefall.train.shared.metrics.binary_projection_from_confusion_matrix`).
 - Evento (`events`, somente A/B0/B1/C1): todo campo escalar de
   `event_metrics.json[splits][split]` (`sensitivity`, `fall_sensitivity`,
   `fall_or_fallen_sensitivity`, `false_alarms_per_hour`, `n_false_alarms`,

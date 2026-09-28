@@ -48,13 +48,13 @@ from gatefall.features.standardize_dinov3 import DINOV3_STATS_PATH
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import build_pose_features
 from gatefall.runs import default_run_dir_for_arm, validate_local_run_dir
-from gatefall.train.b0_artifacts import (
+from gatefall.train.baseline_b0.artifacts import (
     load_compatible_b0_checkpoint,
     validate_b0_training_run,
 )
-from gatefall.train.b0_config import B0_FUSION_CONFIG, B0TrainConfig
-from gatefall.train.b0_model import B0FusionClassifier
-from gatefall.train.b0_run import guard_not_arm_a_run_dir, resolve_b0_config
+from gatefall.train.baseline_b0.config import B0_FUSION_CONFIG, B0TrainConfig
+from gatefall.train.baseline_b0.model import B0FusionClassifier
+from gatefall.train.baseline_b0.run import guard_not_arm_a_run_dir, resolve_b0_config
 
 ARM_NAME = "b0_fusion"
 

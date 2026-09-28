@@ -41,7 +41,7 @@ Cada arquivo de estatísticas persiste `frames_hash`, o hash SHA-256 de
 `frames.parquet` no momento do `build`. `validate_stats_freshness` compara
 esse hash com o do arquivo de frames atual e aborta com `ValueError` se
 divergirem — evita treinar B0 com estatísticas calculadas sobre uma grade
-temporal que já mudou. `gatefall.train.b0_fusion` chama essa validação antes
+temporal que já mudou. `gatefall.train.baseline_b0` chama essa validação antes
 de montar `train`/`val`/`test`, tanto em `train` quanto em `report`.
 
 ## Estrutura do JSON

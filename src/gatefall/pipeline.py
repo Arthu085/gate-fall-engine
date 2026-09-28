@@ -13,10 +13,10 @@ from gatefall.runs import default_run_dir, default_run_dir_for_arm
 
 SUPPORTED_ARMS = ("A", "B0", "B1", "C0", "C1")
 ARM_MODULES = {
-    "B0": ("gatefall.train.b0_fusion", "b0_fusion", "gatefall.eval.b0_events"),
-    "B1": ("gatefall.train.b1_gate", "b1_adaptive_gate", "gatefall.eval.b1_events"),
-    "C0": ("gatefall.train.c0_fusion", "c0_fusion", None),
-    "C1": ("gatefall.train.c1_gate", "c1_adaptive_gate", "gatefall.eval.c1_events"),
+    "B0": ("gatefall.train.baseline_b0", "b0_fusion", "gatefall.eval.b0_events"),
+    "B1": ("gatefall.train.baseline_b1", "b1_adaptive_gate", "gatefall.eval.b1_events"),
+    "C0": ("gatefall.train.baseline_c0", "c0_fusion", None),
+    "C1": ("gatefall.train.baseline_c1", "c1_adaptive_gate", "gatefall.eval.c1_events"),
 }
 
 

@@ -51,14 +51,14 @@ from gatefall.features.standardization import (
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import build_pose_features
 from gatefall.runs import validate_local_run_dir
-from gatefall.train.artifacts import load_compatible_checkpoint, validate_training_run
-from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig
-from gatefall.train.metrics import (
+from gatefall.train.baseline_a.artifacts import load_compatible_checkpoint, validate_training_run
+from gatefall.train.baseline_a.config import BASELINE_A_CONFIG, TrainConfig
+from gatefall.train.shared.metrics import (
     BINARY_POSITIVE_LABELS,
     binary_projection_summary,
     restricted_macro_f1,
 )
-from gatefall.train.tcn import TCNClassifier
+from gatefall.train.shared.tcn import TCNClassifier
 
 RUN_DIR = Path("runs/local/le2i/baseline_a")
 GROUPED_BOOTSTRAP_JSON_FILE = "grouped_bootstrap.json"

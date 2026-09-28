@@ -24,7 +24,7 @@ from gatefall.features.standardization import (
 )
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, feature_names
 from gatefall.runs import default_run_dir, default_run_dir_for_arm
-from gatefall.train.b0_config import B0_FUSION_CONFIG
+from gatefall.train.baseline_b0.config import B0_FUSION_CONFIG
 
 _VISUAL_DIM = 1536
 

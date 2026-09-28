@@ -28,9 +28,12 @@ from gatefall.eval import (
 )
 from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
 from gatefall.runs import default_run_dir, validate_local_run_dir
-from gatefall.train import b0_fusion, b1_gate, c0_fusion, c1_gate
-from gatefall.train.baseline_a import _resolve_config
-from gatefall.train.config import BASELINE_A_CONFIG
+from gatefall.train.baseline_b0 import cli as baseline_b0
+from gatefall.train.baseline_b1 import cli as baseline_b1
+from gatefall.train.baseline_c0 import cli as baseline_c0
+from gatefall.train.baseline_c1 import cli as baseline_c1
+from gatefall.train.baseline_a.cli import _resolve_config
+from gatefall.train.baseline_a.config import BASELINE_A_CONFIG
 
 
 def _check(name: str, condition: bool) -> bool:
@@ -225,10 +228,10 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
     with tempfile.TemporaryDirectory() as tmp:
         b0_report_output = Path(tmp) / "b0_report.json"
         b0_train_rejected = _raises_cross_protocol_guard(
-            lambda: b0_fusion.run_train(force=False, dataset_name="le2i", run_dir=cv_run_dir)
+            lambda: baseline_b0.run_train(force=False, dataset_name="le2i", run_dir=cv_run_dir)
         )
         b0_report_rejected = _raises_cross_protocol_guard(
-            lambda: b0_fusion.run_report(
+            lambda: baseline_b0.run_report(
                 dataset_name="le2i",
                 run_dir=cv_run_dir,
                 output_path=b0_report_output,
@@ -237,10 +240,10 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         )
         b1_report_output = Path(tmp) / "b1_report.json"
         b1_train_rejected = _raises_cross_protocol_guard(
-            lambda: b1_gate.run_train(force=False, dataset_name="le2i", run_dir=cv_run_dir)
+            lambda: baseline_b1.run_train(force=False, dataset_name="le2i", run_dir=cv_run_dir)
         )
         b1_report_rejected = _raises_cross_protocol_guard(
-            lambda: b1_gate.run_report(
+            lambda: baseline_b1.run_report(
                 dataset_name="le2i",
                 run_dir=cv_run_dir,
                 output_path=b1_report_output,
@@ -248,10 +251,10 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
             )
         )
         c0_train_rejected = _raises_cross_protocol_guard(
-            lambda: c0_fusion.run_train(force=False, dataset_name="le2i", run_dir=cv_run_dir)
+            lambda: baseline_c0.run_train(force=False, dataset_name="le2i", run_dir=cv_run_dir)
         )
         c0_report_rejected = _raises_cross_protocol_guard(
-            lambda: c0_fusion.run_report(
+            lambda: baseline_c0.run_report(
                 dataset_name="le2i",
                 run_dir=cv_run_dir,
                 output_path=Path(tmp) / "c0_report.json",
@@ -259,10 +262,10 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
             )
         )
         c1_train_rejected = _raises_cross_protocol_guard(
-            lambda: c1_gate.run_train(force=False, dataset_name="le2i", run_dir=cv_run_dir)
+            lambda: baseline_c1.run_train(force=False, dataset_name="le2i", run_dir=cv_run_dir)
         )
         c1_report_rejected = _raises_cross_protocol_guard(
-            lambda: c1_gate.run_report(dataset_name="le2i", run_dir=cv_run_dir,
+            lambda: baseline_c1.run_report(dataset_name="le2i", run_dir=cv_run_dir,
                                        output_path=Path(tmp) / "c1_report.json", force=False)
         )
     b0_events_rejected = _raises_cross_protocol_guard(
@@ -318,10 +321,10 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
 
     return _check(
         "entry points CS-only (alarm_protocol_sensitivity/grouped_bootstrap/"
-        "qualitative/multiseed_summary/b0_fusion.run_train/b0_fusion.run_report/"
-        "b0_events.run_evaluate/b1_gate.run_train/b1_gate.run_report/"
-        "b1_events.run_evaluate/c0_fusion.run_train/c0_fusion.run_report/"
-        "c1_gate.run_train/c1_gate.run_report/c1_events.run_evaluate) "
+        "qualitative/multiseed_summary/baseline_b0.run_train/baseline_b0.run_report/"
+        "b0_events.run_evaluate/baseline_b1.run_train/baseline_b1.run_report/"
+        "b1_events.run_evaluate/baseline_c0.run_train/baseline_c0.run_report/"
+        "baseline_c1.run_train/baseline_c1.run_report/c1_events.run_evaluate) "
         "recusam --run-dir sob runs/local/le2i_cv/ mesmo com --dataset le2i, "
         "através da própria função de produção; B0, B1 e C1 events também "
         "recusam --dataset le2i-cv fora do escopo atual",
@@ -399,18 +402,18 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
         tempfile.TemporaryDirectory() as c1_events_tmp,
     ):
         # run_dir vazio e pré-existente: se o guard de protocolo for passado, run_b0_training
-        # (b0_engine.py) bate no branch de "run parcial" (artefatos ausentes) antes de criar o
+        # (baseline_b0/engine.py) bate no branch de "run parcial" (artefatos ausentes) antes de criar o
         # diretório temporário de treino e entrar no loop, sem depender de dados reais no disco.
         b0_train_run_dir = Path(b0_train_tmp)
         b0_report_run_dir = Path(b0_report_tmp)
         b0_report_output = b0_report_run_dir / "out" / "b0_report.json"
         b0_train_ok = _passes_guard_and_fails_downstream(
-            lambda: b0_fusion.run_train(
+            lambda: baseline_b0.run_train(
                 force=False, dataset_name="le2i", run_dir=b0_train_run_dir
             )
         )
         b0_report_ok = _passes_guard_and_fails_downstream(
-            lambda: b0_fusion.run_report(
+            lambda: baseline_b0.run_report(
                 dataset_name="le2i",
                 run_dir=b0_report_run_dir,
                 output_path=b0_report_output,
@@ -427,12 +430,12 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
         b1_train_run_dir = Path(b1_train_tmp)
         b1_report_run_dir = Path(b1_report_tmp)
         b1_train_ok = _passes_guard_and_fails_downstream(
-            lambda: b1_gate.run_train(
+            lambda: baseline_b1.run_train(
                 force=False, dataset_name="le2i", run_dir=b1_train_run_dir
             )
         )
         b1_report_ok = _passes_guard_and_fails_downstream(
-            lambda: b1_gate.run_report(
+            lambda: baseline_b1.run_report(
                 dataset_name="le2i",
                 run_dir=b1_report_run_dir,
                 output_path=b1_report_run_dir / "out" / "b1_report.json",
@@ -447,12 +450,12 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
             )
         )
         c0_train_ok = _passes_guard_and_fails_downstream(
-            lambda: c0_fusion.run_train(
+            lambda: baseline_c0.run_train(
                 force=False, dataset_name="le2i", run_dir=Path(c0_train_tmp)
             )
         )
         c0_report_ok = _passes_guard_and_fails_downstream(
-            lambda: c0_fusion.run_report(
+            lambda: baseline_c0.run_report(
                 dataset_name="le2i",
                 run_dir=Path(c0_report_tmp),
                 output_path=Path(c0_report_tmp) / "out" / "c0_report.json",
@@ -461,10 +464,10 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
         )
 
         c1_train_ok = _passes_guard_and_fails_downstream(
-            lambda: c1_gate.run_train(force=False, dataset_name="le2i", run_dir=Path(c1_train_tmp))
+            lambda: baseline_c1.run_train(force=False, dataset_name="le2i", run_dir=Path(c1_train_tmp))
         )
         c1_report_ok = _passes_guard_and_fails_downstream(
-            lambda: c1_gate.run_report(dataset_name="le2i", run_dir=Path(c1_report_tmp),
+            lambda: baseline_c1.run_report(dataset_name="le2i", run_dir=Path(c1_report_tmp),
                                        output_path=Path(c1_report_tmp) / "out" / "c1_report.json",
                                        force=False)
         )

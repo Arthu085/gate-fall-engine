@@ -1,6 +1,6 @@
 # Treino — Braço A (TCN sobre pose)
 
-`src/gatefall/train/` implementa o treino do braço A: uma TCN causal dilatada
+`src/gatefall/train/baseline_a/` implementa o treino do braço A: uma TCN causal dilatada
 consumindo o vetor de 134 features de pose descrito em [Contrato
 temporal](../data/temporal-contract.md#dataset-de-janelas-de-pose), já
 padronizado por [`apply_standardization`](../data/pose-standardization.md)
@@ -94,7 +94,7 @@ ruído desse subconjunto pequeno em vez de generalização real.
 
 ## Métrica: macro-F1 restrita
 
-Implementada em NumPy puro em `gatefall/train/metrics.py`, sem adicionar
+Implementada em NumPy puro em `gatefall/train/shared/metrics.py`, sem adicionar
 scikit-learn como dependência. A macro-F1 é calculada apenas sobre as
 classes `{0, 1, 2, 3, 4, 7, 8, 9}`, excluindo:
 
@@ -132,7 +132,7 @@ uv run python -m gatefall.train.baseline_a report --dataset le2i \
 Gera um diagnóstico multiclasse completo a partir de um run já treinado, sem
 alterar o treino, o protocolo de alarme ou qualquer artefato existente. Antes
 de rodar inferência, o comando valida `config.yaml`, `metrics.json` e
-`checkpoint.pt` com `gatefall.train.artifacts.validate_training_run` (mesma
+`checkpoint.pt` com `gatefall.train.baseline_a.artifacts.validate_training_run` (mesma
 configuração esperada usada por `train`) e reconstrói os três splits
 (`train`, `val`, `test`) exatamente como `train` faz — mesmo stride de treino
 (`TRAIN_STRIDE`) e de avaliação (`EVAL_STRIDE`), mesmo carregador de features
