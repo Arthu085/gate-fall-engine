@@ -73,9 +73,6 @@ def build_le2i_manifest(
                 "height": metadata["height"],
                 "codec": metadata["codec"],
                 "sha256": sha256_file(absolute_path),
-                "pose_status": "pending",
-                "dino_status": "pending",
-                "sam_status": "pending",
             }
         )
 

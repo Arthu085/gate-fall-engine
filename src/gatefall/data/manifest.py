@@ -24,9 +24,6 @@ MANIFEST_DTYPES: dict[str, str] = {
     "height": "int64",
     "codec": "string",
     "sha256": "string",
-    "pose_status": "string",
-    "dino_status": "string",
-    "sam_status": "string",
 }
 
 

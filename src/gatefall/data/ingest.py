@@ -4,6 +4,7 @@ import argparse
 from typing import cast
 
 from gatefall.data.le2i.manifest import ingest_le2i_dataset
+from gatefall.data.le2i.manifest_selftest import run_manifest_selftest
 from gatefall.data.le2i.verification import verify_le2i_manifest
 from gatefall.data.le2i.verification_selftest import run_verification_selftest
 from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
@@ -30,7 +31,7 @@ def main() -> None:
     verify_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
     selftest_parser = subparsers.add_parser(
-        "selftest", help="Verifica as estatísticas de duração de segmentos contra entradas sintéticas"
+        "selftest", help="Verifica o manifesto e as estatísticas com entradas sintéticas"
     )
     selftest_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
 
@@ -41,6 +42,7 @@ def main() -> None:
     elif args.command == "verify":
         verify_le2i_manifest(adapter=adapter)
     elif args.command == "selftest":
+        run_manifest_selftest()
         run_verification_selftest()
 
 
