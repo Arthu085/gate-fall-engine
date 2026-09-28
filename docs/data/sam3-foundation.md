@@ -11,8 +11,8 @@ do SAM 3 (ver [validação manual em hardware real](#validacao-manual-em-hardwar
 estes descritores, está em [Treino — Arma C0](../train/c0-fusion.md), e a
 proxy de qualidade específica do SAM 3 (`q_sam3`), em
 [Qualidade SAM 3](sam3-quality.md). A fusão C1 está em [Treino — Arma
-C1](../train/c1-adaptive-gate.md); atenção cruzada e avaliação por eventos
-continuam como trabalho subsequente.
+C1](../train/c1-adaptive-gate.md), que também documenta sua avaliação por
+eventos. Atenção cruzada continua como trabalho subsequente.
 
 ## O que a CI prova e o que foi validado manualmente
 
