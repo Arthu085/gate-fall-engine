@@ -94,6 +94,57 @@ escape da raiz. O manifesto e a grade gerados ficam em
 `data/processed/le2i/`; consulte a [organização dos dados](organization.md)
 para a migração dos caminhos legados.
 
+## Extração remota de features
+
+Depois de construir `manifest.parquet` e `frames.parquet` no checkout local,
+prepare um pacote portátil do protocolo Le2i CS na raiz do repositório:
+
+```bash
+uv run python -m gatefall.data.le2i.bundle prepare --output /caminho/le2i-cs-bundle
+uv run python -m gatefall.data.le2i.bundle verify --bundle /caminho/le2i-cs-bundle
+```
+
+O pacote contém `data/processed/le2i/manifest.parquet` e
+`data/processed/le2i/frames.parquet` byte-idênticos aos originais, além dos
+vídeos referenciados pelo `relative_path` do manifesto sob `data/raw/le2i/`.
+`bundle-sha256.json` guarda apenas os hashes dos dois parquets para a
+verificação no destino. A preparação recusa um destino existente e publica o
+diretório somente depois de copiar e verificar todos os arquivos. Não inclui
+labels, repositórios de terceiros, pesos ou checkpoints.
+
+Transfira o conteúdo do pacote para a raiz de um checkout remoto do mesmo
+commit e verifique ali antes de extrair:
+
+```bash
+rsync -a /caminho/le2i-cs-bundle/ usuario@host:/caminho/gate-fall-engine/
+ssh usuario@host 'cd /caminho/gate-fall-engine && uv run python -m gatefall.data.le2i.bundle verify --bundle .'
+```
+
+No checkout remoto, instale as dependências com `uv sync --locked`. Para
+DINOv3, disponibilize separadamente o repositório DINOv3 e seus pesos; para
+SAM 3, sincronize o runtime isolado com `uv sync --project sam3_runtime --locked`
+e disponibilize o checkpoint separadamente. Então execute os extratores já
+existentes, conforme o modelo desejado:
+
+```bash
+uv run python -m gatefall.dinov3.extract extract-all --repo-dir /caminho/dinov3 --weights /caminho/pesos-dinov3 --dataset le2i
+uv run python -m gatefall.dinov3.extract report --dataset le2i
+uv run python -m gatefall.sam3.extract extract-all --runtime-dir sam3_runtime --checkpoint /caminho/sam3.pt --dataset le2i
+uv run python -m gatefall.sam3.extract report --dataset le2i
+```
+
+Copie de volta apenas as árvores produzidas pelos extratores executados:
+
+```bash
+mkdir -p data/features/le2i
+rsync -a usuario@host:/caminho/gate-fall-engine/data/features/le2i/dinov3/ data/features/le2i/dinov3/
+rsync -a usuario@host:/caminho/gate-fall-engine/data/features/le2i/sam3/ data/features/le2i/sam3/
+```
+
+Esses comandos devem rodar na raiz do checkout local. Use somente a linha de
+`rsync` correspondente ao extrator executado. Os caminhos de saída existentes
+são `data/features/le2i/dinov3/` e `data/features/le2i/sam3/`.
+
 ## Exploração histórica
 
 O script `scripts/exploratory/explore_le2i.py` preserva as análises usadas para
