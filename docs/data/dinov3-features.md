@@ -14,9 +14,10 @@ B0](../train/b0-fusion.md).
 
 A [qualidade visual DINOv3](dinov3-quality.md) documenta a proxy causal
 `q_visual`, calculada no quadro RGB redimensionado antes da normalização, e sua
-validação contra degradações controladas. Ela é um diagnóstico para avaliação
-posterior de fusão adaptativa, não uma probabilidade calibrada nem parte do
-vetor de features persistido nesta etapa.
+validação contra degradações controladas. A arma
+[B1](../train/b1-adaptive-gate.md) usa essa proxy na fusão adaptativa; ela não
+é uma probabilidade calibrada nem parte do vetor de features persistido nesta
+etapa.
 
 ## Backbone
 
@@ -58,9 +59,8 @@ explicitamente por cada ponto de entrada de extração (`run_dinov3_extract` e
 `run_dinov3_extract_all`), imediatamente antes de carregar o backbone —
 nunca implicitamente dentro de `load_backbone`. Isso importa porque o treino
 do braço A (ver `docs/train/gpu-determinism.md`) já é dono da seed global
-(42) e chamar `torch.manual_seed(0)` aqui, como acontecia antes, a
-sobrescreveria silenciosamente caso um futuro treinador do braço B reutilize
-`load_backbone`.
+(42) e chamar `torch.manual_seed(0)` aqui, como acontecia antes, poderia
+sobrescrevê-la se o treino do braço B reutilizasse `load_backbone`.
 
 O `warn_only=True` faz operações sem implementação determinística cair para
 um aviso em vez de lançar exceção, e por isso a variável de ambiente

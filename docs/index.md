@@ -13,8 +13,8 @@ por eventos.
 
 - [Arquitetura](architecture/overview.md): limites entre adapters, dados,
   features, treino e avaliação.
-- [Tecnologias](architecture/technology-stack.md): ferramentas implementadas,
-  componentes planejados e licenças.
+- [Tecnologias](architecture/technology-stack.md): ferramentas, componentes
+  implementados e licenças.
 - [Organização dos dados](data/organization.md): layout local e migração dos
   caminhos legados.
 - [OmniFall](data/omnifall.md) e [Le2i](data/le2i.md): fontes, proveniência e
