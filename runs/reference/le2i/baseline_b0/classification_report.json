@@ -1,7 +1,7 @@
 {
   "run_name": "b0_fusion",
   "dataset": "le2i",
-  "run_dir": "runs/reference/le2i/b0_fusion",
+  "run_dir": "runs/reference/le2i/baseline_b0",
   "checkpoint_sha256": "da002ab281c80be6d30175077775c9da7d97b3e009a03167bdb382f3d257d847",
   "device": "cuda",
   "splits": {

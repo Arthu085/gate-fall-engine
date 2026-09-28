@@ -55,7 +55,6 @@ from gatefall.train.baseline_b1.config import B1_ADAPTIVE_GATE_CONFIG, B1TrainCo
 from gatefall.train.baseline_b1.engine import run_b1_training
 from gatefall.train.shared.gated_engine import _StandardizedGatedFusionTorchDataset, _predict
 from gatefall.train.baseline_b1.run import (
-    B0_ARM_NAME,
     guard_not_arm_a_run_dir,
     guard_not_arm_b0_run_dir,
     resolve_b1_config,
@@ -79,9 +78,6 @@ PROTECTED_ARTIFACT_NAMES = (
     "alarm_protocol.yaml",
     "event_metrics.json",
 )
-
-ARM_NAME = "b1_adaptive_gate"
-
 
 def _resolve_config(
     seed: int,
@@ -127,10 +123,10 @@ def _protected_run_dirs(run_dir: Path, dataset_name: str) -> list[Path]:
     canônico do próprio B1."""
     return [
         run_dir.resolve(),
-        repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, ARM_NAME)),
+        repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, "B1")),
         repository_anchored_run_dir(default_run_dir(dataset_name)),
         repository_anchored_run_dir(
-            default_run_dir_for_arm(dataset_name, B0_ARM_NAME)
+            default_run_dir_for_arm(dataset_name, "B0")
         ),
     ]
 
@@ -202,7 +198,7 @@ def run_train(
     seed: int = B1_ADAPTIVE_GATE_CONFIG.seed,
 ) -> None:
     if run_dir is None:
-        run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
+        run_dir = default_run_dir_for_arm(dataset_name, "B1")
     _guard_run_dir(run_dir, dataset_name)
     adapter = get_dataset(dataset_name)
     ensure_dinov3_dataset_supported(adapter)
@@ -281,7 +277,7 @@ def run_report(
     force: bool,
 ) -> bool:
     if run_dir is None:
-        run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
+        run_dir = default_run_dir_for_arm(dataset_name, "B1")
     _guard_run_dir(run_dir, dataset_name)
     _guard_protected_output(run_dir, output_path, dataset_name)
     if output_path.exists() and not force:
@@ -495,7 +491,7 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command in ("train", "report") and args.run_dir is None:
-        args.run_dir = default_run_dir_for_arm(args.dataset, ARM_NAME)
+        args.run_dir = default_run_dir_for_arm(args.dataset, "B1")
     if args.command == "train":
         run_train(
             force=args.force,

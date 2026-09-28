@@ -221,10 +221,10 @@ def check_b0_defaults_to_own_run_and_rejects_arm_a() -> bool:
         "run_dir"
     ].default is None
     return _check(
-        "run_evaluate B0: usa o run canônico b0_fusion por default e recusa "
+        "run_evaluate B0: usa o run canônico baseline_b0 por default e recusa "
         "explicitamente o run da arma A",
         default_is_optional
-        and captured == [default_run_dir_for_arm("le2i", "b0_fusion")]
+        and captured == [default_run_dir_for_arm("le2i", "B0")]
         and arm_a_rejected,
     )
 
@@ -241,8 +241,8 @@ def _empty_event_split() -> dict[str, object]:
 
 
 def check_event_artifact_contract_accepts_b0_identity() -> bool:
-    checkpoint_path = Path("runs/local/le2i/b0_fusion/checkpoint.pt")
-    protocol_path = Path("runs/local/le2i/b0_fusion/alarm_protocol.yaml")
+    checkpoint_path = Path("runs/local/le2i/baseline_b0/checkpoint.pt")
+    protocol_path = Path("runs/local/le2i/baseline_b0/alarm_protocol.yaml")
     report = {
         "run_name": B0_FUSION_CONFIG.run_name,
         "checkpoint_path": str(checkpoint_path),

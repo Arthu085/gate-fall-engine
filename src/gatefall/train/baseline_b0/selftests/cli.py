@@ -19,8 +19,8 @@ def _check(name: str, condition: bool) -> bool:
 def check_guard_rejects_output_under_reference_root() -> bool:
     from gatefall.train.baseline_b0.cli import _guard_protected_output
 
-    run_dir = Path("runs/local/le2i/b0_fusion")
-    output_path = REFERENCE_RUN_ROOT / "le2i/b0_fusion/classification_report.json"
+    run_dir = Path("runs/local/le2i/baseline_b0")
+    output_path = REFERENCE_RUN_ROOT / "le2i/baseline_b0/classification_report.json"
 
     raised = False
     try:
@@ -38,7 +38,7 @@ def check_guard_rejects_output_under_reference_root() -> bool:
 def check_guard_rejects_protected_artifact_name() -> bool:
     from gatefall.train.baseline_b0.cli import PROTECTED_ARTIFACT_NAMES, _guard_protected_output
 
-    run_dir = Path("runs/local/le2i/b0_fusion")
+    run_dir = Path("runs/local/le2i/baseline_b0")
 
     all_raised = True
     for name in PROTECTED_ARTIFACT_NAMES:
@@ -117,7 +117,7 @@ def check_guard_rejects_descendant_of_arm_a_run_dir() -> bool:
 def check_guard_accepts_b0_own_run_dir() -> bool:
     from gatefall.train.baseline_b0.cli import _guard_not_arm_a_run_dir
 
-    b0_run_dir = Path("runs/local/le2i/b0_fusion")
+    b0_run_dir = Path("runs/local/le2i/baseline_b0")
 
     accepted = True
     try:

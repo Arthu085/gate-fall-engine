@@ -56,9 +56,6 @@ from gatefall.train.baseline_b0.config import B0_FUSION_CONFIG, B0TrainConfig
 from gatefall.train.baseline_b0.model import B0FusionClassifier
 from gatefall.train.baseline_b0.run import guard_not_arm_a_run_dir, resolve_b0_config
 
-ARM_NAME = "b0_fusion"
-
-
 class FusionWindowSource(Protocol):
     def __len__(self) -> int: ...
 
@@ -357,7 +354,7 @@ def run_evaluate(
     if dataset_name != "le2i":
         raise ValueError("avaliação de eventos B0 suporta somente le2i (CS)")
     if run_dir is None:
-        run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
+        run_dir = default_run_dir_for_arm(dataset_name, "B0")
     guard_not_arm_a_run_dir(run_dir, dataset_name)
     validate_local_run_dir(run_dir, dataset_name)
     with EventEvaluationLock(run_dir) as lock:

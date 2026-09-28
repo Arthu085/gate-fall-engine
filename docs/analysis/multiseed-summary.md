@@ -297,7 +297,7 @@ Fingerprint SHA-256 da configuração normalizada: `394d023c9206417ad7027736e602
 | Teste | latency_seconds_median | 5 | 0,3000 | 0,0000 | 0,3000 | 0,3000 |
 
 Os valores completos por seed e agregados estão em
-`runs/local/le2i/b0_fusion_multiseed/multiseed_summary.json` e `.csv`.
+`runs/local/le2i/baseline_b0_multiseed/multiseed_summary.json` e `.csv`.
 
 ### B1
 
@@ -337,7 +337,7 @@ Fingerprint SHA-256 da configuração normalizada: `b868f5274e5ef258e120ce82c9da
 | Teste | latency_seconds_median | 5 | 0,2800 | 0,0447 | 0,2000 | 0,3000 |
 
 Os valores completos por seed e agregados estão em
-`runs/local/le2i/b1_adaptive_gate_multiseed/multiseed_summary.json` e `.csv`.
+`runs/local/le2i/baseline_b1_multiseed/multiseed_summary.json` e `.csv`.
 
 ### C0
 
@@ -363,7 +363,7 @@ C0 tem apenas classificação; não há avaliação final de eventos
 contratada para esse braço.
 
 Os valores completos por seed e agregados estão em
-`runs/local/le2i/c0_fusion_multiseed/multiseed_summary.json` e `.csv`.
+`runs/local/le2i/baseline_c0_multiseed/multiseed_summary.json` e `.csv`.
 
 ### C1
 
@@ -403,4 +403,4 @@ Fingerprint SHA-256 da configuração normalizada: `4e4320e02731a9803cc38c87f993
 | Teste | latency_seconds_median | 5 | 0,3000 | 0,0000 | 0,3000 | 0,3000 |
 
 Os valores completos por seed e agregados estão em
-`runs/local/le2i/c1_adaptive_gate_multiseed/multiseed_summary.json` e `.csv`.
+`runs/local/le2i/baseline_c1_multiseed/multiseed_summary.json` e `.csv`.

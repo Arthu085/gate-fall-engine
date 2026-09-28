@@ -17,7 +17,7 @@ from gatefall.runs import (
 from gatefall.train.baseline_b1.config import B1_ADAPTIVE_GATE_CONFIG
 from gatefall.train.shared.run_paths import repository_anchored_run_dir
 
-_B1_RUN_DIR = Path("runs/local/le2i/b1_adaptive_gate")
+_B1_RUN_DIR = Path("runs/local/le2i/baseline_b1")
 
 
 def _check(name: str, condition: bool) -> bool:
@@ -37,7 +37,7 @@ def _raises_value_error(callback) -> bool:
 def check_guard_rejects_output_under_reference_root() -> bool:
     from gatefall.train.baseline_b1.cli import _guard_protected_output
 
-    output_path = REFERENCE_RUN_ROOT / "le2i/b1_adaptive_gate/classification_report.json"
+    output_path = REFERENCE_RUN_ROOT / "le2i/baseline_b1/classification_report.json"
     return _check(
         "_guard_protected_output recusa --output sob runs/reference/ mesmo "
         "quando o nome do arquivo não é um dos PROTECTED_ARTIFACT_NAMES",
@@ -70,7 +70,7 @@ def check_guard_rejects_protected_output_in_arm_a_and_b0_run_dirs() -> bool:
 
     other_arm_run_dirs = (
         repository_anchored_run_dir(default_run_dir("le2i")),
-        repository_anchored_run_dir(default_run_dir_for_arm("le2i", "b0_fusion")),
+        repository_anchored_run_dir(default_run_dir_for_arm("le2i", "B0")),
     )
     all_raised = all(
         _raises_value_error(
@@ -100,16 +100,12 @@ def check_guard_rejects_protected_output_in_arm_a_and_b0_run_dirs() -> bool:
 
 
 def check_guard_rejects_protected_output_in_canonical_b1_run_dir() -> bool:
-    from gatefall.train.baseline_b1.cli import (
-        ARM_NAME,
-        PROTECTED_ARTIFACT_NAMES,
-        _guard_protected_output,
-    )
+    from gatefall.train.baseline_b1.cli import PROTECTED_ARTIFACT_NAMES, _guard_protected_output
 
     canonical_b1_run_dir = repository_anchored_run_dir(
-        default_run_dir_for_arm("le2i", ARM_NAME)
+        default_run_dir_for_arm("le2i", "B1")
     )
-    non_canonical_run_dir = canonical_b1_run_dir.parent / f"{ARM_NAME}_seed7"
+    non_canonical_run_dir = canonical_b1_run_dir.parent / "baseline_b1_seed7"
     from_other_run_dir = all(
         _raises_value_error(
             lambda name=name: _guard_protected_output(
@@ -146,7 +142,7 @@ def check_guards_are_anchored_at_repository_root() -> bool:
     )
 
     b0_run_dir = repository_anchored_run_dir(
-        default_run_dir_for_arm("le2i", "b0_fusion")
+        default_run_dir_for_arm("le2i", "B0")
     )
     original_cwd = Path.cwd()
     try:
@@ -226,7 +222,7 @@ def check_arm_a_guard_is_anchored_at_repository_root() -> bool:
 def check_guard_rejects_arm_b0_run_dir() -> bool:
     from gatefall.train.baseline_b1.cli import _guard_not_arm_b0_run_dir
 
-    b0_run_dir = default_run_dir_for_arm("le2i", "b0_fusion")
+    b0_run_dir = default_run_dir_for_arm("le2i", "B0")
     same = _raises_value_error(
         lambda: _guard_not_arm_b0_run_dir(b0_run_dir, "le2i")
     )
@@ -253,12 +249,12 @@ def check_guard_accepts_b1_own_run_dir() -> bool:
     accepted = True
     for guard in (_guard_not_arm_a_run_dir, _guard_not_arm_b0_run_dir):
         try:
-            guard(default_run_dir_for_arm("le2i", "b1_adaptive_gate"), "le2i")
+            guard(default_run_dir_for_arm("le2i", "B1"), "le2i")
         except ValueError:
             accepted = False
     return _check(
         "as duas guardas aceitam o run_dir próprio da arma B1 "
-        "(runs/local/le2i/b1_adaptive_gate), irmão dos runs de A e B0",
+        "(runs/local/le2i/baseline_b1), irmão dos runs de A e B0",
         accepted,
     )
 

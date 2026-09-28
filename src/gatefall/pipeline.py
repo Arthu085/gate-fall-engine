@@ -13,10 +13,10 @@ from gatefall.runs import default_run_dir, default_run_dir_for_arm
 
 SUPPORTED_ARMS = ("A", "B0", "B1", "C0", "C1")
 ARM_MODULES = {
-    "B0": ("gatefall.train.baseline_b0", "b0_fusion", "gatefall.eval.baseline_b0"),
-    "B1": ("gatefall.train.baseline_b1", "b1_adaptive_gate", "gatefall.eval.baseline_b1"),
-    "C0": ("gatefall.train.baseline_c0", "c0_fusion", None),
-    "C1": ("gatefall.train.baseline_c1", "c1_adaptive_gate", "gatefall.eval.baseline_c1"),
+    "B0": ("gatefall.train.baseline_b0", "gatefall.eval.baseline_b0"),
+    "B1": ("gatefall.train.baseline_b1", "gatefall.eval.baseline_b1"),
+    "C0": ("gatefall.train.baseline_c0", None),
+    "C1": ("gatefall.train.baseline_c1", "gatefall.eval.baseline_c1"),
 }
 
 
@@ -110,8 +110,8 @@ def build_pipeline(
                 )
             )
     else:
-        train_module, run_name, event_module = ARM_MODULES[arm]
-        run_dir = str(default_run_dir_for_arm(dataset, run_name))
+        train_module, event_module = ARM_MODULES[arm]
+        run_dir = str(default_run_dir_for_arm(dataset, arm))
         if arm in ("B0", "B1"):
             steps.extend([
                 _module_step("Validar extração DINOv3", "gatefall.dinov3.extract", "selftest"),

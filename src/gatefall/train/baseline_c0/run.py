@@ -10,8 +10,6 @@ from gatefall.hashing import sha256_file
 from gatefall.train.shared.sam3_inputs import _ValidatedInputs
 from gatefall.train.shared.run_paths import comparison_run_dirs
 
-ARM_NAME = "c0_fusion"
-
 def resolve_c0_config(
     seed: int,
     pose_stats_path: Path,

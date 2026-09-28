@@ -272,7 +272,7 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         lambda: b0_events.run_evaluate(
             force=False,
             dataset_name="le2i",
-            run_dir=Path("runs/local/le2i_cv/b0_fusion"),
+            run_dir=Path("runs/local/le2i_cv/baseline_b0"),
         )
     )
     b0_cv_scope_rejected = False
@@ -280,7 +280,7 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         b0_events.run_evaluate(
             force=False,
             dataset_name="le2i-cv",
-            run_dir=Path("runs/local/le2i_cv/b0_fusion"),
+            run_dir=Path("runs/local/le2i_cv/baseline_b0"),
         )
     except ValueError:
         b0_cv_scope_rejected = True
@@ -289,7 +289,7 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         lambda: b1_events.run_evaluate(
             force=False,
             dataset_name="le2i",
-            run_dir=Path("runs/local/le2i_cv/b1_adaptive_gate"),
+            run_dir=Path("runs/local/le2i_cv/baseline_b1"),
         )
     )
     b1_cv_scope_rejected = False
@@ -297,7 +297,7 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         b1_events.run_evaluate(
             force=False,
             dataset_name="le2i-cv",
-            run_dir=Path("runs/local/le2i_cv/b1_adaptive_gate"),
+            run_dir=Path("runs/local/le2i_cv/baseline_b1"),
         )
     except ValueError:
         b1_cv_scope_rejected = True
@@ -306,7 +306,7 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         lambda: c1_events.run_evaluate(
             force=False,
             dataset_name="le2i",
-            run_dir=Path("runs/local/le2i_cv/c1_adaptive_gate"),
+            run_dir=Path("runs/local/le2i_cv/baseline_c1"),
         )
     )
     c1_cv_scope_rejected = False
@@ -314,7 +314,7 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         c1_events.run_evaluate(
             force=False,
             dataset_name="le2i-cv",
-            run_dir=Path("runs/local/le2i_cv/c1_adaptive_gate"),
+            run_dir=Path("runs/local/le2i_cv/baseline_c1"),
         )
     except ValueError:
         c1_cv_scope_rejected = True

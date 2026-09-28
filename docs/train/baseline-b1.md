@@ -95,9 +95,9 @@ Como B0, `gatefall.train.baseline_b1` aceita apenas `--dataset le2i`
 
 ## `run_dir` irmão de A e B0, nunca dentro deles
 
-`default_run_dir_for_arm(dataset, "b1_adaptive_gate")` resolve o destino padrão
-para `runs/local/le2i/b1_adaptive_gate/`, irmão de `baseline_a/` e de
-`b0_fusion/`. `run_train` e `run_report` aplicam **três** guardas antes de tocar
+`default_run_dir_for_arm(dataset, "B1")` resolve o destino padrão
+para `runs/local/le2i/baseline_b1/`, irmão de `baseline_a/` e de
+`baseline_b0/`. `run_train` e `run_report` aplicam **três** guardas antes de tocar
 no `run_dir`:
 
 - `guard_not_arm_a_run_dir` (`baseline_b1/run.py`) rejeita `--run-dir` igual, ancestral
@@ -113,7 +113,7 @@ resolvidos contra `REPOSITORY_ROOT`, não contra o diretório corrente, de modo
 que as guardas continuam valendo quando a CLI roda de outro `cwd`.
 
 As três guardas só conhecem os run dirs **canônicos**. Um run não canônico de
-outro braço (por exemplo `runs/local/le2i/b0_fusion_seed7`) passaria por elas, e
+outro braço (por exemplo `runs/local/le2i/baseline_b0_seed7`) passaria por elas, e
 por isso `run_b1_training` ainda recusa qualquer `run_dir` cujo `config.yaml`
 declare uma `arm` diferente de `B1` — nem `--force` sobrescreve o run de outro
 braço. Um run B1 válido continua sendo preservado sem `--force` e reconstruído
@@ -128,7 +128,7 @@ caminho sob `runs/reference/`.
 Os três run dirs canônicos entram ancorados em `REPOSITORY_ROOT`, não no
 diretório corrente. Por isso o run canônico do B1 continua protegido mesmo
 quando `--run-dir` aponta para outro run B1 (por exemplo
-`runs/local/le2i/b1_adaptive_gate_seed7`) ou quando a CLI roda de outro `cwd` —
+`runs/local/le2i/baseline_b1_seed7`) ou quando a CLI roda de outro `cwd` —
 casos em que o `resolve()` do run pedido, sozinho, não o cobriria.
 
 ## Integridade dos artefatos
@@ -155,7 +155,7 @@ guardas de CLI — sem treinar nem tocar no dataset real.
 ```bash
 uv run python -m gatefall.features.quality_extract extract-all --dataset le2i
 uv run python -m gatefall.train.baseline_b1 train --dataset le2i \
-  --run-dir runs/local/le2i/b1_adaptive_gate
+  --run-dir runs/local/le2i/baseline_b1
 ```
 
 Os sidecars de qualidade são pré-requisito do treino. Antes de montar os
@@ -166,8 +166,8 @@ rollback) é o mesmo do braço A.
 
 ```bash
 uv run python -m gatefall.train.baseline_b1 report --dataset le2i \
-  --run-dir runs/local/le2i/b1_adaptive_gate \
-  --output runs/local/le2i/b1_adaptive_gate/classification_report.json --force
+  --run-dir runs/local/le2i/baseline_b1 \
+  --output runs/local/le2i/baseline_b1/classification_report.json --force
 ```
 
 Gera o mesmo diagnóstico de classificação do braço A e do B0 (matriz de

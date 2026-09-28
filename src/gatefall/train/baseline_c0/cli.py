@@ -33,7 +33,6 @@ from gatefall.train.baseline_c0.artifacts import load_compatible_c0_checkpoint, 
 from gatefall.train.baseline_c0.config import C0_FUSION_CONFIG
 from gatefall.train.baseline_c0.engine import _predict, _StandardizedFusionTorchDataset, run_c0_training
 from gatefall.train.baseline_c0.run import (
-    ARM_NAME,
     comparison_run_dirs,
     guard_not_comparison_run_dir,
     resolve_c0_config_for_inputs as _resolve_config,
@@ -69,7 +68,7 @@ def _protected_run_dirs(run_dir: Path, dataset_name: str) -> list[Path]:
     run pedido, o run canônico do C0 e os runs de comparação de A, B0 e B1."""
     return [
         run_dir.resolve(),
-        repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, ARM_NAME)),
+        repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, "C0")),
         *comparison_run_dirs(dataset_name).values(),
     ]
 
@@ -120,7 +119,7 @@ def run_train(
     seed: int = C0_FUSION_CONFIG.seed,
 ) -> None:
     if run_dir is None:
-        run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
+        run_dir = default_run_dir_for_arm(dataset_name, "C0")
     _guard_run_dir(run_dir, dataset_name)
     adapter = get_dataset(dataset_name)
     ensure_sam3_dataset_supported(adapter)
@@ -189,7 +188,7 @@ def run_report(
     force: bool,
 ) -> bool:
     if run_dir is None:
-        run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
+        run_dir = default_run_dir_for_arm(dataset_name, "C0")
     _guard_run_dir(run_dir, dataset_name)
     _guard_protected_output(run_dir, output_path, dataset_name)
     if output_path.exists() and not force:
@@ -383,7 +382,7 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command in ("train", "report") and args.run_dir is None:
-        args.run_dir = default_run_dir_for_arm(args.dataset, ARM_NAME)
+        args.run_dir = default_run_dir_for_arm(args.dataset, "C0")
     if args.command == "train":
         run_train(
             force=args.force, dataset_name=args.dataset, run_dir=args.run_dir, seed=args.seed

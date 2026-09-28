@@ -22,7 +22,7 @@ def guard_not_foreign_arm_run_dir(run_dir: Path, arm: str) -> None:
     """Recusa sobrescrever um run_dir que já pertence a outra arma.
 
     As guardas de CLI só cobrem os run_dirs canônicos; um run não canônico de
-    outra arma (por exemplo `b0_fusion_seed7`) passaria por elas e seria
+    outra arma (por exemplo `baseline_b0_seed7`) passaria por elas e seria
     substituído pelo promote com `--force`.
     """
     config_path = run_dir / "config.yaml"
@@ -44,15 +44,8 @@ def guard_not_foreign_arm_run_dir(run_dir: Path, arm: str) -> None:
         )
 
 
-COMPARISON_ARM_NAMES: dict[str, str] = {
-    "A": "baseline_a",
-    "B0": "b0_fusion",
-    "B1": "b1_adaptive_gate",
-}
-
-
 def comparison_run_dirs(dataset_name: str) -> dict[str, Path]:
     return {
-        arm: repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, arm_name))
-        for arm, arm_name in COMPARISON_ARM_NAMES.items()
+        arm: repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, arm))
+        for arm in ("A", "B0", "B1")
     }

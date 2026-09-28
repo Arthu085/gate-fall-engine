@@ -10,8 +10,16 @@ LOCAL_RUN_ROOTS: dict[str, Path] = {
     "le2i-cv": Path("runs/local/le2i_cv"),
 }
 
+ARM_RUN_DIR_NAMES: dict[str, str] = {
+    "A": "baseline_a",
+    "B0": "baseline_b0",
+    "B1": "baseline_b1",
+    "C0": "baseline_c0",
+    "C1": "baseline_c1",
+}
 
-def default_run_dir_for_arm(dataset: str, arm_name: str) -> Path:
+
+def default_run_dir_for_arm(dataset: str, arm: str) -> Path:
     try:
         root = LOCAL_RUN_ROOTS[dataset]
     except KeyError as exc:
@@ -19,11 +27,18 @@ def default_run_dir_for_arm(dataset: str, arm_name: str) -> Path:
             f"dataset não suportado para run_dir padrão: {dataset!r}; opções "
             f"disponíveis: {', '.join(LOCAL_RUN_ROOTS)}"
         ) from exc
-    return root / arm_name
+    try:
+        directory_name = ARM_RUN_DIR_NAMES[arm]
+    except KeyError as exc:
+        raise ValueError(
+            f"braço não suportado para run_dir padrão: {arm!r}; opções "
+            f"disponíveis: {', '.join(ARM_RUN_DIR_NAMES)}"
+        ) from exc
+    return root / directory_name
 
 
 def default_run_dir(dataset: str) -> Path:
-    return default_run_dir_for_arm(dataset, "baseline_a")
+    return default_run_dir_for_arm(dataset, "A")
 
 
 def validate_local_run_dir(run_dir: Path, dataset: str | None = None) -> None:
