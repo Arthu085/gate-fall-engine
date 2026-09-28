@@ -2,7 +2,7 @@
 
 Ferramenta independente de estágio, deliberadamente fora do pipeline padrão
 (`gatefall.pipeline`) e da suíte de lifecycle de
-`gatefall.eval.baseline_a_events` (não abre o lock, não escreve o journal e
+`gatefall.eval.baseline_a.cli` (não abre o lock, não escreve o journal e
 não toca `alarm_protocol.yaml`/`event_metrics.json`). Varre
 `trigger_consecutive` (1..5) e uma grade de `refractory_period_s` derivando
 cada protocolo de `BASELINE_A_ALARM_PROTOCOL` via `dataclasses.replace`,
@@ -11,7 +11,7 @@ nunca reexecuta o modelo por célula da grade.
 
 Este módulo nunca seleciona, ranqueia, recomenda ou promove um protocolo
 substituto: `BASELINE_A_ALARM_PROTOCOL` permanece a única configuração
-congelada usada em `gatefall.eval.baseline_a_events`. As métricas do split de
+congelada usada em `gatefall.eval.baseline_a.cli`. As métricas do split de
 teste aqui produzidas são estritamente descritivas — nenhuma decisão de
 modelo/protocolo é ou pode ser tomada a partir delas.
 """
@@ -35,8 +35,8 @@ from gatefall.config import EVAL_STRIDE
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
 from gatefall.datasets import get_dataset
-from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
-from gatefall.eval.events import extract_label_segments, split_event_report
+from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
+from gatefall.eval.shared.events import extract_label_segments, split_event_report
 from gatefall.features.standardization import (
     StandardizationStats,
     apply_standardization,

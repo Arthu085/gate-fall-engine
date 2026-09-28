@@ -2,7 +2,7 @@
 
 Ferramenta independente de estágio, deliberadamente fora do pipeline padrão
 (`gatefall.pipeline`) e da suíte de lifecycle de
-`gatefall.eval.baseline_a_events` (não abre o lock, não escreve o journal e
+`gatefall.eval.baseline_a.cli` (não abre o lock, não escreve o journal e
 não toca `alarm_protocol.yaml`/`event_metrics.json`/`metrics.json`/
 `checkpoint.pt`). Roda a inferência local uma única vez por split (val e
 test) e bootstrapa as predições/identidades já cacheadas — nunca reexecuta o
@@ -17,7 +17,7 @@ sujeito, preservando a estrutura de dependência dentro de cada vídeo/sujeito.
 
 Este módulo nunca seleciona, ranqueia ou promove um modelo/protocolo:
 `BASELINE_A_ALARM_PROTOCOL` permanece a única configuração congelada usada em
-`gatefall.eval.baseline_a_events`. O bootstrap aqui produzido é estritamente
+`gatefall.eval.baseline_a.cli`. O bootstrap aqui produzido é estritamente
 descritivo — apenas expõe incerteza em torno das métricas já congeladas, não
 implementa nenhum teste de hipótese em nível de janela nem p-valor.
 """
@@ -40,8 +40,8 @@ from gatefall.config import EVAL_STRIDE, IGNORE_LABEL
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
 from gatefall.datasets import get_dataset
-from gatefall.eval.alarm_protocol import AlarmProtocol, BASELINE_A_ALARM_PROTOCOL
-from gatefall.eval.events import split_event_report
+from gatefall.eval.shared.alarm_protocol import AlarmProtocol, BASELINE_A_ALARM_PROTOCOL
+from gatefall.eval.shared.events import split_event_report
 from gatefall.features.standardization import (
     StandardizationStats,
     apply_standardization,

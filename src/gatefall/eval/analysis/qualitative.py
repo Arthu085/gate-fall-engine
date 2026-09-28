@@ -5,7 +5,7 @@ Ferramenta independente de estágio, deliberadamente fora do pipeline padrão
 CI — depende de vídeo bruto decodificado, que a CI não tem; `selftest` roda na
 CI normalmente, pois é totalmente sintético. Lê apenas artefatos já publicados
 do run (`config.yaml`, `alarm_protocol.yaml`, `event_metrics.json`) e nunca
-escreve ou toca no lock/journal de `gatefall.eval.baseline_a_events`.
+escreve ou toca no lock/journal de `gatefall.eval.baseline_a.cli`.
 """
 
 import argparse
@@ -32,8 +32,8 @@ from gatefall.data.pose_dataset import PoseWindowDataset
 # Le2i (ver docstring de video_io.py).
 from gatefall.data.video_io import decode_frames
 from gatefall.datasets import get_dataset
-from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, AlarmProtocol, load_alarm_protocol
-from gatefall.eval.events import (
+from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, AlarmProtocol, load_alarm_protocol
+from gatefall.eval.shared.events import (
     Alarm,
     FallEvent,
     associate_events_and_alarms,

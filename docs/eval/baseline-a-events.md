@@ -1,7 +1,8 @@
 # Avaliação — Braço A (protocolo de alarme por evento)
 
-`src/gatefall/eval/` implementa um protocolo de detecção de alarme em nível
-de evento sobre o checkpoint já treinado do braço A (ver [Treino — Braço A
+`src/gatefall/eval/baseline_a/` avalia o checkpoint já treinado do braço A
+com o protocolo de alarme e os cálculos de evento em
+`src/gatefall/eval/shared/` (ver [Treino — Braço A
 (TCN)](../train/baseline-a.md)). Diferente da macro-F1 restrita por janela
 usada no treino, aqui a unidade de avaliação é o evento de queda: quantos
 eventos reais foram detectados, com que latência, e quantos alarmes
@@ -18,15 +19,15 @@ referência abaixo continuam sendo exclusivos do braço A.
 ## Como executar
 
 ```bash
-uv run python -m gatefall.eval.baseline_a_events selftest
+uv run python -m gatefall.eval.baseline_a selftest
 ```
 
 Roda checagens sintéticas da FSM de gatilho/refratário e da associação
-alarme-evento (`events_selftest.py`), sem tocar no checkpoint nem no
-dataset real.
+alarme-evento (`src/gatefall/eval/shared/selftests/events.py`), sem tocar no
+checkpoint nem no dataset real.
 
 ```bash
-uv run python -m gatefall.eval.baseline_a_events evaluate --dataset le2i \
+uv run python -m gatefall.eval.baseline_a evaluate --dataset le2i \
   --run-dir runs/local/le2i/baseline_a
 ```
 
@@ -137,7 +138,7 @@ Um segundo campo, `false_alarms_per_hour_labeled_time`, usa como
 denominador `labeled_time_hours` (`labeled_windows / target_fps / 3600`),
 isto é, apenas o tempo coberto por janelas com rótulo verdadeiro
 não-`IGNORE_LABEL` (`labeled_windows` vem de `build_window_index(...,
-stride=EVAL_STRIDE, drop_ignored=True)` em `baseline_a_events.py`, contando
+stride=EVAL_STRIDE, drop_ignored=True)` em `baseline_a/cli.py`, contando
 no stride 1 do protocolo, não no stride de treino). Seu numerador não é
 `n_false_alarms` inteiro, mas apenas os falsos alarmes cuja janela de
 gatilho (`trigger_k`) carrega um rótulo verdadeiro não-`IGNORE_LABEL` —

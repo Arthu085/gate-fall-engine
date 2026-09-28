@@ -1,6 +1,6 @@
 # Avaliação — Diagnóstico qualitativo (render de quadros de alarme)
 
-`src/gatefall/eval/qualitative.py` é uma ferramenta de diagnóstico
+`src/gatefall/eval/analysis/qualitative.py` é uma ferramenta de diagnóstico
 independente de estágio: renderiza, para cada evento de queda detectado,
 um PNG do quadro real de vídeo decodificado no instante do gatilho do
 alarme, com o esqueleto/bbox do YOLO-Pose sobreposto. Não faz parte do
@@ -13,7 +13,7 @@ existe só para inspeção visual manual dos alarmes já computados.
 `config.yaml`, `alarm_protocol.yaml` e `event_metrics.json` (ver
 [Avaliação — Braço A](baseline-a-events.md)). É estritamente somente
 leitura contra esses artefatos: nunca escreve, sobrescreve ou toca no
-lock/journal de `gatefall.eval.baseline_a_events`, nem em
+lock/journal de `gatefall.eval.baseline_a`, nem em
 `checkpoint.pt`, `config.yaml`, `metrics.json`, `alarm_protocol.yaml` ou
 `event_metrics.json`. A única escrita do comando é em
 `runs/local/{dataset}/{run_name}/figures/`.
@@ -25,7 +25,7 @@ não as predições por janela em si — não há como recuperar dali os
 quadros concretos de gatilho de cada alarme. Por isso `render` roda uma
 passada de inferência local somente leitura (sem lock, sem reescrever
 nenhum artefato) sobre a grade completa de janelas do split, e reusa
-`gatefall.eval.events` (`fall_events_for_video`,
+`gatefall.eval.shared.events` (`fall_events_for_video`,
 `detect_alarms_for_video`, `associate_events_and_alarms`) para a
 associação evento-alarme, em vez de reimplementar essa lógica. Como
 conferência de consistência, `run_render` exige que o `n_detected_events`
@@ -75,7 +75,7 @@ evento detectado são exatamente os mesmos de antes.
 ## Como executar
 
 ```bash
-uv run python -m gatefall.eval.qualitative selftest
+uv run python -m gatefall.eval.analysis.qualitative selftest
 ```
 
 Roda checagens sintéticas (pose imputada não desenha, `decode_frames`
@@ -84,7 +84,7 @@ cedo, nome de arquivo estável) sem vídeo real, sem GPU e sem tocar em
 nenhum artefato do projeto.
 
 ```bash
-uv run python -m gatefall.eval.qualitative render --dataset le2i \
+uv run python -m gatefall.eval.analysis.qualitative render --dataset le2i \
   --run-dir runs/local/le2i/baseline_a --split both
 ```
 

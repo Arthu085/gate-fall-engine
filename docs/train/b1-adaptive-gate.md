@@ -178,14 +178,14 @@ já treinado, sem alterar nenhum artefato protegido.
 ### Avaliação por eventos
 
 ```bash
-uv run python -m gatefall.eval.b1_events selftest
+uv run python -m gatefall.eval.baseline_b1 selftest
 ```
 
 Roda checagens sintéticas da inferência com gate, das guardas de protocolo e do
 lifecycle dos artefatos, sem acessar o dataset real nem um checkpoint.
 
 ```bash
-uv run python -m gatefall.eval.b1_events evaluate --dataset le2i \
+uv run python -m gatefall.eval.baseline_b1 evaluate --dataset le2i \
   --run-dir runs/local/le2i/b1_adaptive_gate
 ```
 

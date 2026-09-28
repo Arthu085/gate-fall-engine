@@ -144,7 +144,7 @@ O relatório de generalização roda como último estágio do pipeline para
 `le2i-cv` e também pode ser gerado isoladamente:
 
 ```bash
-uv run python -m gatefall.eval.generalization_report report \
+uv run python -m gatefall.eval.analysis.generalization_report report \
   --dataset le2i-cv --output runs/local/le2i_cv/baseline_a/generalization_report.json
 ```
 

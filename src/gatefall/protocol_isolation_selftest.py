@@ -17,16 +17,16 @@ import gatefall.data.le2i.annotations as annotations_module
 from gatefall.data.le2i.annotations import load_annotation_splits
 from gatefall.datasets import get_dataset
 from gatefall.datasets.le2i import Le2iDatasetAdapter
-from gatefall.eval import (
+from gatefall.eval.analysis import (
     alarm_protocol_sensitivity,
-    b0_events,
-    b1_events,
-    c1_events,
     grouped_bootstrap,
     multiseed_summary,
     qualitative,
 )
-from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
+from gatefall.eval.baseline_b0 import cli as b0_events
+from gatefall.eval.baseline_b1 import cli as b1_events
+from gatefall.eval.baseline_c1 import cli as c1_events
+from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
 from gatefall.runs import default_run_dir, validate_local_run_dir
 from gatefall.train.baseline_b0 import cli as baseline_b0
 from gatefall.train.baseline_b1 import cli as baseline_b1

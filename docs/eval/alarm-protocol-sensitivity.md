@@ -1,12 +1,12 @@
 # Avaliação — Sensibilidade do protocolo de alarme (análise pós-hoc)
 
-`src/gatefall/eval/alarm_protocol_sensitivity.py` é uma ferramenta de
+`src/gatefall/eval/analysis/alarm_protocol_sensitivity.py` é uma ferramenta de
 diagnóstico independente de estágio: varre `trigger_consecutive` e
 `refractory_period_s` em torno do protocolo de alarme congelado da arma A
 (ver [Avaliação — Braço A](baseline-a-events.md)) e recomputa as métricas de
 evento para cada combinação, reusando `split_event_report`. Não faz parte
 do pipeline padrão nem do lifecycle de
-`gatefall.eval.baseline_a_events` (lock/journal); é estritamente somente
+`gatefall.eval.baseline_a` (lock/journal); é estritamente somente
 leitura contra `checkpoint.pt`/`config.yaml`/`metrics.json` do run e nunca
 toca `alarm_protocol.yaml` ou `event_metrics.json`.
 
@@ -25,8 +25,8 @@ O JSON de saída registra esse contrato explicitamente em `metadata`
 ## Como executar
 
 ```bash
-uv run python -m gatefall.eval.alarm_protocol_sensitivity selftest
-uv run python -m gatefall.eval.alarm_protocol_sensitivity analyze \
+uv run python -m gatefall.eval.analysis.alarm_protocol_sensitivity selftest
+uv run python -m gatefall.eval.analysis.alarm_protocol_sensitivity analyze \
   [--dataset le2i] [--run-dir PATH] \
   [--refractory-grid 0.0,1.0,2.0,5.0,10.0] [--force]
 ```
@@ -43,9 +43,9 @@ só o CSV, ou ambos).
 simultâneas sobre o mesmo `run_dir` passam a checagem de existência antes de
 qualquer uma escrever, correm em paralelo e podem terminar com um JSON de
 uma execução ao lado de um CSV de outra. Essa ferramenta é deliberadamente
-independente do lifecycle de `gatefall.eval.baseline_a_events`: ela nunca
+independente do lifecycle de `gatefall.eval.baseline_a`: ela nunca
 abre nem toca o `EventEvaluationLock` nem o journal canônicos — a mesma
-limitação aceita de `gatefall.eval.qualitative render`. O comportamento de
+limitação aceita de `gatefall.eval.analysis.qualitative render`. O comportamento de
 pular sem `--force` é uma conveniência de idempotência (evita reescrever um
 resultado já presente), não uma garantia de concorrência; não há lock
 próprio e nenhum será adicionado.

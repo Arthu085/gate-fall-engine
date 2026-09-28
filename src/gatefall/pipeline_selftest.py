@@ -62,8 +62,8 @@ def check_exact_command_order() -> bool:
         ("gatefall.features.standardize", "report"),
         ("gatefall.train.baseline_a", "selftest"),
         ("gatefall.train.baseline_a", "train"),
-        ("gatefall.eval.baseline_a_events", "selftest"),
-        ("gatefall.eval.baseline_a_events", "evaluate"),
+        ("gatefall.eval.baseline_a", "selftest"),
+        ("gatefall.eval.baseline_a", "evaluate"),
     ]
     expected_arguments = [
         (), (), (),
@@ -106,8 +106,8 @@ def check_new_arm_command_order() -> bool:
             ("gatefall.train.baseline_b0", "selftest"),
             ("gatefall.train.baseline_b0", "train", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b0_fusion"),
             ("gatefall.train.baseline_b0", "report", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b0_fusion"),
-            ("gatefall.eval.b0_events", "selftest"),
-            ("gatefall.eval.b0_events", "evaluate", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b0_fusion"),
+            ("gatefall.eval.baseline_b0", "selftest"),
+            ("gatefall.eval.baseline_b0", "evaluate", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b0_fusion"),
         ],
         "B1": [
             ("gatefall.dinov3.extract", "selftest"),
@@ -122,8 +122,8 @@ def check_new_arm_command_order() -> bool:
             ("gatefall.train.baseline_b1", "selftest"),
             ("gatefall.train.baseline_b1", "train", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b1_adaptive_gate"),
             ("gatefall.train.baseline_b1", "report", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b1_adaptive_gate"),
-            ("gatefall.eval.b1_events", "selftest"),
-            ("gatefall.eval.b1_events", "evaluate", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b1_adaptive_gate"),
+            ("gatefall.eval.baseline_b1", "selftest"),
+            ("gatefall.eval.baseline_b1", "evaluate", "--dataset", "le2i", "--run-dir", "runs/local/le2i/b1_adaptive_gate"),
         ],
         "C0": [
             ("gatefall.sam3.extract", "selftest"),
@@ -147,8 +147,8 @@ def check_new_arm_command_order() -> bool:
             ("gatefall.train.baseline_c1", "selftest"),
             ("gatefall.train.baseline_c1", "train", "--dataset", "le2i", "--run-dir", "runs/local/le2i/c1_adaptive_gate"),
             ("gatefall.train.baseline_c1", "report", "--dataset", "le2i", "--run-dir", "runs/local/le2i/c1_adaptive_gate"),
-            ("gatefall.eval.c1_events", "selftest"),
-            ("gatefall.eval.c1_events", "evaluate", "--dataset", "le2i", "--run-dir", "runs/local/le2i/c1_adaptive_gate"),
+            ("gatefall.eval.baseline_c1", "selftest"),
+            ("gatefall.eval.baseline_c1", "evaluate", "--dataset", "le2i", "--run-dir", "runs/local/le2i/c1_adaptive_gate"),
         ],
     }
     for arm, suffix in expected_suffixes.items():
@@ -197,11 +197,11 @@ def check_failure_stops_and_propagates_exit_code() -> bool:
 
 def check_success_reaches_final_step() -> bool:
     final_commands = {
-        "A": ("gatefall.eval.baseline_a_events", "evaluate"),
-        "B0": ("gatefall.eval.b0_events", "evaluate"),
-        "B1": ("gatefall.eval.b1_events", "evaluate"),
+        "A": ("gatefall.eval.baseline_a", "evaluate"),
+        "B0": ("gatefall.eval.baseline_b0", "evaluate"),
+        "B1": ("gatefall.eval.baseline_b1", "evaluate"),
         "C0": ("gatefall.train.baseline_c0", "report"),
-        "C1": ("gatefall.eval.c1_events", "evaluate"),
+        "C1": ("gatefall.eval.baseline_c1", "evaluate"),
     }
     for arm, final_command in final_commands.items():
         steps = build_pipeline(dataset="le2i", arm=arm)
@@ -232,11 +232,11 @@ def check_force_only_on_supported_producers() -> bool:
         ("gatefall.features.standardize", "build"),
     }
     expected_by_arm = {
-        "A": {("gatefall.train.baseline_a", "train"), ("gatefall.eval.baseline_a_events", "evaluate")},
-        "B0": {("gatefall.dinov3.extract", "extract-all"), ("gatefall.features.standardize_dinov3", "build"), ("gatefall.train.baseline_b0", "train"), ("gatefall.train.baseline_b0", "report"), ("gatefall.eval.b0_events", "evaluate")},
-        "B1": {("gatefall.dinov3.extract", "extract-all"), ("gatefall.features.standardize_dinov3", "build"), ("gatefall.features.quality_extract", "extract-all"), ("gatefall.train.baseline_b1", "train"), ("gatefall.train.baseline_b1", "report"), ("gatefall.eval.b1_events", "evaluate")},
+        "A": {("gatefall.train.baseline_a", "train"), ("gatefall.eval.baseline_a", "evaluate")},
+        "B0": {("gatefall.dinov3.extract", "extract-all"), ("gatefall.features.standardize_dinov3", "build"), ("gatefall.train.baseline_b0", "train"), ("gatefall.train.baseline_b0", "report"), ("gatefall.eval.baseline_b0", "evaluate")},
+        "B1": {("gatefall.dinov3.extract", "extract-all"), ("gatefall.features.standardize_dinov3", "build"), ("gatefall.features.quality_extract", "extract-all"), ("gatefall.train.baseline_b1", "train"), ("gatefall.train.baseline_b1", "report"), ("gatefall.eval.baseline_b1", "evaluate")},
         "C0": {("gatefall.sam3.extract", "extract-all"), ("gatefall.features.standardize_sam3", "build"), ("gatefall.train.baseline_c0", "train"), ("gatefall.train.baseline_c0", "report")},
-        "C1": {("gatefall.sam3.extract", "extract-all"), ("gatefall.features.standardize_sam3", "build"), ("gatefall.train.baseline_c1", "train"), ("gatefall.train.baseline_c1", "report"), ("gatefall.eval.c1_events", "evaluate")},
+        "C1": {("gatefall.sam3.extract", "extract-all"), ("gatefall.features.standardize_sam3", "build"), ("gatefall.train.baseline_c1", "train"), ("gatefall.train.baseline_c1", "report"), ("gatefall.eval.baseline_c1", "evaluate")},
     }
     cases = [("le2i", arm) for arm in expected_by_arm] + [("le2i-cv", "A")]
     for dataset, arm in cases:
@@ -311,9 +311,9 @@ def check_cv_step_list() -> bool:
         ("gatefall.features.standardize", "report"),
         ("gatefall.train.baseline_a", "selftest"),
         ("gatefall.train.baseline_a", "train"),
-        ("gatefall.eval.baseline_a_events", "selftest"),
-        ("gatefall.eval.baseline_a_events", "evaluate"),
-        ("gatefall.eval.generalization_report", "report"),
+        ("gatefall.eval.baseline_a", "selftest"),
+        ("gatefall.eval.baseline_a", "evaluate"),
+        ("gatefall.eval.analysis.generalization_report", "report"),
     ]
     run_dir_present = all(
         "runs/local/le2i_cv/baseline_a" in " ".join(step.command)
@@ -321,8 +321,8 @@ def check_cv_step_list() -> bool:
         if _command_signature(step)
         in {
             ("gatefall.train.baseline_a", "train"),
-            ("gatefall.eval.baseline_a_events", "evaluate"),
-            ("gatefall.eval.generalization_report", "report"),
+            ("gatefall.eval.baseline_a", "evaluate"),
+            ("gatefall.eval.analysis.generalization_report", "report"),
         }
     )
     no_reference = all("runs/reference" not in " ".join(step.command) for step in steps)
@@ -341,7 +341,7 @@ def check_cv_step_list() -> bool:
             )
     expected_commands.append(
         (
-            sys.executable, "-m", "gatefall.eval.generalization_report", "report",
+            sys.executable, "-m", "gatefall.eval.analysis.generalization_report", "report",
             "--dataset", "le2i-cv", "--output",
             "runs/local/le2i_cv/baseline_a/generalization_report.json",
         )

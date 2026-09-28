@@ -13,11 +13,11 @@ import pandas as pd
 import torch
 import yaml
 
-import gatefall.eval.c1_events as c1_events
+import gatefall.eval.baseline_c1.cli as c1_events
 from gatefall.config import IGNORE_LABEL
 from gatefall.datasets import DatasetAdapter
-from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, load_alarm_protocol
-from gatefall.eval.event_artifacts import (
+from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, load_alarm_protocol
+from gatefall.eval.shared.event_artifacts import (
     EVENT_TRANSACTION_FILE,
     _promote_event_outputs,
     validate_event_metrics,

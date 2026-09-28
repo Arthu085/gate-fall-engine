@@ -10,13 +10,13 @@ from pathlib import Path
 import torch
 
 from gatefall.datasets.le2i import Le2iDatasetAdapter
-from gatefall.eval.baseline_a_events import (
+from gatefall.eval.shared.event_artifacts import (
     EventEvaluationLock,
     _promote_event_outputs,
     _recover_event_publication,
     validate_event_metrics,
 )
-from gatefall.eval.alarm_protocol import (
+from gatefall.eval.shared.alarm_protocol import (
     BASELINE_A_ALARM_PROTOCOL,
     save_alarm_protocol,
 )

@@ -13,10 +13,10 @@ from gatefall.runs import default_run_dir, default_run_dir_for_arm
 
 SUPPORTED_ARMS = ("A", "B0", "B1", "C0", "C1")
 ARM_MODULES = {
-    "B0": ("gatefall.train.baseline_b0", "b0_fusion", "gatefall.eval.b0_events"),
-    "B1": ("gatefall.train.baseline_b1", "b1_adaptive_gate", "gatefall.eval.b1_events"),
+    "B0": ("gatefall.train.baseline_b0", "b0_fusion", "gatefall.eval.baseline_b0"),
+    "B1": ("gatefall.train.baseline_b1", "b1_adaptive_gate", "gatefall.eval.baseline_b1"),
     "C0": ("gatefall.train.baseline_c0", "c0_fusion", None),
-    "C1": ("gatefall.train.baseline_c1", "c1_adaptive_gate", "gatefall.eval.c1_events"),
+    "C1": ("gatefall.train.baseline_c1", "c1_adaptive_gate", "gatefall.eval.baseline_c1"),
 }
 
 
@@ -93,15 +93,15 @@ def build_pipeline(
             [
                 _module_step("Validar TCN e métricas", "gatefall.train.baseline_a", "selftest"),
                 _module_step("Treinar braço A", "gatefall.train.baseline_a", "train", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
-                _module_step("Validar protocolo de eventos", "gatefall.eval.baseline_a_events", "selftest"),
-                _module_step("Avaliar eventos", "gatefall.eval.baseline_a_events", "evaluate", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
+                _module_step("Validar protocolo de eventos", "gatefall.eval.baseline_a", "selftest"),
+                _module_step("Avaliar eventos", "gatefall.eval.baseline_a", "evaluate", "--dataset", dataset, "--run-dir", run_dir, supports_force=True),
             ]
         )
         if is_cv:
             steps.append(
                 _module_step(
                     "Relatar generalização",
-                    "gatefall.eval.generalization_report",
+                    "gatefall.eval.analysis.generalization_report",
                     "report",
                     "--dataset",
                     dataset,

@@ -1,11 +1,11 @@
 # Avaliação — Bootstrap agrupado por sujeito (intervalo de confiança)
 
-`src/gatefall/eval/grouped_bootstrap.py` é uma ferramenta de diagnóstico
+`src/gatefall/eval/analysis/grouped_bootstrap.py` é uma ferramenta de diagnóstico
 independente de estágio: produz intervalos de confiança percentil por
 bootstrap para as métricas de classificação e de evento congeladas do braço A
 (ver [Avaliação — Braço A](baseline-a-events.md)), reusando uma única
 passada de inferência local por split. Não faz parte do pipeline padrão nem
-do lifecycle de `gatefall.eval.baseline_a_events` (lock/journal); é
+do lifecycle de `gatefall.eval.baseline_a` (lock/journal); é
 estritamente somente leitura contra `checkpoint.pt`/`config.yaml`/
 `metrics.json` do run e nunca toca `alarm_protocol.yaml`,
 `event_metrics.json`, `metrics.json` ou `checkpoint.pt`.
@@ -32,8 +32,8 @@ esse contrato explicitamente em `method.note`.
 ## Como executar
 
 ```bash
-uv run python -m gatefall.eval.grouped_bootstrap selftest
-uv run python -m gatefall.eval.grouped_bootstrap analyze \
+uv run python -m gatefall.eval.analysis.grouped_bootstrap selftest
+uv run python -m gatefall.eval.analysis.grouped_bootstrap analyze \
   [--dataset le2i] [--run-dir PATH] \
   [--n-replicates 10000] [--confidence-level 0.95] [--seed 42] [--force]
 ```
@@ -47,9 +47,9 @@ de skip nomeia exatamente o(s) arquivo(s) encontrado(s) (só o JSON, só o
 CSV, ou ambos).
 
 **Execuções concorrentes não são suportadas**, pela mesma limitação aceita de
-`gatefall.eval.alarm_protocol_sensitivity` e `gatefall.eval.qualitative
+`gatefall.eval.analysis.alarm_protocol_sensitivity` e `gatefall.eval.analysis.qualitative
 render`: esta ferramenta é deliberadamente independente do lifecycle de
-`gatefall.eval.baseline_a_events`, nunca abre nem toca o
+`gatefall.eval.baseline_a`, nunca abre nem toca o
 `EventEvaluationLock` nem o journal canônicos. O comportamento de pular sem
 `--force` é conveniência de idempotência, não garantia de concorrência.
 
@@ -187,7 +187,7 @@ Dois arquivos em `runs/local/{dataset}/{run_name}/`:
 ```
 
   A chave `alarm_protocol` grava `BASELINE_A_ALARM_PROTOCOL.to_dict()`
-  (`src/gatefall/eval/alarm_protocol.py`) por inteiro, tornando o artefato
+  (`src/gatefall/eval/shared/alarm_protocol.py`) por inteiro, tornando o artefato
   autodescritivo quanto ao protocolo de alarme congelado usado para calcular
   as métricas de evento — sem essa chave, interpretar
   `false_alarms_per_hour`/latências exigiria abrir `alarm_protocol.yaml`

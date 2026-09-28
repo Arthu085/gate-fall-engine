@@ -9,14 +9,14 @@ import numpy as np
 import torch
 
 from gatefall.config import TRAIN_STRIDE
-from gatefall.eval.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
-from gatefall.eval.baseline_a_events import (
+from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
+from gatefall.eval.shared.event_artifacts import (
     EVENT_COUNT_FIELDS,
     EVENT_RATE_FIELDS,
     EVENT_SPLIT_FIELDS,
-    _predict_with_identity as predict_arm_a_with_identity,
     validate_event_metrics,
 )
+from gatefall.eval.baseline_a.cli import _predict_with_identity as predict_arm_a_with_identity
 from gatefall.features.dinov3_standardization import Dinov3StandardizationStats
 from gatefall.features.standardization import (
     StandardizationStats,
@@ -146,7 +146,7 @@ class _RecordingPoseModel:
 
 
 def check_b0_prediction_standardizes_both_inputs_and_preserves_identity() -> bool:
-    from gatefall.eval.b0_events import _predict_with_identity
+    from gatefall.eval.baseline_b0.cli import _predict_with_identity
 
     source = _FusionSource()
     model = _RecordingFusionModel()
@@ -173,7 +173,7 @@ def check_b0_prediction_standardizes_both_inputs_and_preserves_identity() -> boo
 
 
 def check_b0_defaults_to_own_run_and_rejects_arm_a() -> bool:
-    import gatefall.eval.b0_events as b0_events
+    import gatefall.eval.baseline_b0.cli as b0_events
 
     captured: list[Path] = []
 

@@ -5,8 +5,8 @@ import sys
 import numpy as np
 
 from gatefall.config import IGNORE_LABEL
-from gatefall.eval.alarm_protocol import AlarmProtocol
-from gatefall.eval.events import (
+from gatefall.eval.shared.alarm_protocol import AlarmProtocol
+from gatefall.eval.shared.events import (
     associate_events_and_alarms,
     count_pre_fall_false_alarms,
     detect_alarms_for_video,
