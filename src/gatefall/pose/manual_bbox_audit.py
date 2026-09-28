@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict, cast
 
@@ -22,6 +23,13 @@ from gatefall.pose.selection import bbox_iou
 from gatefall.runs import validate_local_run_dir
 
 
+@dataclass(frozen=True)
+class VisibleManualBox:
+    xyxy: tuple[int, int, int, int]
+    corners_inverted: bool
+    clipped: bool
+
+
 class FrameRecord(TypedDict):
     video_id: str
     frame_index: int
@@ -32,6 +40,8 @@ class FrameRecord(TypedDict):
     label: str
     label_group: str
     manual_box_count: int
+    inverted_manual_box_count: int
+    clipped_manual_box_count: int
     person_found: bool
     best_iou: float | None
 
@@ -51,6 +61,8 @@ def _summary(records: list[FrameRecord]) -> dict[str, object]:
         dtype=np.float64,
     )
     multi_box = sum(record["manual_box_count"] > 1 for record in records)
+    inverted_boxes = sum(record["inverted_manual_box_count"] for record in records)
+    clipped_boxes = sum(record["clipped_manual_box_count"] for record in records)
     return {
         "manual_present_frames": present,
         "pose_found_frames": len(found),
@@ -59,6 +71,14 @@ def _summary(records: list[FrameRecord]) -> dict[str, object]:
         "pose_miss_fraction": (present - len(found)) / present if present else None,
         "multi_box_frames": multi_box,
         "multi_box_fraction": multi_box / present if present else None,
+        "inverted_manual_boxes": inverted_boxes,
+        "inverted_manual_frames": sum(
+            record["inverted_manual_box_count"] > 0 for record in records
+        ),
+        "clipped_manual_boxes": clipped_boxes,
+        "clipped_manual_frames": sum(
+            record["clipped_manual_box_count"] > 0 for record in records
+        ),
         "manual_box_count_frequency": dict(
             sorted(Counter(record["manual_box_count"] for record in records).items())
         ),
@@ -138,9 +158,17 @@ def build_report(
         raise ValueError(f"anotações manuais sem vídeo no manifesto: {unknown}")
     records: list[FrameRecord] = []
     annotation_rows = Counter[str](
-        {"zero_rows": 0, "negative_rows": 0, "metadata_lines": 0, "valid_box_rows": 0}
+        {
+            "zero_rows": 0,
+            "negative_rows": 0,
+            "metadata_lines": 0,
+            "valid_box_rows": 0,
+            "inverted_box_rows": 0,
+        }
     )
     annotated_by_env = Counter[str]()
+    raw_clipped_boxes = 0
+    max_overflow_px_by_side = {"left": 0, "top": 0, "right": 0, "bottom": 0}
     for video_id, path in sorted(files.items()):
         manifest_row = cast(pd.Series, manifest_by_video.loc[video_id])
         n_frames = int(cast(int, manifest_row["n_frames_counted"]))
@@ -149,17 +177,33 @@ def build_report(
         annotation_rows["negative_rows"] += annotations.negative_rows
         annotation_rows["metadata_lines"] += annotations.metadata_lines
         annotation_rows["valid_box_rows"] += len(annotations.boxes)
+        annotation_rows["inverted_box_rows"] += annotations.inverted_rows
         annotated_by_env[str(manifest_row["env"])] += 1
-        boxes_by_frame: dict[int, list[tuple[int, int, int, int]]] = defaultdict(list)
+        boxes_by_frame: dict[int, list[VisibleManualBox]] = defaultdict(list)
         width = int(cast(int, manifest_row["width"]))
         height = int(cast(int, manifest_row["height"]))
         for box in annotations.boxes:
             x1, y1, x2, y2 = box.xyxy
-            if x1 < 0 or y1 < 0 or x2 > width or y2 > height:
-                raise ValueError(
-                    f"caixa manual fora de {width}x{height} em {path}, quadro {box.frame}: {box.xyxy}"
+            overflow = {
+                "left": max(0, -x1),
+                "top": max(0, -y1),
+                "right": max(0, x2 - width),
+                "bottom": max(0, y2 - height),
+            }
+            for side, pixels in overflow.items():
+                max_overflow_px_by_side[side] = max(
+                    max_overflow_px_by_side[side], pixels
                 )
-            boxes_by_frame[box.frame].append(box.xyxy)
+            visible = (max(0, x1), max(0, y1), min(width, x2), min(height, y2))
+            if visible[2] <= visible[0] or visible[3] <= visible[1]:
+                raise ValueError(
+                    f"caixa manual sem área visível em {width}x{height} em {path}, quadro {box.frame}: {box.xyxy}"
+                )
+            clipped = visible != box.xyxy
+            raw_clipped_boxes += int(clipped)
+            boxes_by_frame[box.frame].append(
+                VisibleManualBox(visible, box.corners_inverted, clipped)
+            )
         video_frames = cast(pd.DataFrame, frames[frames["video_id"] == video_id])
         if video_frames.empty:
             raise ValueError(f"vídeo anotado sem grade em frames.parquet: {video_id}")
@@ -199,7 +243,12 @@ def build_report(
                         f"bbox de pose inválida em {video_id}, frame_index={frame_index}"
                     )
                 best_iou = float(
-                    np.max(bbox_iou(pose_box, np.asarray(boxes, dtype=np.float64)))
+                    np.max(
+                        bbox_iou(
+                            pose_box,
+                            np.asarray([box.xyxy for box in boxes], dtype=np.float64),
+                        )
+                    )
                 )
             label_id = int(cast(int, frame_row["label"]))
             if label_id != IGNORE_LABEL and not 0 <= label_id < len(LE2I_LABEL_NAMES):
@@ -224,6 +273,10 @@ def build_report(
                     "label": label,
                     "label_group": label_group,
                     "manual_box_count": len(boxes),
+                    "inverted_manual_box_count": sum(
+                        box.corners_inverted for box in boxes
+                    ),
+                    "clipped_manual_box_count": sum(box.clipped for box in boxes),
                     "person_found": found,
                     "best_iou": best_iou,
                 }
@@ -252,6 +305,16 @@ def build_report(
             },
         },
         "annotation_rows": dict(annotation_rows),
+        "clipping": {
+            "raw_clipped_boxes": raw_clipped_boxes,
+            "sampled_clipped_boxes": sum(
+                record["clipped_manual_box_count"] for record in records
+            ),
+            "sampled_clipped_frames": sum(
+                record["clipped_manual_box_count"] > 0 for record in records
+            ),
+            "max_overflow_px_by_side": max_overflow_px_by_side,
+        },
         "overall": _summary(records),
         "by_environment": _stratify(records, "env"),
         "by_split": _stratify(records, "split"),
@@ -292,6 +355,7 @@ def run_report(output: Path | None) -> None:
     print(
         f"Linhas de anotação: {report['annotation_rows']}; sequências de falha: {runs['count']}; maior sequência: {runs['max_length']}"
     )
+    print(f"Interseção com imagem: {report['clipping']}")
     for field in ("by_environment", "by_split", "by_label", "by_label_group"):
         print(f"{field}: {report[field]}")
     print(report["identity_limit"])
