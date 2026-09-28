@@ -3,7 +3,7 @@
 `src/gatefall/pose/quality.py` calcula, por quadro, um índice de qualidade da
 pose extraída — `q_pose` — a partir dos dados brutos de
 `gatefall.pose.loading.load_pose`. É um diagnóstico de relatório, no mesmo
-espírito de `gatefall.eval.qualitative` e `gatefall.pose.smoke`: **não é um
+espírito de `gatefall.eval.analysis.qualitative` e `gatefall.pose.smoke`: **não é um
 estágio do pipeline de 26 estágios**, não entra no vetor de 134 features do
 braço A nem em nenhum dos três braços do experimento, e nada no schema HDF5,
 na padronização ou no treino muda por causa dele.

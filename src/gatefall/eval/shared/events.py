@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from gatefall.config import IGNORE_LABEL
-from gatefall.eval.alarm_protocol import AlarmProtocol
+from gatefall.eval.shared.alarm_protocol import AlarmProtocol
 
 
 @dataclass(frozen=True)

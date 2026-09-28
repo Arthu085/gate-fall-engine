@@ -16,13 +16,13 @@ from gatefall.config import EVAL_STRIDE
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
 from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
-from gatefall.eval.alarm_protocol import (
+from gatefall.eval.shared.alarm_protocol import (
     BASELINE_A_ALARM_PROTOCOL,
     load_alarm_protocol,
     save_alarm_protocol,
 )
-from gatefall.eval.events import extract_label_segments, split_event_report
-from gatefall.eval.events_selftest import run_events_selftest
+from gatefall.eval.shared.events import extract_label_segments, split_event_report
+from gatefall.eval.shared.selftests.events import run_events_selftest
 from gatefall.features.standardization import (
     StandardizationStats,
     apply_standardization,
@@ -36,7 +36,7 @@ from gatefall.train.baseline_a.artifacts import load_compatible_checkpoint, vali
 from gatefall.train.baseline_a.config import BASELINE_A_CONFIG, TrainConfig
 from gatefall.train.shared.tcn import TCNClassifier
 
-from gatefall.eval.event_artifacts import (
+from gatefall.eval.shared.event_artifacts import (
     EVENT_COUNT_FIELDS,
     EVENT_RATE_FIELDS,
     EVENT_SPLIT_FIELDS,

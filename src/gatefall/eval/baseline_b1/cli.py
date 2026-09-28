@@ -22,19 +22,19 @@ from gatefall.dinov3.dataset_guard import (
     ensure_dinov3_dataset_supported,
 )
 from gatefall.dinov3.storage import dinov3_path, read_features
-from gatefall.eval.alarm_protocol import (
+from gatefall.eval.shared.alarm_protocol import (
     BASELINE_A_ALARM_PROTOCOL,
     load_alarm_protocol,
     save_alarm_protocol,
 )
-from gatefall.eval.event_artifacts import (
+from gatefall.eval.shared.event_artifacts import (
     EventEvaluationLock,
     _promote_event_outputs,
     _recover_event_publication,
     _require_event_lock,
     validate_event_metrics,
 )
-from gatefall.eval.events import extract_label_segments, split_event_report
+from gatefall.eval.shared.events import extract_label_segments, split_event_report
 from gatefall.features.dinov3_standardization import (
     Dinov3StandardizationStats,
     apply_standardization as apply_visual_standardization,
@@ -423,7 +423,7 @@ def run_evaluate(
 
 
 def run_selftest() -> None:
-    from gatefall.eval.b1_events_selftest import run_b1_events_selftest
+    from gatefall.eval.baseline_b1.selftests.events import run_b1_events_selftest
 
     if not run_b1_events_selftest():
         sys.exit(1)

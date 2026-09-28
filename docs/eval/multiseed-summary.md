@@ -1,6 +1,6 @@
 # Avaliação — Sumário multi-seed
 
-`src/gatefall/eval/multiseed_summary.py` agrega treinos independentes de uma
+`src/gatefall/eval/analysis/multiseed_summary.py` agrega treinos independentes de uma
 arma selecionada entre A, B0, B1, C0 e C1 no protocolo `le2i`, produzindo
 estatísticas descritivas (n/mean/desvio-padrão amostral/min/max). A, B0, B1
 e C1 agregam classificação e evento; C0 agrega apenas classificação, pois
@@ -44,8 +44,8 @@ para as armas de fusão.
 ## Como executar
 
 ```bash
-uv run python -m gatefall.eval.multiseed_summary selftest
-uv run python -m gatefall.eval.multiseed_summary summarize [--dataset le2i] [--arm {A,B0,B1,C0,C1}] \
+uv run python -m gatefall.eval.analysis.multiseed_summary selftest
+uv run python -m gatefall.eval.analysis.multiseed_summary summarize [--dataset le2i] [--arm {A,B0,B1,C0,C1}] \
   --run-dir PATH [--run-dir PATH ...] --output-dir PATH [--force]
 ```
 

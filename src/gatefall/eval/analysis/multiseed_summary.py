@@ -1,7 +1,7 @@
 """Sumário multi-seed das armas A, B0, B1, C0 e C1.
 
 Ferramenta somente leitura, conceitualmente separada do bootstrap agrupado por
-sujeito (`gatefall.eval.grouped_bootstrap`): aqui a unidade agregada é o
+sujeito (`gatefall.eval.analysis.grouped_bootstrap`): aqui a unidade agregada é o
 **treino independente** (uma seed, um checkpoint, um `run_dir` completo), não
 a réplica de reamostragem sobre um único checkpoint fixo. Este módulo nunca
 mistura as duas noções de variação — jamais combina réplicas de bootstrap com
@@ -41,12 +41,12 @@ from gatefall.datasets import get_dataset
 from gatefall.datasets.base import DatasetAdapter
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.dinov3.dataset_guard import ensure_dinov3_dataset_supported
-from gatefall.eval.alarm_protocol import (
+from gatefall.eval.shared.alarm_protocol import (
     BASELINE_A_ALARM_PROTOCOL,
     load_alarm_protocol,
     save_alarm_protocol,
 )
-from gatefall.eval.baseline_a_events import EVENT_SPLIT_FIELDS, validate_event_metrics
+from gatefall.eval.shared.event_artifacts import EVENT_SPLIT_FIELDS, validate_event_metrics
 from gatefall.features.dinov3_standardization import load_stats as load_visual_stats
 from gatefall.features.dinov3_standardization import (
     validate_stats_freshness as validate_visual_stats_freshness,

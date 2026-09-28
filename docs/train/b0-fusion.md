@@ -134,14 +134,14 @@ no braço A.
 ### Avaliação por eventos
 
 ```bash
-uv run python -m gatefall.eval.b0_events selftest
+uv run python -m gatefall.eval.baseline_b0 selftest
 ```
 
 Roda checagens sintéticas da inferência fundida, das guardas de protocolo e
 do lifecycle dos artefatos, sem acessar o dataset real nem um checkpoint.
 
 ```bash
-uv run python -m gatefall.eval.b0_events evaluate --dataset le2i \
+uv run python -m gatefall.eval.baseline_b0 evaluate --dataset le2i \
   --run-dir runs/local/le2i/b0_fusion
 ```
 

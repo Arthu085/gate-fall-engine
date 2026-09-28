@@ -52,8 +52,8 @@ GPU. Aquisições de rede falham explicitamente quando indisponíveis.
 22. `python -m gatefall.features.standardize report --dataset le2i`
 23. `python -m gatefall.train.baseline_a selftest`
 24. `python -m gatefall.train.baseline_a train --dataset le2i --run-dir runs/local/le2i/baseline_a`
-25. `python -m gatefall.eval.baseline_a_events selftest`
-26. `python -m gatefall.eval.baseline_a_events evaluate --dataset le2i --run-dir runs/local/le2i/baseline_a`
+25. `python -m gatefall.eval.baseline_a selftest`
+26. `python -m gatefall.eval.baseline_a evaluate --dataset le2i --run-dir runs/local/le2i/baseline_a`
 
 O prefixo real é o interpretador do `uv run` (`sys.executable`), não
 necessariamente a palavra literal `python`. O contador exibido é `[01/26]` a

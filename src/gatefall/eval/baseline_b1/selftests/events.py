@@ -14,12 +14,12 @@ import torch
 import yaml
 
 from gatefall.config import TRAIN_STRIDE
-from gatefall.eval.alarm_protocol import (
+from gatefall.eval.shared.alarm_protocol import (
     AlarmProtocol,
     BASELINE_A_ALARM_PROTOCOL,
     save_alarm_protocol,
 )
-from gatefall.eval.event_artifacts import (
+from gatefall.eval.shared.event_artifacts import (
     EVENT_COUNT_FIELDS,
     EVENT_LOCK_FILE,
     EVENT_RATE_FIELDS,
@@ -195,7 +195,7 @@ def _raises_value_error(callback) -> bool:
 
 
 def check_b1_prediction_standardizes_pose_and_visual_and_keeps_quality_raw() -> bool:
-    from gatefall.eval.b1_events import _predict_with_identity
+    from gatefall.eval.baseline_b1.cli import _predict_with_identity
 
     source = _GatedFusionSource()
     model = _RecordingGatedFusionModel()
@@ -233,7 +233,7 @@ def check_b1_prediction_standardizes_pose_and_visual_and_keeps_quality_raw() -> 
 
 
 def check_b1_defaults_to_own_run_and_rejects_arm_a_and_b0() -> bool:
-    import gatefall.eval.b1_events as b1_events
+    import gatefall.eval.baseline_b1.cli as b1_events
 
     captured: list[Path] = []
 
@@ -301,7 +301,7 @@ def check_b1_defaults_to_own_run_and_rejects_arm_a_and_b0() -> bool:
 
 
 def check_guards_are_anchored_at_repository_root() -> bool:
-    from gatefall.eval.b1_events import (
+    from gatefall.eval.baseline_b1.cli import (
         guard_not_arm_a_run_dir,
         guard_not_arm_b0_run_dir,
     )
@@ -330,7 +330,7 @@ def check_guards_are_anchored_at_repository_root() -> bool:
 
 
 def check_alarm_protocol_is_the_frozen_baseline_a_protocol() -> bool:
-    import gatefall.eval.b1_events as b1_events
+    import gatefall.eval.baseline_b1.cli as b1_events
 
     source = inspect.getsource(b1_events)
     no_construction = (
@@ -369,7 +369,7 @@ def _published_event_report_fields() -> set[str]:
     """Campos de topo que `_run_evaluate_locked` grava em event_metrics.json,
     lidos da própria fonte para que renomear/adicionar/remover um campo quebre
     a checagem."""
-    import gatefall.eval.b1_events as b1_events
+    import gatefall.eval.baseline_b1.cli as b1_events
 
     tree = ast.parse(inspect.getsource(b1_events._run_evaluate_locked))
     fields: set[str] = set()
@@ -508,7 +508,7 @@ def check_event_artifact_lifecycle_promotes_and_isolates_b1_run() -> bool:
 
 
 def check_partial_event_outputs_fail_without_force() -> bool:
-    import gatefall.eval.b1_events as b1_events
+    import gatefall.eval.baseline_b1.cli as b1_events
 
     original_load = b1_events._load_run_assets
     setattr(
@@ -540,7 +540,7 @@ def check_partial_event_outputs_fail_without_force() -> bool:
 
 
 def check_b0_evaluator_contract_unchanged() -> bool:
-    from gatefall.eval.b0_events import _predict_with_identity
+    from gatefall.eval.baseline_b0.cli import _predict_with_identity
 
     source = _FusionSource()
     model = _RecordingFusionModel()
@@ -565,7 +565,7 @@ def check_b0_evaluator_contract_unchanged() -> bool:
 
 
 def check_non_canonical_foreign_arm_run_dir_is_rejected_without_creating_anything() -> bool:
-    import gatefall.eval.b1_events as b1_events
+    import gatefall.eval.baseline_b1.cli as b1_events
 
     original_validate = b1_events.validate_local_run_dir
     original_guard_a = b1_events.guard_not_arm_a_run_dir

@@ -25,15 +25,15 @@ pose. Do braço B, além da extração offline de features DINOv3, estão
 implementadas e rodando em CI a fusão B0 (concatenação pose+DINOv3 seguida de
 TCN dilatada rasa, `gatefall.train.baseline_b0`), a fusão adaptativa B1 (gate
 escalar por timestep sobre a mesma TCN, `gatefall.train.baseline_b1`) e a
-avaliação por eventos de ambas (`gatefall.eval.b0_events` e
-`gatefall.eval.b1_events`). Do braço C estão implementadas a fundação de
+avaliação por eventos de ambas (`gatefall.eval.baseline_b0` e
+`gatefall.eval.baseline_b1`). Do braço C estão implementadas a fundação de
 extração offline do descritor `V_t` do SAM 3 (ver [Fundação SAM
 3](../data/sam3-foundation.md)) e a fusão C0 (concatenação pose+`V_t` seguida
 da mesma TCN, `gatefall.train.baseline_c0`, ver [Treino — Arma
 C0](../train/c0-fusion.md)) e a fusão adaptativa C1 (gate por quadro,
 `gatefall.train.baseline_c1`, ver [Treino — Arma C1](../train/c1-adaptive-gate.md)).
 A avaliação por eventos de C1 usa o protocolo de alarme congelado do braço A
-(`gatefall.eval.c1_events`; ver [Treino — Arma C1](../train/c1-adaptive-gate.md#avaliacao-por-eventos)).
+(`gatefall.eval.baseline_c1`; ver [Treino — Arma C1](../train/c1-adaptive-gate.md#avaliacao-por-eventos)).
 
 ## Licenças
 
