@@ -3,16 +3,16 @@
 `src/gatefall/sam3/` implementa a extração offline do descritor `V_t` do
 braço C a partir do backbone congelado **SAM 3** (runtime oficial
 `facebookresearch/sam3`). Esta
-etapa cobre apenas a fundação de dados: descritores de máscara, seleção de
-instância, armazenamento e proveniência. Ela **conclui os requisitos
-técnicos do PEND-015** — implementação e validação real da fundação offline
-do SAM 3 (ver [validação manual em hardware real](#validacao-manual-em-hardware-real))
-—, que pode ser fechado quando este PR for mergeado. A fusão C0, que consome
+etapa cobre a fundação de dados: descritores de máscara, seleção de
+instância, armazenamento e proveniência. A implementação integrada e a
+[validação manual em hardware real](#validacao-manual-em-hardware-real)
+encerraram o PEND-015. A fusão C0, que consome
 estes descritores, está em [Treino — Arma C0](../train/c0-fusion.md), e a
 proxy de qualidade específica do SAM 3 (`q_sam3`), em
 [Qualidade SAM 3](sam3-quality.md). A fusão C1 está em [Treino — Arma
 C1](../train/c1-adaptive-gate.md), que também documenta sua avaliação por
-eventos. Atenção cruzada continua como trabalho subsequente.
+eventos. Atenção cruzada está fora do escopo experimental mínimo, salvo
+reabertura explícita desse escopo.
 
 ## O que a CI prova e o que foi validado manualmente
 
@@ -48,12 +48,12 @@ A extração real foi validada manualmente, fora da CI, no head `faf4cf2`:
   sem falhas; um empate exato entre vizinhos foi reportado como
   inconclusivo, por design.
 
-Essa validação cobre a fundação offline e nada além dela: construção do
-modelo, recuo para FP16, extração do Le2i, integridade dos artefatos e
-alinhamento de quadro. Ela não audita a qualidade semântica de cada máscara
+Essa validação cobre a fundação offline: construção do modelo, recuo para
+FP16, extração do Le2i, integridade dos artefatos e alinhamento de quadro.
+Ela não audita a qualidade semântica de cada máscara
 (`verify-frame-alignment` valida apenas alinhamento de quadro), não exercita
-os ramos BF16 e de CPU e não implementa nem valida C0, C1, `q_visual`
-específico do SAM, treino da fusão, cross-attention ou avaliação de alarme.
+os ramos BF16 e de CPU e não valida C0, C1, `q_sam3`, o treino da fusão ou a
+avaliação de alarme. Atenção cruzada permanece fora do escopo mínimo.
 
 ### Histórico: falhas anteriores à validação final
 

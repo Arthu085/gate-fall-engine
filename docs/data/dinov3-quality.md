@@ -2,9 +2,9 @@
 
 `gatefall.dinov3.quality` calcula `q_visual`, uma proxy operacional de qualidade
 visual por quadro. O índice é causal, determinístico e limitado a `[0, 1]`, mas
-**não é uma confiança nem uma probabilidade calibrada**. Seu uso previsto é
-avaliar posteriormente a fusão adaptativa; esta etapa não implementa B1, gating
-nem SAM 3 e não fecha o PEND-013.
+**não é uma confiança nem uma probabilidade calibrada**. A arma
+[B1](../train/b1-adaptive-gate.md) usa `q_visual` no gate adaptativo. Esta
+página documenta o cálculo e a validação da proxy, separados do treino de B1.
 
 ## Entrada e fórmula
 
@@ -95,11 +95,11 @@ medianas nos extremos foram:
 | Sobre-exposição, ganho 0.125 | 0.0730 | 0.771 |
 | Subexposição, ganho 0.125 | 0.0645 | 0.925 |
 
-Esses resultados sustentam `q_visual` como proxy operacional defensável para
-uma avaliação posterior do gating. Eles não demonstram calibração probabilística
-nem validam uma política de fusão. O selftest sintético da CI verifica fórmula,
-limites, causalidade, determinismo, sweeps, seleção e agregações, mas não usa o
-dataset real nem os pesos e, portanto, **não fecha o PEND-013**.
+Esses resultados sustentam `q_visual` como proxy operacional para o gate de
+B1. Isoladamente, não demonstram calibração probabilística nem validam a
+política de fusão. O selftest sintético da CI verifica fórmula, limites,
+causalidade, determinismo, sweeps, seleção e agregações, mas não usa o dataset
+real nem os pesos.
 
 ## Limitações
 

@@ -3,10 +3,10 @@
 `gatefall.sam3.quality` define `q_sam3`, a proxy operacional de qualidade por
 quadro da fonte SAM 3 do braço C, e valida essa proxy contra degradações
 controladas. O índice é causal, determinístico, finito e limitado a `[0, 1]`,
-mas **não é uma confiança nem uma probabilidade calibrada**. Esta etapa cobre
-a parte SAM 3 do PEND-013; ela não implementa C1 nem gate, não retreina o C0 e
-não altera `V_t`, a seleção de instância nem o contrato de armazenamento
-descritos na [fundação SAM 3](sam3-foundation.md).
+mas **não é uma confiança nem uma probabilidade calibrada**. A arma
+[C1](../train/c1-adaptive-gate.md) usa `q_sam3` no gate adaptativo. O cálculo
+da proxy não altera `V_t`, a seleção de instância nem o contrato de
+armazenamento descritos na [fundação SAM 3](sam3-foundation.md).
 
 ## Definição
 

@@ -1,8 +1,7 @@
 # Padronização de features de pose
 
 `src/gatefall/features/standardization.py` calcula estatísticas de z-score
-por dimensão para o vetor de 134 features de pose descrito em [Contrato
-temporal](temporal-contract.md#dataset-de-janelas-de-pose), e
+por dimensão para o vetor de 134 features de pose descrito abaixo, e
 `src/gatefall/features/standardize.py` é a CLI fina (`build`, `selftest`,
 `report`) sobre essa lógica. Nenhuma padronização acontece dentro de
 `PoseWindowDataset` — a fatia de janela que ele devolve continua crua; quem
@@ -14,6 +13,46 @@ features; o núcleo genérico não conhece caminhos do Le2i. A dimensão 134 vem
 do schema de pose em `gatefall.pose.kinematics.POSE_FEATURE_DIM`, não do
 adapter. A mesma instância da fonte de janelas de treino é reutilizada para
 acumulação e diagnósticos, evitando carregar/construir o dataset duas vezes.
+
+## Schema canônico das features de pose
+
+`gatefall.pose.kinematics.build_pose_features(video_id, pose_root=...)` lê o
+HDF5 de pose do vídeo e devolve uma matriz finita `float32` de shape
+`[K, 134]` e uma lista ordenada de 134 nomes. `K` é a quantidade de quadros
+na grade temporal do vídeo. O vetor é derivado no carregamento; o HDF5 guarda
+keypoints, bbox e presença da pessoa, não a matriz cinemática. A origem é a
+extração RGB do YOLO-Pose, identificada no HDF5 por atributos como
+`model_name`, `tracker_name` e `target_fps`; nenhum descritor de profundidade
+entra no vetor. A ordem dos
+blocos é parte do contrato consumido por A, B0, B1, C0 e C1:
+
+| Bloco | Colunas `[início, fim)` | Nomes e conteúdo |
+| --- | --- | --- |
+| `kp_xy` | `[0, 34)` | `kp_x_i`, `kp_y_i` intercalados para `i=0..16`: keypoints centrados na bbox e divididos pela diagonal da bbox |
+| `kp_conf` | `[34, 51)` | `kp_conf_i` para `i=0..16`: confiança original de cada keypoint, sem padronização |
+| `kp_velocity` | `[51, 85)` | `kp_vx_i`, `kp_vy_i` intercalados: primeira diferença de `kp_xy` por segundo |
+| `kp_acceleration` | `[85, 119)` | `kp_ax_i`, `kp_ay_i` intercalados: segunda diferença de `kp_xy` por segundo ao quadrado |
+| `bbox_pos` | `[119, 123)` | `bbox_cx`, `bbox_cy`, `bbox_w`, `bbox_h`: centro e dimensões da bbox divididos pela largura ou altura da imagem |
+| `bbox_velocity` | `[123, 127)` | `bbox_vcx`, `bbox_vcy`, `bbox_vw`, `bbox_vh`: primeira diferença de `bbox_pos` por segundo |
+| `bbox_acceleration` | `[127, 131)` | `bbox_acx`, `bbox_acy`, `bbox_aw`, `bbox_ah`: segunda diferença de `bbox_pos` por segundo ao quadrado |
+| `trunk` | `[131, 134)` | `trunk_sin`, `trunk_cos`, `trunk_dtheta`: seno, cosseno e velocidade angular do vetor entre os pontos médios dos ombros e quadris |
+
+Os índices `i` seguem `COCO17_KEYPOINT_NAMES` em
+`gatefall.pose.kinematics`; os pares `x, y` mantêm essa ordem em todos os
+blocos de keypoints. A escala isotrópica de `kp_xy` preserva ângulos, mas
+retira a translação global; `bbox_pos` e suas derivadas conservam o movimento
+da pessoa na imagem. As diferenças usam `dt = 1 / TARGET_FPS` e, na
+reaparição após um intervalo sem detecção, o tempo efetivamente decorrido.
+`trunk_dtheta` usa a diferença angular ajustada ao intervalo `[-π, π)`.
+As regras de zeros e imputação por linha estão no [contrato temporal](temporal-contract.md#imputacao-de-pose-e-causalidade-do-prefixo).
+
+`POSE_FEATURE_DIM`, `feature_blocks()` e `feature_names()` em
+`gatefall.pose.kinematics` são a fonte de verdade da dimensão, das fronteiras
+e dos nomes ordenados. O JSON de padronização persiste `feature_dim=134` e
+`feature_names` nessa mesma ordem; sua validação rejeita metadados divergentes
+antes de aplicar `mean`, `std` e a máscara de exclusão por coluna. Uma mudança
+na ordem ou semântica das features exige recalcular as estatísticas da fonte
+de pose compartilhadas pelas cinco armas.
 
 ## Só no split de treino
 

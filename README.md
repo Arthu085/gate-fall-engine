@@ -158,15 +158,22 @@ Após a preparação dos dados, cada braço experimental possui seu próprio pip
 
 Os braços compartilham o mesmo protocolo temporal e a mesma base experimental, mas utilizam representações distintas por timestep.
 
-### Braço A — YOLO-Pose + TCN
-
-O braço A utiliza features cinemáticas derivadas das poses estimadas pelo YOLO-Pose e um classificador temporal TCN.
-
-Para executar o pipeline completo:
+Execute o pipeline completo da arma desejada com `--dataset le2i`:
 
 ```bash
 uv run python -m gatefall.pipeline run --dataset le2i --arm A
+uv run python -m gatefall.pipeline run --dataset le2i --arm B0
+uv run python -m gatefall.pipeline run --dataset le2i --arm B1
+uv run python -m gatefall.pipeline run --dataset le2i --arm C0
+uv run python -m gatefall.pipeline run --dataset le2i --arm C1
 ```
+
+Somente a arma A aceita `--dataset le2i-cv`. Consulte o [runbook](docs/runbooks/pipeline-a.md)
+e a [referência de comandos](docs/reference/commands.md) para pré-requisitos e detalhes.
+
+### Braço A — YOLO-Pose + TCN
+
+O braço A utiliza features cinemáticas derivadas das poses estimadas pelo YOLO-Pose e um classificador temporal TCN.
 
 O pipeline executa e valida as etapas necessárias para reproduzir o braço A, incluindo geração dos artefatos compartilhados quando necessário, extração de pose e features cinemáticas, padronização, treinamento do TCN e avaliação.
 
@@ -195,8 +202,7 @@ A arma B1 acrescenta uma fusão adaptativa: um gate escalar por timestep,
 calculado a partir dos proxies de qualidade `q_pose` e `q_visual`, pondera as
 duas fontes antes da TCN. Veja [Features de
 qualidade](docs/data/quality-features.md) e [Treino — Arma
-B1](docs/train/b1-adaptive-gate.md). Execute B0 ou B1 com `gatefall.pipeline`
-e `--arm B0` ou `--arm B1`; veja o [runbook](docs/runbooks/pipeline-a.md).
+B1](docs/train/b1-adaptive-gate.md).
 
 ### Braço C — YOLO-Pose + SAM 3 + TCN
 
@@ -217,8 +223,6 @@ veja [Treino — Arma C1](docs/train/c1-adaptive-gate.md). A avaliação por
 eventos e alarmes de C1 também está implementada e usa o protocolo de alarme
 congelado do braço A: veja [Avaliação por eventos de C1](docs/train/c1-adaptive-gate.md#avaliacao-por-eventos).
 Conforme o escopo experimental, C0 não possui avaliação final por eventos.
-Execute C0 ou C1 com `gatefall.pipeline` e `--arm C0` ou `--arm C1`; veja o
-[runbook](docs/runbooks/pipeline-a.md).
 
 ---
 
@@ -272,9 +276,6 @@ resultados textuais das armas A, B0, B1, C0 e C1.
 - [Treino da arma B0 (fusão pose + DINOv3)](docs/train/b0-fusion.md)
 - [Features de qualidade (`q_pose`, `q_visual`)](docs/data/quality-features.md)
 - [Treino da arma B1 (fusão adaptativa por gate)](docs/train/b1-adaptive-gate.md)
-
-Documentação adicional será incluída durante o restante da implementação do
-braço B.
 
 ### Braço C
 
