@@ -234,3 +234,173 @@ valores brutos por seed (`classification`, `binary_fall_fallen`, `events`
 verbatim, incluindo `per_class`/`f1_by_class` para todas as 10 classes) —
 estão em `runs/local/le2i/baseline_a_multiseed/multiseed_summary.json` e
 `.csv`.
+
+## Resultado da execução real — B0, B1, C0 e C1
+
+Os sumários locais de B0, B1, C0 e C1 registram cinco treinos
+independentes por arma, com seeds 42–46 e `n_seeds=5`. A execução real
+foi feita pelo usuário fora da CI; os `selftest` da CI usam apenas runs
+sintéticos. Como `runs/local/**` não é versionado, os fingerprints, hashes
+e agregados abaixo preservam a evidência textual desta execução.
+
+Em cada arma, o checkpoint SHA-256 da seed 42 e suas métricas de
+classificação nos splits `train`, `val` e `test` conferem com
+`runs/reference/le2i/<arma>/metrics.json` e
+`classification_report.json`. A seed 42 permanece a referência canônica
+de todas as armas; nenhuma referência versionada foi substituída.
+
+A variação entre seeds descreve inicialização e otimização sob a mesma
+receita. Ela não substitui a incerteza amostral do bootstrap agrupado por
+sujeito. Os resultados não ranqueiam nem promovem seeds, e o teste não é
+usado para ajustar a receita ou selecionar modelos.
+
+Nesta execução de cinco seeds, B1 tem média de `macro_f1_restricted` maior
+que B0 na validação e no teste. C1 tem média maior que C0 na validação, mas
+menor no teste; a comparação C0/C1 é mista entre splits. Essas observações
+descritivas não alteram a referência canônica nem determinam seleção de arma.
+
+### B0
+
+Fingerprint SHA-256 da configuração normalizada: `394d023c9206417ad7027736e602d94477621b11d80aeebbb7b23580a211b0cc`.
+
+| Seed | checkpoint_sha256 |
+| --- | --- |
+| 42 | `da002ab281c80be6d30175077775c9da7d97b3e009a03167bdb382f3d257d847` |
+| 43 | `c62332053276f6d1bc5e71e830c8dfe8f06b469714e56cf64ba51c59be4e91a3` |
+| 44 | `531f68d1e78465f7c01d3375e18d0fa27f40bbe7856894616953f36d6475241e` |
+| 45 | `699eae132b426435246d2f0311587d56fcfbf3d623beef652580059deadca0f3` |
+| 46 | `3f12500592fee463fd21d76e4be06a2396022dc64e77951b7f491ebe61d7d3a9` |
+
+#### Classificação — `macro_f1_restricted`
+
+| Split | n | Média | Desvio-padrão | Mín | Máx |
+| --- | --- | --- | --- | --- | --- |
+| Treino | 5 | 0,9972 | 0,0002 | 0,9970 | 0,9974 |
+| Validação | 5 | 0,6802 | 0,0203 | 0,6606 | 0,7034 |
+| Teste | 5 | 0,6558 | 0,0143 | 0,6348 | 0,6751 |
+
+#### Eventos — protocolo de alarme congelado
+
+| Split | Métrica | n | Média | Desvio-padrão | Mín | Máx |
+| --- | --- | --- | --- | --- | --- | --- |
+| Validação | sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | fall_sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | fall_or_fallen_sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | false_alarms_per_hour | 5 | 0,0000 | 0,0000 | 0,0000 | 0,0000 |
+| Validação | latency_seconds_mean | 5 | 0,3600 | 0,0548 | 0,3000 | 0,4000 |
+| Validação | latency_seconds_median | 5 | 0,3000 | 0,0000 | 0,3000 | 0,3000 |
+| Teste | sensitivity | 5 | 0,9455 | 0,0498 | 0,8636 | 1,0000 |
+| Teste | fall_sensitivity | 5 | 0,9455 | 0,0498 | 0,8636 | 1,0000 |
+| Teste | fall_or_fallen_sensitivity | 5 | 0,9455 | 0,0498 | 0,8636 | 1,0000 |
+| Teste | false_alarms_per_hour | 5 | 46,6926 | 8,2542 | 40,8560 | 58,3658 |
+| Teste | latency_seconds_mean | 5 | 0,3200 | 0,0447 | 0,3000 | 0,4000 |
+| Teste | latency_seconds_median | 5 | 0,3000 | 0,0000 | 0,3000 | 0,3000 |
+
+Os valores completos por seed e agregados estão em
+`runs/local/le2i/b0_fusion_multiseed/multiseed_summary.json` e `.csv`.
+
+### B1
+
+Fingerprint SHA-256 da configuração normalizada: `b868f5274e5ef258e120ce82c9da44523937072b65151951c1499d9cc3895c1b`.
+
+| Seed | checkpoint_sha256 |
+| --- | --- |
+| 42 | `74e66a5c7687617124e04b37b72d6effc218587b1caafa6c0cff2ed4fc88fe21` |
+| 43 | `0dca0509176ae17071f451f584c7ede34f28b8cb22c34f422cd1799a898d223b` |
+| 44 | `1a04365bbabb219cfd65ff2c550f2cde393bb95a99a4e9f8c49e1337234f35f2` |
+| 45 | `4230c37c5fab0bbf5669df1abfd90d65c23793291d1a95c2eaf4b22970fc1107` |
+| 46 | `9b3b08d3c7c88c87d5d0d860971adde4dc348224aa9ca1b7f46c1705fd01aae3` |
+
+#### Classificação — `macro_f1_restricted`
+
+| Split | n | Média | Desvio-padrão | Mín | Máx |
+| --- | --- | --- | --- | --- | --- |
+| Treino | 5 | 0,9940 | 0,0007 | 0,9928 | 0,9946 |
+| Validação | 5 | 0,6885 | 0,0182 | 0,6645 | 0,7073 |
+| Teste | 5 | 0,6722 | 0,0089 | 0,6607 | 0,6844 |
+
+#### Eventos — protocolo de alarme congelado
+
+| Split | Métrica | n | Média | Desvio-padrão | Mín | Máx |
+| --- | --- | --- | --- | --- | --- | --- |
+| Validação | sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | fall_sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | fall_or_fallen_sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | false_alarms_per_hour | 5 | 0,0000 | 0,0000 | 0,0000 | 0,0000 |
+| Validação | latency_seconds_mean | 5 | 0,3400 | 0,0548 | 0,3000 | 0,4000 |
+| Validação | latency_seconds_median | 5 | 0,3200 | 0,0447 | 0,3000 | 0,4000 |
+| Teste | sensitivity | 5 | 0,9636 | 0,0203 | 0,9545 | 1,0000 |
+| Teste | fall_sensitivity | 5 | 0,9636 | 0,0203 | 0,9545 | 1,0000 |
+| Teste | fall_or_fallen_sensitivity | 5 | 0,9636 | 0,0203 | 0,9545 | 1,0000 |
+| Teste | false_alarms_per_hour | 5 | 43,1907 | 8,8516 | 35,0195 | 52,5292 |
+| Teste | latency_seconds_mean | 5 | 0,3000 | 0,0000 | 0,3000 | 0,3000 |
+| Teste | latency_seconds_median | 5 | 0,2800 | 0,0447 | 0,2000 | 0,3000 |
+
+Os valores completos por seed e agregados estão em
+`runs/local/le2i/b1_adaptive_gate_multiseed/multiseed_summary.json` e `.csv`.
+
+### C0
+
+Fingerprint SHA-256 da configuração normalizada: `7ce58d7ea967633a340396757acfd1728cc4dc2799291e15c9779f8999583623`.
+
+| Seed | checkpoint_sha256 |
+| --- | --- |
+| 42 | `6cebe3737d850b6d76a5c02579b93210a56f26d8bde7cc0cb9e3148d19d0ed07` |
+| 43 | `99ce19cd7093a9af805d32fa958521423a28277613242793e8103ffd785240b4` |
+| 44 | `b96bffcbb9fb42a23c0a7b6507d87ebaddf6b8db7775f3c3b044182573cb1b55` |
+| 45 | `1750a4061f9c0536b9536d626ac03a457749d9f2510871e917f78c4983eb02fd` |
+| 46 | `0460489e3a6d23f5158c0f53f1c44761a5c5e24f53e2d6e7943fa02071712e5e` |
+
+#### Classificação — `macro_f1_restricted`
+
+| Split | n | Média | Desvio-padrão | Mín | Máx |
+| --- | --- | --- | --- | --- | --- |
+| Treino | 5 | 0,9856 | 0,0017 | 0,9838 | 0,9882 |
+| Validação | 5 | 0,6617 | 0,0140 | 0,6448 | 0,6784 |
+| Teste | 5 | 0,6391 | 0,0071 | 0,6314 | 0,6461 |
+
+C0 tem apenas classificação; não há avaliação final de eventos
+contratada para essa arma.
+
+Os valores completos por seed e agregados estão em
+`runs/local/le2i/c0_fusion_multiseed/multiseed_summary.json` e `.csv`.
+
+### C1
+
+Fingerprint SHA-256 da configuração normalizada: `4e4320e02731a9803cc38c87f993236956a6921e76e55782ae8d2219f17640d0`.
+
+| Seed | checkpoint_sha256 |
+| --- | --- |
+| 42 | `e4a6584d8b0135154b0a5ec93956157ab9b1a9b85cc31e4e20d0a2d88a673aca` |
+| 43 | `2110f15158ced198be5388273248b165e34f05ec9f45225e6b1dbf9e764107d5` |
+| 44 | `b901da9629079656335079d8cd090a415067fe00a0433bf9daed12d7e2bafadb` |
+| 45 | `be56122520212226ec1dae97a1cd88ea13237e34e7cae37875a66b0fb0241dca` |
+| 46 | `6b08186255ea41f4105876d99c70b2e8a3ddd45f9e9d08da6d43c12c72789050` |
+
+#### Classificação — `macro_f1_restricted`
+
+| Split | n | Média | Desvio-padrão | Mín | Máx |
+| --- | --- | --- | --- | --- | --- |
+| Treino | 5 | 0,9779 | 0,0027 | 0,9743 | 0,9811 |
+| Validação | 5 | 0,6813 | 0,0094 | 0,6710 | 0,6957 |
+| Teste | 5 | 0,6254 | 0,0179 | 0,6031 | 0,6448 |
+
+#### Eventos — protocolo de alarme congelado
+
+| Split | Métrica | n | Média | Desvio-padrão | Mín | Máx |
+| --- | --- | --- | --- | --- | --- | --- |
+| Validação | sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | fall_sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | fall_or_fallen_sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | false_alarms_per_hour | 5 | 0,0000 | 0,0000 | 0,0000 | 0,0000 |
+| Validação | latency_seconds_mean | 5 | 0,4000 | 0,0000 | 0,4000 | 0,4000 |
+| Validação | latency_seconds_median | 5 | 0,3600 | 0,0548 | 0,3000 | 0,4000 |
+| Teste | sensitivity | 5 | 0,9545 | 0,0455 | 0,9091 | 1,0000 |
+| Teste | fall_sensitivity | 5 | 0,9545 | 0,0455 | 0,9091 | 1,0000 |
+| Teste | fall_or_fallen_sensitivity | 5 | 0,9545 | 0,0455 | 0,9091 | 1,0000 |
+| Teste | false_alarms_per_hour | 5 | 39,6887 | 10,4408 | 29,1829 | 52,5292 |
+| Teste | latency_seconds_mean | 5 | 0,4200 | 0,0447 | 0,4000 | 0,5000 |
+| Teste | latency_seconds_median | 5 | 0,3000 | 0,0000 | 0,3000 | 0,3000 |
+
+Os valores completos por seed e agregados estão em
+`runs/local/le2i/c1_adaptive_gate_multiseed/multiseed_summary.json` e `.csv`.

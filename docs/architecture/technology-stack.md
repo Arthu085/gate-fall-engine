@@ -16,7 +16,7 @@
 | MkDocs Material | Site desta documentação |
 | Pyright | Verificação estática obrigatória do Python |
 | DINOv3 | Backbone congelado ViT-B/16 (LVD-1689M); extração offline de embeddings visuais do braço B, fusão (B0 e B1) e avaliação por eventos implementadas |
-| SAM 3 | Backbone congelado; extração offline do descritor `V_t` do braço C e fusões C0 e C1 implementadas; avaliação por eventos de C1 pendente |
+| SAM 3 | Backbone congelado; extração offline do descritor `V_t` do braço C, fusões C0 e C1 e avaliação por eventos de C1 implementadas |
 
 O pipeline é monocular RGB. YOLO-Pose, DINOv3 e SAM 3 são backbones
 congelados: nenhum deles é ajustado durante o treino, que alcança apenas as
@@ -32,7 +32,8 @@ extração offline do descritor `V_t` do SAM 3 (ver [Fundação SAM
 da mesma TCN, `gatefall.train.c0_fusion`, ver [Treino — Arma
 C0](../train/c0-fusion.md)) e a fusão adaptativa C1 (gate por quadro,
 `gatefall.train.c1_gate`, ver [Treino — Arma C1](../train/c1-adaptive-gate.md)).
-A avaliação por eventos de C1 permanece pendente.
+A avaliação por eventos de C1 usa o protocolo de alarme congelado do braço A
+(`gatefall.eval.c1_events`; ver [Treino — Arma C1](../train/c1-adaptive-gate.md#avaliacao-por-eventos)).
 
 ## Licenças
 
