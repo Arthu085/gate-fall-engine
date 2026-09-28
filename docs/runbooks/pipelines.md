@@ -71,10 +71,10 @@ próprio diretório em `runs/local/le2i/`:
 
 | Braço | Etapas após o passo 22 | Destino local | Total |
 | --- | --- | --- | --- |
-| B0 | `dinov3.extract`: selftest, extract-all, report; `features.standardize_dinov3`: selftest, build, report; `train.baseline_b0`: selftest, train, report; `eval.b0_events`: selftest, evaluate | `baseline_b0/` | 33 |
-| B1 | Extração e padronização DINOv3 de B0; `features.quality_extract`: selftest, extract-all, report; `train.baseline_b1`: selftest, train, report; `eval.b1_events`: selftest, evaluate | `baseline_b1/` | 36 |
+| B0 | `dinov3.extract`: selftest, extract-all, report; `features.standardize_dinov3`: selftest, build, report; `train.baseline_b0`: selftest, train, report; `eval.baseline_b0`: selftest, evaluate | `baseline_b0/` | 33 |
+| B1 | Extração e padronização DINOv3 de B0; `features.quality_extract`: selftest, extract-all, report; `train.baseline_b1`: selftest, train, report; `eval.baseline_b1`: selftest, evaluate | `baseline_b1/` | 36 |
 | C0 | `sam3.extract`: selftest, extract-all, report; `features.standardize_sam3`: selftest, build, report; `train.baseline_c0`: selftest, train, report | `baseline_c0/` | 31 |
-| C1 | Extração e padronização SAM 3 de C0; `sam3.quality`: selftest; `train.baseline_c1`: selftest, train, report; `eval.c1_events`: selftest, evaluate | `baseline_c1/` | 34 |
+| C1 | Extração e padronização SAM 3 de C0; `sam3.quality`: selftest; `train.baseline_c1`: selftest, train, report; `eval.baseline_c1`: selftest, evaluate | `baseline_c1/` | 34 |
 
 ```bash
 uv run python -m gatefall.pipeline run --dataset le2i --arm B0
