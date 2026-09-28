@@ -8,6 +8,7 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
+from gatefall.config import IGNORE_LABEL
 from gatefall.data.le2i.manual_bbox import (
     discover_annotation_files,
     parse_annotation_file,
@@ -33,9 +34,14 @@ def run_selftest() -> None:
         pose_root = root / "pose"
         annotation_path = raw_root / "Home_01" / "Annotation_files" / "video (1).txt"
         annotation_path.parent.mkdir(parents=True)
+        annotation_path.write_text("1,1,292,152,311,240\n", encoding="utf-8")
+        representative = parse_annotation_file(annotation_path, n_frames=5)
+        assert representative.boxes[0].frame == 1
+        assert representative.boxes[0].auxiliary == 1
+        assert representative.boxes[0].xyxy == (292, 152, 311, 240)
         annotation_path.write_text(
-            "12\n1 77 10 10 20 20\n2 88 0 0 0 0\n3 99 0 0 10 10\n"
-            "3 100 20 20 30 30\n7\n4 101 -1 -1 -1 -1\n5 102 10 10 20 20\n",
+            "12\n1,77,10,10,20,20\n2,88,0,0,0,0\n3, 99, 0, 0, 10, 10\n"
+            "3,100,20,20,30,30\n 7 \n4,101,-1,-1,-1,-1\n5,102,10,10,20,20\n",
             encoding="utf-8",
         )
         annotations = parse_annotation_file(annotation_path, n_frames=5)
@@ -77,7 +83,7 @@ def run_selftest() -> None:
                     "split": "train",
                     "label": label,
                 }
-                for index, label in enumerate([0, 1, 2, 2, 0])
+                for index, label in enumerate([0, 1, 2, 2, IGNORE_LABEL])
             ]
         )
         pose_bbox = np.asarray(
@@ -121,6 +127,10 @@ def run_selftest() -> None:
         }
         label_groups = cast(dict[str, dict[str, object]], report["by_label_group"])
         assert label_groups["fall_or_fallen"]["manual_present_frames"] == 1
+        assert label_groups["other_labeled"]["manual_present_frames"] == 1
+        assert label_groups["ignored"]["manual_present_frames"] == 1
+        assert label_groups["other_labeled"]["pose_miss_frames"] == 0
+        assert label_groups["ignored"]["pose_miss_frames"] == 1
         runs = report["pose_miss_runs"]
         assert isinstance(runs, dict) and runs["count"] == 1 and runs["max_length"] == 1
         miss_records = [
@@ -137,23 +147,31 @@ def run_selftest() -> None:
         ]
         assert [run["length"] for run in _miss_runs(miss_records)] == [2, 1]
 
-        annotation_path.write_text("1 2 3 4 5\n", encoding="utf-8")
+        annotation_path.write_text("1,2,3,4,5\n", encoding="utf-8")
         assert _expect_error(
             lambda: parse_annotation_file(annotation_path, n_frames=5),
             "estrutura inválida",
         )
-        annotation_path.write_text("6 2 1 1 2 2\n", encoding="utf-8")
+        annotation_path.write_text("1 2 3 4 5 6\n", encoding="utf-8")
+        assert _expect_error(
+            lambda: parse_annotation_file(annotation_path, n_frames=5),
+            "estrutura inválida",
+        )
+        annotation_path.write_text("6,2,1,1,2,2\n", encoding="utf-8")
         assert _expect_error(
             lambda: parse_annotation_file(annotation_path, n_frames=5), "fora de 1..5"
         )
-        annotation_path.write_text("1 2 10 10 5 20\n", encoding="utf-8")
+        annotation_path.write_text("1,2,10,10,5,20\n", encoding="utf-8")
         assert _expect_error(
             lambda: parse_annotation_file(annotation_path, n_frames=5),
             "positiva impossível",
         )
-        annotation_path.write_text("1 2 10 10 10 20\n", encoding="utf-8")
-        assert parse_annotation_file(annotation_path, n_frames=5).zero_rows == 1
-        annotation_path.write_text("1 2 10 10 101 20\n", encoding="utf-8")
+        annotation_path.write_text("1,2,10,10,10,20\n", encoding="utf-8")
+        assert _expect_error(
+            lambda: parse_annotation_file(annotation_path, n_frames=5),
+            "positiva impossível",
+        )
+        annotation_path.write_text("1,2,10,10,101,20\n", encoding="utf-8")
         assert _expect_error(
             lambda: build_report(manifest, frames, raw_root, pose_root),
             "fora de 100x200",

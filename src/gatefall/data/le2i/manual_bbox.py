@@ -51,15 +51,16 @@ def parse_annotation_file(path: Path, *, n_frames: int) -> ManualAnnotations:
     for line_number, line in enumerate(
         path.read_text(encoding="utf-8-sig").splitlines(), 1
     ):
-        fields = line.split()
-        if len(fields) not in (1, 6) or any(
+        stripped = line.strip()
+        if _INTEGER.fullmatch(stripped):
+            metadata_lines += 1
+            continue
+        fields = [field.strip() for field in stripped.split(",")]
+        if len(fields) != 6 or any(
             _INTEGER.fullmatch(field) is None for field in fields
         ):
             raise ValueError(f"estrutura inválida em {path}:{line_number}: {line!r}")
         values = [int(field) for field in fields]
-        if len(values) == 1:
-            metadata_lines += 1
-            continue
         frame, auxiliary, x1, y1, x2, y2 = values
         if frame < 1 or frame > n_frames:
             raise ValueError(
@@ -68,12 +69,12 @@ def parse_annotation_file(path: Path, *, n_frames: int) -> ManualAnnotations:
         coordinates = (x1, y1, x2, y2)
         if any(value < 0 for value in coordinates):
             negative_rows += 1
-        elif x2 < x1 or y2 < y1:
+        elif coordinates == (0, 0, 0, 0):
+            zero_rows += 1
+        elif x2 <= x1 or y2 <= y1:
             raise ValueError(
                 f"caixa manual positiva impossível em {path}:{line_number}: {coordinates}"
             )
-        elif x2 == x1 or y2 == y1:
-            zero_rows += 1
         else:
             try:
                 finite = all(math.isfinite(float(value)) for value in coordinates)

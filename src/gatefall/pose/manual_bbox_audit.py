@@ -11,6 +11,7 @@ from typing import TypedDict, cast
 import numpy as np
 import pandas as pd
 
+from gatefall.config import IGNORE_LABEL
 from gatefall.data.le2i.manual_bbox import (
     discover_annotation_files,
     parse_annotation_file,
@@ -199,9 +200,17 @@ def build_report(
                     np.max(bbox_iou(pose_box, np.asarray(boxes, dtype=np.float64)))
                 )
             label_id = int(cast(int, frame_row["label"]))
-            if label_id != -1 and not 0 <= label_id < len(LE2I_LABEL_NAMES):
+            if label_id != IGNORE_LABEL and not 0 <= label_id < len(LE2I_LABEL_NAMES):
                 raise ValueError(f"rótulo inválido em {video_id}: {label_id}")
-            label = "ignored" if label_id == -1 else LE2I_LABEL_NAMES[label_id]
+            label = (
+                "ignored" if label_id == IGNORE_LABEL else LE2I_LABEL_NAMES[label_id]
+            )
+            if label_id == IGNORE_LABEL:
+                label_group = "ignored"
+            elif label in ("fall", "fallen"):
+                label_group = "fall_or_fallen"
+            else:
+                label_group = "other_labeled"
             records.append(
                 {
                     "video_id": video_id,
@@ -211,9 +220,7 @@ def build_report(
                     "env": str(frame_row["env"]),
                     "split": str(frame_row["split"]),
                     "label": label,
-                    "label_group": "fall_or_fallen"
-                    if label in ("fall", "fallen")
-                    else "other_labels",
+                    "label_group": label_group,
                     "manual_box_count": len(boxes),
                     "person_found": found,
                     "best_iou": best_iou,
