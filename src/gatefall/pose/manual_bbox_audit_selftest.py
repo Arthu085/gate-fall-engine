@@ -40,8 +40,9 @@ def run_selftest() -> None:
         assert representative.boxes[0].auxiliary == 1
         assert representative.boxes[0].xyxy == (292, 152, 311, 240)
         annotation_path.write_text(
-            "12\n1,77,10,10,20,20\n2,88,0,0,0,0\n3, 99, 0, 0, 10, 10\n"
-            "3,100,20,20,30,30\n 7 \n4,101,-1,-1,-1,-1\n5,102,10,10,20,20\n",
+            "\n  \t\n12\n\n1,77,10,10,20,20\n2,88,0,0,0,0\n \t \n"
+            "3, 99, 0, 0, 10, 10\n3,100,20,20,30,30\n\n 7 \n \t\n"
+            "4,101,-1,-1,-1,-1\n5,102,10,10,20,20\n\n",
             encoding="utf-8",
         )
         annotations = parse_annotation_file(annotation_path, n_frames=5)
@@ -146,6 +147,14 @@ def run_selftest() -> None:
             for index in (0, 1, 3)
         ]
         assert [run["length"] for run in _miss_runs(miss_records)] == [2, 1]
+
+        duplicate_manifest = pd.concat(
+            [manifest, manifest.iloc[[0]]], ignore_index=True
+        )
+        assert _expect_error(
+            lambda: build_report(duplicate_manifest, frames, raw_root, pose_root),
+            "video_id duplicado",
+        )
 
         annotation_path.write_text("1,2,3,4,5\n", encoding="utf-8")
         assert _expect_error(

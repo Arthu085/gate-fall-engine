@@ -130,7 +130,9 @@ def build_report(
     manifest: pd.DataFrame, frames: pd.DataFrame, raw_root: Path, pose_root: Path
 ) -> dict[str, object]:
     files = discover_annotation_files(raw_root)
-    manifest_by_video = manifest.set_index("video_id", verify_integrity=True)
+    manifest_by_video = manifest.set_index("video_id")
+    if not manifest_by_video.index.is_unique:
+        raise ValueError("manifesto contém video_id duplicado")
     unknown = sorted(set(files) - set(str(value) for value in manifest_by_video.index))
     if unknown:
         raise ValueError(f"anotações manuais sem vídeo no manifesto: {unknown}")

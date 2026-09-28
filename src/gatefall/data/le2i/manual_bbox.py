@@ -52,6 +52,8 @@ def parse_annotation_file(path: Path, *, n_frames: int) -> ManualAnnotations:
         path.read_text(encoding="utf-8-sig").splitlines(), 1
     ):
         stripped = line.strip()
+        if not stripped:
+            continue
         if _INTEGER.fullmatch(stripped):
             metadata_lines += 1
             continue
