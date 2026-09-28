@@ -102,6 +102,9 @@ class GatedFusionWindowDataset:
     def __len__(self) -> int:
         return len(self._windows)
 
+    def label_at(self, index: int) -> int:
+        return int(self._windows["label"].iloc[index])
+
     def __getitem__(
         self, index: int
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, tuple[str, int]]:

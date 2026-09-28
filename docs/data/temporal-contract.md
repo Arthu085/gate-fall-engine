@@ -511,6 +511,11 @@ pose](pose-standardization.md)).
 `(video_id, k_end)`. Nenhuma padronização (normalização, z-score etc.)
 acontece aqui — é responsabilidade de quem consumir o dataset para treino.
 
+`label_at(index)` lê o rótulo inteiro na mesma posição do índice de janelas,
+sem carregar features nem montar a janela. O contrato também existe em
+`FusionWindowDataset` e `GatedFusionWindowDataset`; os treinos A, B0, B1,
+C0 e C1 o usam para contar classes e calcular os pesos da perda.
+
 O carregamento de features por vídeo (`build_pose_features`, de
 `gatefall.pose.kinematics`) é injetado via `feature_loader` e cacheado por
 `video_id`: cada vídeo é carregado no máximo uma vez por instância do

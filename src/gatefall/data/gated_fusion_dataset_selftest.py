@@ -8,6 +8,7 @@ replicação de borda no início do vídeo e a ordem de canal da qualidade.
 
 import sys
 from typing import Callable, cast
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,7 @@ from gatefall.config import WINDOW_FRAMES
 from gatefall.data.gated_fusion_dataset import GatedFusionWindowDataset
 from gatefall.data.windowing import build_window_index, window_frame_indices
 from gatefall.features.quality_storage import QUALITY_CHANNELS
+from gatefall.train.b1_engine import _collect_labels
 
 _POSE_DIM = 134
 _VISUAL_DIM = 1536
@@ -224,6 +226,28 @@ def check_wrong_quality_channel_count_raises() -> bool:
     )
 
 
+def check_labels_match_items_without_materializing_windows() -> bool:
+    n_frames_by_video = {"video_a": _N_FRAMES_A, "video_b": _N_FRAMES_B}
+    frames = _make_frames(n_frames_by_video)
+    frames["label"] = frames["frame_index"] % 3
+    dataset = GatedFusionWindowDataset(
+        frames,
+        split="train",
+        stride=2,
+        pose_loader=_pose_loader(n_frames_by_video),
+        visual_loader=_visual_loader(n_frames_by_video),
+        quality_loader=_quality_loader(n_frames_by_video),
+    )
+    item_labels = np.array([dataset[i][3] for i in range(len(dataset))], dtype=np.int64)
+    with patch.object(dataset, "_features_for_video", side_effect=AssertionError):
+        direct = _collect_labels(dataset)
+    return _check(
+        "rótulos B1/C1 seguem __getitem__ sem materializar janelas",
+        bool(np.array_equal(direct, item_labels))
+        and all(dataset.label_at(i) == item_labels[i] for i in range(len(dataset))),
+    )
+
+
 def run_gated_fusion_dataset_selftest() -> bool:
     checks = [
         check_interior_window_shares_frame_indices(),
@@ -231,6 +255,7 @@ def run_gated_fusion_dataset_selftest() -> bool:
         check_quality_window_is_deterministic(),
         check_mismatched_quality_k_raises_naming_video_and_source(),
         check_wrong_quality_channel_count_raises(),
+        check_labels_match_items_without_materializing_windows(),
     ]
     ok = all(checks)
     if not ok:

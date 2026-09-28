@@ -3,11 +3,16 @@
 import os
 import sys
 
+import numpy as np
 import torch
 
+from gatefall.train.b0_engine import _collect_labels as collect_b0_labels
+from gatefall.train.b1_engine import _collect_labels as collect_b1_labels
+from gatefall.train.c0_engine import _collect_labels as collect_c0_labels
 from gatefall.train.engine import (
     _CUBLAS_DETERMINISTIC_WORKSPACE_CONFIGS,
     _CUBLAS_WORKSPACE_CONFIG_DEFAULT,
+    _collect_labels as collect_pose_labels,
     configure_determinism,
 )
 
@@ -78,11 +83,57 @@ def check_cublas_workspace_config_rejects_unsupported_value() -> bool:
     )
 
 
+def check_legacy_sources_keep_item_fallback() -> bool:
+    labels = (2, 0, 1)
+    window = np.zeros((1, 1), dtype=np.float32)
+
+    class PoseSource:
+        def __len__(self) -> int:
+            return len(labels)
+
+        def __getitem__(self, index: int) -> tuple[np.ndarray, int, object]:
+            return window, labels[index], index
+
+    class FusionSource:
+        def __len__(self) -> int:
+            return len(labels)
+
+        def __getitem__(
+            self, index: int
+        ) -> tuple[np.ndarray, np.ndarray, int, object]:
+            return window, window, labels[index], index
+
+    class GatedSource:
+        def __len__(self) -> int:
+            return len(labels)
+
+        def __getitem__(
+            self, index: int
+        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, object]:
+            return window, window, window, labels[index], index
+
+    expected = np.array(labels, dtype=np.int64)
+    fusion = FusionSource()
+    return _check(
+        "fontes sintéticas sem label_at mantêm a coleta por __getitem__",
+        all(
+            np.array_equal(observed, expected)
+            for observed in (
+                collect_pose_labels(PoseSource()),
+                collect_b0_labels(fusion),
+                collect_b1_labels(GatedSource()),
+                collect_c0_labels(fusion),
+            )
+        ),
+    )
+
+
 def run_engine_selftest() -> bool:
     checks = [
         check_determinism_flags_enabled(),
         check_cublas_workspace_config_default(),
         check_cublas_workspace_config_rejects_unsupported_value(),
+        check_legacy_sources_keep_item_fallback(),
     ]
     ok = all(checks)
     if not ok:
