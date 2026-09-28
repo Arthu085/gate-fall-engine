@@ -1,7 +1,7 @@
 # Manifesto e verificação
 
 `data/processed/le2i/manifest.parquet` contém uma linha por vídeo e relaciona o arquivo local à
-anotação do OmniFall, aos metadados medidos e ao estado das etapas de features.
+anotação do OmniFall e aos metadados medidos.
 O manifesto é gerado localmente e não é versionado.
 
 ## Construção
@@ -63,13 +63,10 @@ As colunas são persistidas nesta ordem:
 | `width`, `height` | `int64` | Resolução do vídeo |
 | `codec` | `string` | Nome do codec |
 | `sha256` | `string` | Hash do arquivo de vídeo |
-| `pose_status`, `dino_status`, `sam_status` | `string` | Estado de cada branch de features |
 
-Na ingestão, os três status começam como `pending`. As extrações de pose,
-[DINOv3](dinov3-features.md) e [SAM 3](sam3-foundation.md) estão
-implementadas, mas seus extratores não atualizam as colunas do manifesto.
-Assim, `pose_status`, `dino_status` e `sam_status` permanecem `pending`
-mesmo após a extração real.
+Manifestos gerados antes da remoção das colunas de status de features continuam
+legíveis. A ingestão nova omite essas colunas; não é necessário reconstruir um
+manifesto existente para continuar usando as etapas posteriores.
 
 Camadas posteriores resolvem `relative_path` contra `data/raw/le2i/`; não
 dependem de `absolute_path`, que é específico da máquina. Caminhos relativos
