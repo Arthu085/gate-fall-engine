@@ -15,7 +15,7 @@ from gatefall.runs import (
     default_run_dir_for_arm,
 )
 from gatefall.train.baseline_b1.config import B1_ADAPTIVE_GATE_CONFIG
-from gatefall.train.baseline_b1.run import repository_anchored_run_dir
+from gatefall.train.shared.run_paths import repository_anchored_run_dir
 
 _B1_RUN_DIR = Path("runs/local/le2i/b1_adaptive_gate")
 

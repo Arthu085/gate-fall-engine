@@ -9,7 +9,7 @@ from typing import Any
 import torch
 
 from gatefall.hashing import sha256_file
-from gatefall.train.baseline_a.artifacts import validate_classification_diagnostics
+from gatefall.train.shared.artifact_validation import validate_classification_diagnostics
 from gatefall.train.baseline_b0.config import B0TrainConfig, load_config
 from gatefall.train.baseline_b0.model import B0FusionClassifier
 from gatefall.train.shared.metrics import RESTRICTED_CLASSES

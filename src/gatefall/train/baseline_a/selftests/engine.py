@@ -1,86 +1,19 @@
-"""Selftest sintético do determinismo de treino (`engine.py`). Não toca em dados reais."""
+"""Selftest sintético da coleta de rótulos no treino."""
 
-import os
 import sys
 
 import numpy as np
-import torch
 
 from gatefall.train.baseline_b0.engine import _collect_labels as collect_b0_labels
-from gatefall.train.baseline_b1.engine import _collect_labels as collect_b1_labels
+from gatefall.train.shared.gated_engine import _collect_labels as collect_b1_labels
 from gatefall.train.baseline_c0.engine import _collect_labels as collect_c0_labels
-from gatefall.train.baseline_a.engine import (
-    _CUBLAS_DETERMINISTIC_WORKSPACE_CONFIGS,
-    _CUBLAS_WORKSPACE_CONFIG_DEFAULT,
-    _collect_labels as collect_pose_labels,
-    configure_determinism,
-)
+from gatefall.train.baseline_a.engine import _collect_labels as collect_pose_labels
 
 
 def _check(name: str, condition: bool) -> bool:
     status = "PASS" if condition else "FAIL"
     print(f"[{status}] {name}")
     return condition
-
-
-def _restore_cublas_workspace_config(previous: str | None) -> None:
-    if previous is None:
-        os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
-    else:
-        os.environ["CUBLAS_WORKSPACE_CONFIG"] = previous
-
-
-def check_determinism_flags_enabled() -> bool:
-    previous = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = _CUBLAS_WORKSPACE_CONFIG_DEFAULT
-    try:
-        configure_determinism(seed=42)
-        ok = (
-            torch.backends.cudnn.deterministic is True
-            and torch.backends.cudnn.benchmark is False
-            and torch.are_deterministic_algorithms_enabled()
-        )
-    finally:
-        _restore_cublas_workspace_config(previous)
-    return _check(
-        "configure_determinism ativa cudnn.deterministic, desativa "
-        "cudnn.benchmark e ativa use_deterministic_algorithms",
-        ok,
-    )
-
-
-def check_cublas_workspace_config_default() -> bool:
-    previous = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
-    os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
-    try:
-        configure_determinism(seed=42)
-        ok = os.environ.get("CUBLAS_WORKSPACE_CONFIG") == _CUBLAS_WORKSPACE_CONFIG_DEFAULT
-    finally:
-        _restore_cublas_workspace_config(previous)
-    return _check(
-        "CUBLAS_WORKSPACE_CONFIG ausente vira o padrão do projeto "
-        f"({_CUBLAS_WORKSPACE_CONFIG_DEFAULT})",
-        ok,
-    )
-
-
-def check_cublas_workspace_config_rejects_unsupported_value() -> bool:
-    previous = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":1:1"
-    try:
-        raised = False
-        try:
-            configure_determinism(seed=42)
-        except ValueError:
-            raised = True
-        ok = raised
-    finally:
-        _restore_cublas_workspace_config(previous)
-    return _check(
-        "configure_determinism recusa CUBLAS_WORKSPACE_CONFIG=:1:1 "
-        f"(fora de {sorted(_CUBLAS_DETERMINISTIC_WORKSPACE_CONFIGS)})",
-        ok,
-    )
 
 
 def check_legacy_sources_keep_item_fallback() -> bool:
@@ -130,9 +63,6 @@ def check_legacy_sources_keep_item_fallback() -> bool:
 
 def run_engine_selftest() -> bool:
     checks = [
-        check_determinism_flags_enabled(),
-        check_cublas_workspace_config_default(),
-        check_cublas_workspace_config_rejects_unsupported_value(),
         check_legacy_sources_keep_item_fallback(),
     ]
     ok = all(checks)

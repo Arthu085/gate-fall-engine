@@ -75,13 +75,13 @@ from gatefall.train.baseline_b1.run import resolve_b1_config
 from gatefall.train.baseline_c0.artifacts import validate_c0_training_run
 from gatefall.train.baseline_c0.config import C0_FUSION_CONFIG, C0TrainConfig
 from gatefall.train.baseline_c0.config import save_config as save_c0_config
-from gatefall.train.baseline_c0.cli import _resolve_config as resolve_c0_config
-from gatefall.train.baseline_c0.cli import _validated_inputs as validated_sam3_inputs
+from gatefall.train.baseline_c0.run import resolve_c0_config_for_inputs as resolve_c0_config
+from gatefall.train.shared.sam3_inputs import _validated_inputs as validated_sam3_inputs
 from gatefall.train.baseline_c0.model import C0FusionClassifier
 from gatefall.train.baseline_c1.artifacts import validate_c1_training_run
 from gatefall.train.baseline_c1.config import C1_ADAPTIVE_GATE_CONFIG, C1TrainConfig
 from gatefall.train.baseline_c1.config import save_config as save_c1_config
-from gatefall.train.baseline_c1.cli import _resolve_config as resolve_c1_config
+from gatefall.train.baseline_c1.run import resolve_c1_config_for_inputs as resolve_c1_config
 from gatefall.train.baseline_c1.model import C1AdaptiveGateClassifier
 from gatefall.train.baseline_a.config import BASELINE_A_CONFIG, TrainConfig, save_config
 from gatefall.train.shared.metrics import (

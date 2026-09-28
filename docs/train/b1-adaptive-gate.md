@@ -9,7 +9,8 @@ engine, validadores e `run_dir` próprios.
 
 ## Gate adaptativo
 
-`B1AdaptiveGateClassifier` (`src/gatefall/train/baseline_b1/model.py`):
+`B1AdaptiveGateClassifier` (`src/gatefall/train/baseline_b1/model.py`) usa a
+implementação comum de `src/gatefall/train/shared/gated_model.py`:
 
 - `E_P`: `Linear(134, 128) -> LayerNorm(128) -> ReLU`, projeta a pose.
 - `E_V`: `Linear(1536, 128) -> LayerNorm(128) -> ReLU`, projeta o DINOv3.
@@ -51,7 +52,8 @@ o futuro.
 
 ## Receita de treino idêntica a A e B0
 
-`src/gatefall/train/baseline_b1/config.py` monta `B1_ADAPTIVE_GATE_CONFIG` copiando,
+`src/gatefall/train/baseline_b1/config.py` monta `B1_ADAPTIVE_GATE_CONFIG` a partir
+dos campos comuns em `src/gatefall/train/shared/gated_config.py`, que copia,
 campo a campo, todos os campos da receita compartilhada de `BASELINE_A_CONFIG`
 (seed, `window_frames`, `train_stride`, `eval_stride`, `num_classes`,
 `kernel_size`, `dilations`, `channels`, `dropout`, `receptive_field`,
@@ -68,8 +70,9 @@ e C só podem diferir no vetor de feature por timestep. Ver ["Receita de treino
 congelada"](baseline-a.md#receita-de-treino-congelada) no braço A para o
 detalhamento de cada hiperparâmetro.
 
-`src/gatefall/train/baseline_b1/engine.py` reutiliza `configure_determinism` do braço A
-(`train/baseline_a/engine.py`) e o mesmo `torch.Generator` semeado do DataLoader de treino,
+`src/gatefall/train/baseline_b1/engine.py` usa o loop em
+`train/shared/gated_engine.py`, `configure_determinism` em
+`train/shared/determinism.py` e o mesmo `torch.Generator` semeado do DataLoader de treino,
 em vez de reimplementar determinismo. O selftest do engine trava que dois
 treinos B1 com a mesma seed produzem checkpoints com o mesmo SHA-256.
 

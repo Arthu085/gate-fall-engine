@@ -1,7 +1,6 @@
 """Arma C1: fusão adaptativa de pose e SAM 3 V_t com qualidade por quadro."""
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -17,10 +16,8 @@ from torch.utils.data import DataLoader
 from gatefall.config import EVAL_STRIDE, TRAIN_STRIDE
 from gatefall.data.gated_fusion_dataset import GatedFusionWindowDataset
 from gatefall.datasets import DatasetAdapter, get_dataset
-from gatefall.features.standardize_sam3 import SAM3_STATS_PATH
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import build_pose_features
-from gatefall.pose.loading import pose_path
 from gatefall.pose.quality import compute_pose_quality
 from gatefall.runs import (
     LOCAL_RUN_ROOTS,
@@ -34,13 +31,13 @@ from gatefall.sam3.descriptors import V_T_DIM
 from gatefall.sam3.features import load_v_t
 from gatefall.sam3.quality import compute_sam3_quality
 from gatefall.sam3.storage import read_sam_score, sam3_path
-from gatefall.train.baseline_b1.engine import _StandardizedGatedFusionTorchDataset, _predict
-from gatefall.train.baseline_b1.run import repository_anchored_run_dir
-from gatefall.train.baseline_c0.cli import _ValidatedInputs, _validated_inputs
+from gatefall.train.shared.gated_engine import _StandardizedGatedFusionTorchDataset, _predict
+from gatefall.train.shared.run_paths import repository_anchored_run_dir
+from gatefall.train.shared.sam3_inputs import _validated_inputs
 from gatefall.train.baseline_c1.artifacts import load_compatible_c1_checkpoint, validate_c1_training_run
-from gatefall.train.baseline_c1.config import C1_ADAPTIVE_GATE_CONFIG, C1TrainConfig
+from gatefall.train.baseline_c1.config import C1_ADAPTIVE_GATE_CONFIG
 from gatefall.train.baseline_c1.engine import run_c1_training
-from gatefall.train.baseline_c1.run import ARM_NAME, comparison_run_dirs, guard_not_comparison_run_dir, resolve_c1_config
+from gatefall.train.baseline_c1.run import ARM_NAME, comparison_run_dirs, guard_not_comparison_run_dir, resolve_c1_config_for_inputs as _resolve_config
 from gatefall.train.shared.metrics import (
     BINARY_POSITIVE_LABELS,
     RESTRICTED_CLASSES,
@@ -55,39 +52,6 @@ from gatefall.train.shared.metrics import (
 PROTECTED_ARTIFACT_NAMES = (
     "config.yaml", "metrics.json", "checkpoint.pt", "alarm_protocol.yaml", "event_metrics.json"
 )
-
-
-def _source_hashes(adapter: DatasetAdapter, frames: pd.DataFrame, sam3_sha256: str) -> tuple[str, str]:
-    digest = hashlib.sha256()
-    for video_id in sorted(str(value) for value in frames["video_id"].unique()):
-        path = pose_path(video_id, pose_root=adapter.pose_root)
-        digest.update(f"{video_id} {sha256_file(path)}\n".encode("utf-8"))
-    pose_sha256 = digest.hexdigest()
-    quality = hashlib.sha256()
-    quality.update(
-        (
-            f"{pose_sha256}\n{sam3_sha256}\n"
-            f"{C1_ADAPTIVE_GATE_CONFIG.pose_quality_source}\n"
-            f"{C1_ADAPTIVE_GATE_CONFIG.visual_quality_source}\n"
-        ).encode("utf-8")
-    )
-    return pose_sha256, quality.hexdigest()
-
-
-def _resolve_config(seed: int, adapter: DatasetAdapter, inputs: _ValidatedInputs) -> C1TrainConfig:
-    pose_sha256, quality_sha256 = _source_hashes(adapter, inputs.frames, inputs.sam3_features_sha256)
-    return resolve_c1_config(
-        seed,
-        adapter.pose_stats_path,
-        sha256_file(adapter.pose_stats_path),
-        SAM3_STATS_PATH,
-        sha256_file(SAM3_STATS_PATH),
-        pose_sha256,
-        adapter.sam3_root,
-        inputs.sam3_features_sha256,
-        inputs.sam3_provenance,
-        quality_sha256,
-    )
 
 
 def _guard_run_dir(run_dir: Path, dataset_name: str) -> None:

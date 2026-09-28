@@ -52,18 +52,15 @@ from gatefall.train.baseline_b1.artifacts import (
     validate_b1_training_run,
 )
 from gatefall.train.baseline_b1.config import B1_ADAPTIVE_GATE_CONFIG, B1TrainConfig
-from gatefall.train.baseline_b1.engine import (
-    _StandardizedGatedFusionTorchDataset,
-    _predict,
-    run_b1_training,
-)
+from gatefall.train.baseline_b1.engine import run_b1_training
+from gatefall.train.shared.gated_engine import _StandardizedGatedFusionTorchDataset, _predict
 from gatefall.train.baseline_b1.run import (
     B0_ARM_NAME,
     guard_not_arm_a_run_dir,
     guard_not_arm_b0_run_dir,
-    repository_anchored_run_dir,
     resolve_b1_config,
 )
+from gatefall.train.shared.run_paths import repository_anchored_run_dir
 from gatefall.train.shared.metrics import (
     BINARY_POSITIVE_LABELS,
     RESTRICTED_CLASSES,

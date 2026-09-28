@@ -22,7 +22,7 @@ from gatefall.runs import validate_local_run_dir
 from gatefall.train.baseline_b0.artifacts import REQUIRED_B0_TRAINING_ARTIFACTS, validate_b0_training_run
 from gatefall.train.baseline_b0.config import B0TrainConfig, save_config
 from gatefall.train.baseline_b0.model import B0FusionClassifier
-from gatefall.train.baseline_a.engine import configure_determinism
+from gatefall.train.shared.determinism import configure_determinism
 from gatefall.train.shared.metrics import (
     RESTRICTED_CLASSES,
     classification_summary,

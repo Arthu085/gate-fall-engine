@@ -7,11 +7,8 @@ import sys
 import torch
 
 from gatefall.config import NUM_CLASSES, WINDOW_FRAMES
-from gatefall.train.baseline_b1.model import (
-    GATE_INPUT_DIM,
-    AdaptiveGate,
-    B1AdaptiveGateClassifier,
-)
+from gatefall.train.baseline_b1.model import B1AdaptiveGateClassifier
+from gatefall.train.shared.gated_model import AdaptiveGate, GATE_INPUT_DIM
 
 _POSE_DIM = 134
 _VISUAL_DIM = 1536

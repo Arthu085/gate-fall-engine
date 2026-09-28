@@ -13,9 +13,9 @@ o JSON de estatísticas fazem parte deste módulo.
 uv run python -m gatefall.train.baseline_a selftest
 ```
 
-Roda checagens sintéticas da arquitetura da TCN (`tcn_selftest.py`), das
-métricas restritas (`metrics_selftest.py`) e das guardas de determinismo de
-GPU (`engine_selftest.py`), sem treinar nem tocar no dataset real.
+Roda checagens sintéticas da arquitetura da TCN, das métricas restritas e das
+guardas de determinismo de GPU em `train/shared/selftests/`, além das checagens
+específicas de A, sem treinar nem tocar no dataset real.
 
 ```bash
 uv run python -m gatefall.train.baseline_a train --dataset le2i \

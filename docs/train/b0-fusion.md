@@ -51,8 +51,8 @@ receita (janela, split, seed, encoder temporal, épocas) permanece fixo. Ver
 congelada"](baseline-a.md#receita-de-treino-congelada) no braço A para o
 detalhamento de cada hiperparâmetro.
 
-`src/gatefall/train/baseline_b0/engine.py` reutiliza `configure_determinism` do
-braço A (`train/baseline_a/engine.py`) em vez de duplicá-lo, mantendo as mesmas guardas
+`src/gatefall/train/baseline_b0/engine.py` reutiliza `configure_determinism` de
+`train/shared/determinism.py`, mantendo as mesmas guardas
 de determinismo de GPU (`cudnn.deterministic`, `cudnn.benchmark=False`,
 `torch.use_deterministic_algorithms(True)`, `CUBLAS_WORKSPACE_CONFIG`).
 

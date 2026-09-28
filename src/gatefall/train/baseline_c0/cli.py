@@ -6,7 +6,6 @@ import math
 import os
 import sys
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
@@ -16,20 +15,6 @@ from torch.utils.data import DataLoader
 from gatefall.config import EVAL_STRIDE, TRAIN_STRIDE
 from gatefall.data.fusion_dataset import FusionWindowDataset
 from gatefall.datasets import DatasetAdapter, get_dataset
-from gatefall.features.sam3_standardization import Sam3StandardizationStats
-from gatefall.features.sam3_standardization import load_stats as load_visual_stats
-from gatefall.features.sam3_standardization import (
-    validate_stats_freshness as validate_visual_stats_freshness,
-)
-from gatefall.features.sam3_standardization import (
-    validate_stats_layout as validate_visual_stats_layout,
-)
-from gatefall.features.standardization import StandardizationStats
-from gatefall.features.standardization import load_stats as load_pose_stats
-from gatefall.features.standardization import (
-    validate_stats_layout as validate_pose_stats_layout,
-)
-from gatefall.features.standardize_sam3 import SAM3_STATS_PATH, split_by_video
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import build_pose_features
 from gatefall.runs import (
@@ -42,17 +27,18 @@ from gatefall.sam3.dataset_guard import (
     ensure_sam3_dataset_supported,
 )
 from gatefall.sam3.descriptors import V_T_DIM
-from gatefall.sam3.features import collect_sam3_provenance, load_v_t, sam3_set_sha256
-from gatefall.train.baseline_b1.run import repository_anchored_run_dir
+from gatefall.sam3.features import load_v_t
+from gatefall.train.shared.run_paths import repository_anchored_run_dir
 from gatefall.train.baseline_c0.artifacts import load_compatible_c0_checkpoint, validate_c0_training_run
-from gatefall.train.baseline_c0.config import C0_FUSION_CONFIG, C0TrainConfig
+from gatefall.train.baseline_c0.config import C0_FUSION_CONFIG
 from gatefall.train.baseline_c0.engine import _predict, _StandardizedFusionTorchDataset, run_c0_training
 from gatefall.train.baseline_c0.run import (
     ARM_NAME,
     comparison_run_dirs,
     guard_not_comparison_run_dir,
-    resolve_c0_config,
+    resolve_c0_config_for_inputs as _resolve_config,
 )
+from gatefall.train.shared.sam3_inputs import _validated_inputs
 from gatefall.train.shared.metrics import (
     BINARY_POSITIVE_LABELS,
     RESTRICTED_CLASSES,
@@ -71,32 +57,6 @@ PROTECTED_ARTIFACT_NAMES = (
     "alarm_protocol.yaml",
     "event_metrics.json",
 )
-
-
-@dataclass(frozen=True)
-class _ValidatedInputs:
-    frames: pd.DataFrame
-    pose_stats: StandardizationStats
-    visual_stats: Sam3StandardizationStats
-    sam3_features_sha256: str
-    sam3_provenance: dict[str, str]
-
-
-def _resolve_config(
-    seed: int,
-    adapter: DatasetAdapter,
-    inputs: _ValidatedInputs,
-) -> C0TrainConfig:
-    return resolve_c0_config(
-        seed,
-        adapter.pose_stats_path,
-        sha256_file(adapter.pose_stats_path),
-        SAM3_STATS_PATH,
-        sha256_file(SAM3_STATS_PATH),
-        adapter.sam3_root,
-        inputs.sam3_features_sha256,
-        inputs.sam3_provenance,
-    )
 
 
 def _guard_run_dir(run_dir: Path, dataset_name: str) -> None:
@@ -133,27 +93,6 @@ def _guard_protected_output(
             f"--output não pode apontar para dentro da referência histórica "
             f"somente leitura: {resolved_output}"
         )
-
-
-def _validated_inputs(adapter: DatasetAdapter, dataset_name: str) -> _ValidatedInputs:
-    """Valida identidade, proveniência e frescor de todas as fontes antes de montar janelas."""
-    frames = adapter.load_frames()
-    splits = split_by_video(frames)
-    sam3_provenance = collect_sam3_provenance(splits, sam3_root=adapter.sam3_root)
-    sam3_features_sha256 = sam3_set_sha256(list(splits), sam3_root=adapter.sam3_root)
-
-    pose_stats = load_pose_stats(adapter.pose_stats_path)
-    validate_pose_stats_layout(pose_stats)
-    visual_stats = load_visual_stats(SAM3_STATS_PATH)
-    validate_visual_stats_layout(visual_stats, dataset_name=dataset_name)
-    validate_visual_stats_freshness(visual_stats, adapter.frames_path, sam3_features_sha256)
-    return _ValidatedInputs(
-        frames=frames,
-        pose_stats=pose_stats,
-        visual_stats=visual_stats,
-        sam3_features_sha256=sam3_features_sha256,
-        sam3_provenance=sam3_provenance,
-    )
 
 
 def _split_sources(

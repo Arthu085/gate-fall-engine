@@ -6,12 +6,12 @@ from pathlib import Path
 import yaml
 
 from gatefall.sam3.descriptors import V_T_DIM
-from gatefall.train.baseline_b1.config import B1_ADAPTIVE_GATE_CONFIG, B1TrainConfig
-from gatefall.train.baseline_b1.config import save_config as save_gated_config
+from gatefall.train.shared.gated_config import GatedTrainConfig, gated_config_fields
+from gatefall.train.shared.gated_config import save_config as save_gated_config
 
 
 @dataclass
-class C1TrainConfig(B1TrainConfig):
+class C1TrainConfig(GatedTrainConfig):
     sam3_features_path: str = ""
     sam3_features_sha256: str = ""
     sam3_provenance: dict[str, str] = field(default_factory=dict)
@@ -25,10 +25,7 @@ class C1TrainConfig(B1TrainConfig):
 
 
 C1_ADAPTIVE_GATE_CONFIG = C1TrainConfig(
-    **(
-        B1_ADAPTIVE_GATE_CONFIG.to_dict()
-        | {"run_name": "c1_adaptive_gate", "arm": "C1", "visual_dim": V_T_DIM}
-    )
+    **gated_config_fields("c1_adaptive_gate", "C1", V_T_DIM)
 )
 
 

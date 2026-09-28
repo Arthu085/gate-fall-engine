@@ -50,13 +50,13 @@ from gatefall.sam3.descriptors import V_T_DIM
 from gatefall.sam3.features import load_v_t
 from gatefall.sam3.quality import compute_sam3_quality
 from gatefall.sam3.storage import read_sam_score, sam3_path
-from gatefall.train.baseline_c0.cli import _validated_inputs
+from gatefall.train.shared.sam3_inputs import _validated_inputs
 from gatefall.train.baseline_c1.artifacts import (
     load_compatible_c1_checkpoint,
     validate_c1_training_run,
 )
 from gatefall.train.baseline_c1.config import C1_ADAPTIVE_GATE_CONFIG, C1TrainConfig
-from gatefall.train.baseline_c1.cli import _resolve_config
+from gatefall.train.baseline_c1.run import resolve_c1_config_for_inputs as _resolve_config
 from gatefall.train.baseline_c1.model import C1AdaptiveGateClassifier
 from gatefall.train.baseline_c1.run import guard_not_comparison_run_dir
 

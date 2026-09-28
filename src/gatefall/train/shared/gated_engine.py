@@ -1,9 +1,10 @@
-"""Loop de treino e avaliação do C0FusionClassifier sobre janelas pose+SAM 3 V_t padronizadas."""
+"""Loop compartilhado de treino para gates B1/C1 com qualidade crua."""
 
 import json
 import os
 import shutil
 import uuid
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Protocol, cast
@@ -13,16 +14,19 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
-from gatefall.features.sam3_standardization import Sam3StandardizationStats
-from gatefall.features.sam3_standardization import apply_standardization as apply_visual_standardization
+from gatefall.features.dinov3_standardization import Dinov3StandardizationStats
+from gatefall.features.dinov3_standardization import apply_standardization as apply_visual_standardization
 from gatefall.features.standardization import StandardizationStats
 from gatefall.features.standardization import apply_standardization as apply_pose_standardization
+from gatefall.features.sam3_standardization import Sam3StandardizationStats
+from gatefall.features.sam3_standardization import apply_standardization as apply_sam3_standardization
 from gatefall.hashing import sha256_file
 from gatefall.runs import validate_local_run_dir
-from gatefall.train.baseline_c0.artifacts import REQUIRED_C0_TRAINING_ARTIFACTS, validate_c0_training_run
-from gatefall.train.baseline_c0.config import C0TrainConfig, save_config
-from gatefall.train.baseline_c0.model import C0FusionClassifier
+from gatefall.train.shared.gated_artifacts import REQUIRED_GATED_TRAINING_ARTIFACTS
+from gatefall.train.shared.gated_config import GatedTrainConfig, save_config
+from gatefall.train.shared.gated_model import GatedFusionClassifier
 from gatefall.train.shared.determinism import configure_determinism
+from gatefall.train.shared.run_paths import guard_not_foreign_arm_run_dir
 from gatefall.train.shared.metrics import (
     RESTRICTED_CLASSES,
     classification_summary,
@@ -31,17 +35,19 @@ from gatefall.train.shared.metrics import (
 )
 
 
-class _FusionWindowSource(Protocol):
+class _GatedFusionWindowSource(Protocol):
     def __len__(self) -> int: ...
-    def __getitem__(self, index: int) -> tuple[np.ndarray, np.ndarray, int, object]: ...
+    def __getitem__(
+        self, index: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, object]: ...
 
 
-class _StandardizedFusionTorchDataset(Dataset):
+class _StandardizedGatedFusionTorchDataset(Dataset):
     def __init__(
         self,
-        source: _FusionWindowSource,
+        source: _GatedFusionWindowSource,
         pose_stats: StandardizationStats,
-        visual_stats: Sam3StandardizationStats,
+        visual_stats: Dinov3StandardizationStats | Sam3StandardizationStats,
     ) -> None:
         self._source = source
         self._pose_stats = pose_stats
@@ -50,23 +56,38 @@ class _StandardizedFusionTorchDataset(Dataset):
     def __len__(self) -> int:
         return len(self._source)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, int]:
-        pose_window, visual_window, label, _diag = self._source[index]
+    def __getitem__(
+        self, index: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+        pose_window, visual_window, quality_window, label, _diag = self._source[index]
         standardized_pose = apply_pose_standardization(pose_window, self._pose_stats)
-        standardized_visual = apply_visual_standardization(visual_window, self._visual_stats)
-        return torch.from_numpy(standardized_pose), torch.from_numpy(standardized_visual), label
+        standardized_visual = _standardize_visual(visual_window, self._visual_stats)
+        return (
+            torch.from_numpy(standardized_pose),
+            torch.from_numpy(standardized_visual),
+            torch.from_numpy(quality_window),
+            label,
+        )
 
 
-def _collect_labels(source: _FusionWindowSource) -> np.ndarray:
+def _collect_labels(source: _GatedFusionWindowSource) -> np.ndarray:
     labels = np.empty(len(source), dtype=np.int64)
     label_at = getattr(source, "label_at", None)
     for i in range(len(source)):
         if callable(label_at):
             labels[i] = cast(int, label_at(i))
         else:
-            _, _, label, _diag = source[i]
+            _, _, _, label, _diag = source[i]
             labels[i] = label
     return labels
+
+
+def _standardize_visual(
+    window: np.ndarray, stats: Dinov3StandardizationStats | Sam3StandardizationStats
+) -> np.ndarray:
+    if isinstance(stats, Sam3StandardizationStats):
+        return apply_sam3_standardization(window, stats)
+    return apply_visual_standardization(window, stats)
 
 
 def _class_weights(train_labels: np.ndarray, num_classes: int) -> torch.Tensor:
@@ -80,15 +101,16 @@ def _class_weights(train_labels: np.ndarray, num_classes: int) -> torch.Tensor:
 
 @torch.no_grad()
 def _predict(
-    model: C0FusionClassifier, loader: DataLoader, device: str
+    model: GatedFusionClassifier, loader: DataLoader, device: str
 ) -> tuple[np.ndarray, np.ndarray]:
     model.eval()
     y_true: list[np.ndarray] = []
     y_pred: list[np.ndarray] = []
-    for x_pose, x_visual, y in loader:
+    for x_pose, x_visual, x_quality, y in loader:
         x_pose = x_pose.to(device)
         x_visual = x_visual.to(device)
-        logits = model(x_pose, x_visual)
+        x_quality = x_quality.to(device)
+        logits = model(x_pose, x_visual, x_quality)
         pred = torch.argmax(logits, dim=1).cpu().numpy()
         y_true.append(y.numpy())
         y_pred.append(pred)
@@ -96,7 +118,7 @@ def _predict(
 
 
 def _evaluate_split(
-    model: C0FusionClassifier,
+    model: GatedFusionClassifier,
     loader: DataLoader,
     device: str,
     num_classes: int,
@@ -115,24 +137,27 @@ def _evaluate_split(
     }
 
 
-def run_c0_training(
-    train_source: _FusionWindowSource,
-    val_source: _FusionWindowSource,
-    test_source: _FusionWindowSource,
+def run_gated_training(
+    train_source: _GatedFusionWindowSource,
+    val_source: _GatedFusionWindowSource,
+    test_source: _GatedFusionWindowSource,
     pose_stats: StandardizationStats,
-    visual_stats: Sam3StandardizationStats,
-    config: C0TrainConfig,
+    visual_stats: Dinov3StandardizationStats | Sam3StandardizationStats,
+    config: GatedTrainConfig,
     run_dir: Path,
     force: bool,
     label_names: tuple[str, ...],
+    model_type: type[GatedFusionClassifier],
+    validate_run: Callable[..., GatedTrainConfig],
 ) -> dict | None:
     validate_local_run_dir(run_dir)
-    required = REQUIRED_C0_TRAINING_ARTIFACTS
+    guard_not_foreign_arm_run_dir(run_dir, config.arm)
+    required = REQUIRED_GATED_TRAINING_ARTIFACTS
     present = [name for name in required if (run_dir / name).is_file()]
     if run_dir.exists() and not force:
         if len(present) == len(required):
             try:
-                validate_c0_training_run(
+                validate_run(
                     run_dir,
                     expected_config=config,
                     fields_allowed_to_differ=frozenset({"trainable_param_count"}),
@@ -157,9 +182,9 @@ def run_c0_training(
 
     device = configure_determinism(config.seed)
 
-    train_dataset = _StandardizedFusionTorchDataset(train_source, pose_stats, visual_stats)
-    val_dataset = _StandardizedFusionTorchDataset(val_source, pose_stats, visual_stats)
-    test_dataset = _StandardizedFusionTorchDataset(test_source, pose_stats, visual_stats)
+    train_dataset = _StandardizedGatedFusionTorchDataset(train_source, pose_stats, visual_stats)
+    val_dataset = _StandardizedGatedFusionTorchDataset(val_source, pose_stats, visual_stats)
+    test_dataset = _StandardizedGatedFusionTorchDataset(test_source, pose_stats, visual_stats)
 
     generator = torch.Generator()
     generator.manual_seed(config.seed)
@@ -173,12 +198,13 @@ def run_c0_training(
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=0)
     test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False, num_workers=0)
 
-    model = C0FusionClassifier(
+    model = model_type(
         channels=config.channels,
         kernel_size=config.kernel_size,
         dilations=config.dilations,
         dropout=config.dropout,
         num_classes=config.num_classes,
+        visual_dim=config.visual_dim,
     ).to(device)
 
     train_labels = _collect_labels(train_source)
@@ -198,12 +224,13 @@ def run_c0_training(
         model.train()
         loss_sum = 0.0
         n_examples = 0
-        for x_pose, x_visual, y in train_loader:
+        for x_pose, x_visual, x_quality, y in train_loader:
             x_pose = x_pose.to(device)
             x_visual = x_visual.to(device)
+            x_quality = x_quality.to(device)
             y = y.to(device)
             optimizer.zero_grad()
-            logits = model(x_pose, x_visual)
+            logits = model(x_pose, x_visual, x_quality)
             loss = criterion(logits, y)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip_norm)
@@ -254,11 +281,12 @@ def run_c0_training(
     for name in required:
         if not (temporary_dir / name).is_file():
             raise RuntimeError(f"treino não produziu o artefato obrigatório: {name}")
-    validate_c0_training_run(temporary_dir, expected_config=config)
+    validate_run(temporary_dir, expected_config=config)
     run_dir.parent.mkdir(parents=True, exist_ok=True)
     if run_dir.exists():
         if not force:
             raise RuntimeError(f"run surgiu durante a execução: {run_dir}")
+        guard_not_foreign_arm_run_dir(run_dir, config.arm)
         backup_dir = run_dir.with_name(f".{run_dir.name}.old-{uuid.uuid4().hex}")
         os.replace(run_dir, backup_dir)
         try:

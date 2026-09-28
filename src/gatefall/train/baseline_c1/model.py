@@ -1,11 +1,11 @@
-"""Classificador C1 com arquitetura de gate B1 e descritor SAM 3 de 10 canais."""
+"""Classificador C1 com gate compartilhado e descritor SAM 3 de 10 canais."""
 
 from gatefall.config import NUM_CLASSES
 from gatefall.sam3.descriptors import V_T_DIM
-from gatefall.train.baseline_b1.model import B1AdaptiveGateClassifier
+from gatefall.train.shared.gated_model import GatedFusionClassifier
 
 
-class C1AdaptiveGateClassifier(B1AdaptiveGateClassifier):
+class C1AdaptiveGateClassifier(GatedFusionClassifier):
     def __init__(
         self,
         channels: list[int],

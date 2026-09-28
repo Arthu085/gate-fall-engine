@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 
-from gatefall.train.baseline_b1.artifacts import validate_b1_training_metrics
+from gatefall.train.shared.gated_artifacts import validate_gated_training_metrics
 from gatefall.train.baseline_c1.config import C1_ADAPTIVE_GATE_CONFIG, C1TrainConfig, load_config
 from gatefall.train.baseline_c1.model import C1AdaptiveGateClassifier
 
@@ -75,7 +75,7 @@ def validate_c1_training_run(
     try:
         with (run_dir / "metrics.json").open(encoding="utf-8") as stream:
             metrics = json.load(stream)
-        validate_b1_training_metrics(metrics, config, run_dir / "config.yaml", run_dir / "checkpoint.pt")
+        validate_gated_training_metrics(metrics, config, run_dir / "config.yaml", run_dir / "checkpoint.pt")
     except (OSError, TypeError, ValueError, KeyError) as exc:
         raise RuntimeError(f"metrics.json inválido em {run_dir}: {exc}") from exc
     try:

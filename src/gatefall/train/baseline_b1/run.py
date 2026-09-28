@@ -1,26 +1,16 @@
-"""Configuração e guardas compartilhadas para runs locais da arma B1."""
+"""Configuração e guardas de runs locais da arma B1."""
 
 from dataclasses import replace
 from pathlib import Path
 
 from gatefall.runs import (
-    REPOSITORY_ROOT,
     default_run_dir,
     default_run_dir_for_arm,
 )
 from gatefall.train.baseline_b1.config import B1_ADAPTIVE_GATE_CONFIG, B1TrainConfig
+from gatefall.train.shared.run_paths import repository_anchored_run_dir
 
 B0_ARM_NAME = "b0_fusion"
-
-
-def repository_anchored_run_dir(run_dir: Path) -> Path:
-    """Resolve um run_dir padrão (relativo) contra a raiz do repositório.
-
-    `default_run_dir_for_arm` devolve caminho relativo: um `.resolve()` direto
-    o ancoraria no cwd e faria a guarda virar no-op quando a CLI roda de outro
-    diretório. `validate_local_run_dir` já ancora em `REPOSITORY_ROOT`.
-    """
-    return (REPOSITORY_ROOT / run_dir).resolve()
 
 
 def resolve_b1_config(

@@ -269,7 +269,7 @@ def check_second_invocation_without_force_skips_valid_run() -> bool:
 
 
 def check_undecodable_config_reaches_the_run_validators() -> bool:
-    from gatefall.train.baseline_b1.engine import guard_not_foreign_arm_run_dir
+    from gatefall.train.shared.run_paths import guard_not_foreign_arm_run_dir
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         run_dir = Path(tmp_dir)

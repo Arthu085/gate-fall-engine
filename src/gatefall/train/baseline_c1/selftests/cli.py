@@ -35,7 +35,7 @@ from gatefall.train.baseline_c1.config import C1_ADAPTIVE_GATE_CONFIG
 from gatefall.train.baseline_c1.engine import run_c1_training
 from gatefall.train.baseline_c1.cli import _guard_protected_output, _guard_run_dir
 from gatefall.train.baseline_c1.model import C1AdaptiveGateClassifier
-from gatefall.train.baseline_b1.engine import _StandardizedGatedFusionTorchDataset
+from gatefall.train.shared.gated_engine import _StandardizedGatedFusionTorchDataset
 from gatefall.train.baseline_c1 import cli as baseline_c1
 
 

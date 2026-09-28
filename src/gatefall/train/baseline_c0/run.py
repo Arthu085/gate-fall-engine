@@ -3,18 +3,14 @@
 from dataclasses import replace
 from pathlib import Path
 
-from gatefall.runs import default_run_dir_for_arm
-from gatefall.train.baseline_b1.run import repository_anchored_run_dir
 from gatefall.train.baseline_c0.config import C0_FUSION_CONFIG, C0TrainConfig
+from gatefall.datasets import DatasetAdapter
+from gatefall.features.standardize_sam3 import SAM3_STATS_PATH
+from gatefall.hashing import sha256_file
+from gatefall.train.shared.sam3_inputs import _ValidatedInputs
+from gatefall.train.shared.run_paths import comparison_run_dirs
 
 ARM_NAME = "c0_fusion"
-
-COMPARISON_ARM_NAMES: dict[str, str] = {
-    "A": "baseline_a",
-    "B0": "b0_fusion",
-    "B1": "b1_adaptive_gate",
-}
-
 
 def resolve_c0_config(
     seed: int,
@@ -39,11 +35,21 @@ def resolve_c0_config(
     )
 
 
-def comparison_run_dirs(dataset_name: str) -> dict[str, Path]:
-    return {
-        arm: repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, arm_name))
-        for arm, arm_name in COMPARISON_ARM_NAMES.items()
-    }
+def resolve_c0_config_for_inputs(
+    seed: int,
+    adapter: DatasetAdapter,
+    inputs: _ValidatedInputs,
+) -> C0TrainConfig:
+    return resolve_c0_config(
+        seed,
+        adapter.pose_stats_path,
+        sha256_file(adapter.pose_stats_path),
+        SAM3_STATS_PATH,
+        sha256_file(SAM3_STATS_PATH),
+        adapter.sam3_root,
+        inputs.sam3_features_sha256,
+        inputs.sam3_provenance,
+    )
 
 
 def guard_not_comparison_run_dir(run_dir: Path, dataset_name: str) -> None:

@@ -30,7 +30,8 @@ de classes, TCN, otimizador, agenda, épocas, perda). `baseline_c0/selftests/con
 verifica essa igualdade e verifica também que, entre os campos que C0 e B0
 têm em comum, só `run_name`, `arm` e `visual_dim` (10 vs. 1536) divergem —
 invariante experimental 1 do `CLAUDE.md`. O loop de treino
-(`baseline_c0/engine.py`) reutiliza `configure_determinism` do braço A.
+(`baseline_c0/engine.py`) reutiliza `configure_determinism` de
+`train/shared/determinism.py`.
 
 Campos de auditoria exclusivos do C0: `pose_dim`, `visual_dim`,
 `projection_dim`, `fused_dim`, caminho/sha256 das estatísticas de pose e das

@@ -10,9 +10,10 @@ from dataclasses import replace
 from pathlib import Path
 
 from gatefall.runs import REFERENCE_RUN_ROOT, default_run_dir_for_arm
-from gatefall.train.baseline_b1.run import repository_anchored_run_dir
+from gatefall.train.shared.run_paths import repository_anchored_run_dir
 from gatefall.train.baseline_c0.config import C0_FUSION_CONFIG
-from gatefall.train.baseline_c0.run import COMPARISON_ARM_NAMES, resolve_c0_config
+from gatefall.train.baseline_c0.run import resolve_c0_config
+from gatefall.train.shared.run_paths import COMPARISON_ARM_NAMES
 
 _C0_RUN_DIR = Path("runs/local/le2i/c0_fusion")
 

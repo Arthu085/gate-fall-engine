@@ -1,20 +1,16 @@
-"""Validação semântica dos artefatos persistidos de treino."""
+"""Validação das métricas persistidas dos treinos com gate B1/C1."""
 
-import json
 import math
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import torch
-
 from gatefall.hashing import sha256_file
-from gatefall.train.baseline_a.config import TrainConfig, load_config
 from gatefall.train.shared.artifact_validation import validate_classification_diagnostics
+from gatefall.train.shared.gated_config import GatedTrainConfig
 from gatefall.train.shared.metrics import RESTRICTED_CLASSES
-from gatefall.train.shared.tcn import TCNClassifier
 
-REQUIRED_TRAINING_ARTIFACTS = ("config.yaml", "metrics.json", "checkpoint.pt")
+REQUIRED_GATED_TRAINING_ARTIFACTS = ("config.yaml", "metrics.json", "checkpoint.pt")
 
 
 def _require_mapping(value: object, field: str) -> Mapping[str, Any]:
@@ -23,9 +19,9 @@ def _require_mapping(value: object, field: str) -> Mapping[str, Any]:
     return value
 
 
-def validate_training_metrics(
+def validate_gated_training_metrics(
     data: object,
-    config: TrainConfig,
+    config: GatedTrainConfig,
     config_path: Path | None = None,
     checkpoint_path: Path | None = None,
 ) -> None:
@@ -110,78 +106,3 @@ def validate_training_metrics(
             validate_classification_diagnostics(
                 split_metrics, config.num_classes, split, total_support=sum(support.values())
             )
-
-
-def load_compatible_checkpoint(path: Path, config: TrainConfig) -> TCNClassifier:
-    try:
-        state = torch.load(path, map_location="cpu", weights_only=True)
-        if not isinstance(state, Mapping):
-            raise ValueError("checkpoint não contém um state_dict")
-        model = TCNClassifier(
-            input_dim=config.input_dim,
-            channels=config.channels,
-            kernel_size=config.kernel_size,
-            dilations=config.dilations,
-            dropout=config.dropout,
-            num_classes=config.num_classes,
-        )
-        model.load_state_dict(state, strict=True)
-    except Exception as exc:
-        raise ValueError(
-            f"checkpoint.pt não é carregável/compatível com config.yaml: {exc}"
-        ) from exc
-    return model
-
-
-def validate_training_run(
-    run_dir: Path,
-    expected_config: TrainConfig | None = None,
-    fields_allowed_to_differ: frozenset[str] = frozenset(),
-) -> TrainConfig:
-    present = [
-        name for name in REQUIRED_TRAINING_ARTIFACTS if (run_dir / name).is_file()
-    ]
-    if len(present) != len(REQUIRED_TRAINING_ARTIFACTS):
-        missing = [
-            name for name in REQUIRED_TRAINING_ARTIFACTS if name not in present
-        ]
-        raise RuntimeError(
-            f"run parcial em {run_dir}: artefatos ausentes: {', '.join(missing)}"
-        )
-
-    try:
-        config = load_config(run_dir / "config.yaml")
-    except (OSError, TypeError, ValueError, KeyError) as exc:
-        raise RuntimeError(f"config.yaml inválido em {run_dir}: {exc}") from exc
-    if expected_config is not None:
-        expected_dict = expected_config.to_dict()
-        actual_dict = config.to_dict()
-        disallowed_diffs = sorted(
-            field
-            for field in expected_dict
-            if field not in fields_allowed_to_differ
-            and actual_dict.get(field) != expected_dict[field]
-        )
-        if disallowed_diffs:
-            raise RuntimeError(
-                f"config.yaml em {run_dir} não corresponde à configuração "
-                f"solicitada: campo(s) divergente(s): {', '.join(disallowed_diffs)}"
-            )
-
-    try:
-        with (run_dir / "metrics.json").open(encoding="utf-8") as stream:
-            metrics = json.load(stream)
-        validate_training_metrics(
-            metrics,
-            config,
-            config_path=run_dir / "config.yaml",
-            checkpoint_path=run_dir / "checkpoint.pt",
-        )
-    except (OSError, TypeError, ValueError, KeyError) as exc:
-        raise RuntimeError(f"metrics.json inválido em {run_dir}: {exc}") from exc
-
-    try:
-        load_compatible_checkpoint(run_dir / "checkpoint.pt", config)
-    except ValueError as exc:
-        raise RuntimeError(f"checkpoint.pt inválido em {run_dir}: {exc}") from exc
-    return config

@@ -35,6 +35,7 @@ from gatefall.train.shared.metrics import (
     restricted_macro_f1,
     support,
 )
+from gatefall.train.shared.selftests.determinism import run_determinism_selftest
 from gatefall.train.shared.selftests.metrics import run_metrics_selftest
 from gatefall.train.shared.selftests.tcn import run_tcn_selftest
 
@@ -305,10 +306,11 @@ def run_report(
 def run_selftest() -> None:
     tcn_ok = run_tcn_selftest()
     metrics_ok = run_metrics_selftest()
+    determinism_ok = run_determinism_selftest()
     engine_ok = run_engine_selftest()
     baseline_a_ok = run_baseline_a_selftest()
     artifacts_ok = run_artifacts_selftest()
-    if not (tcn_ok and metrics_ok and engine_ok and baseline_a_ok and artifacts_ok):
+    if not (tcn_ok and metrics_ok and determinism_ok and engine_ok and baseline_a_ok and artifacts_ok):
         sys.exit(1)
 
 
