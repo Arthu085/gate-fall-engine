@@ -37,9 +37,7 @@ nav:
       - Visão geral: architecture/overview.md
       - Tecnologias: architecture/technology-stack.md
   - Execução:
-      - Pipelines experimentais: runbooks/pipeline-a.md
-      - Referência de comandos: reference/commands.md
-      - Referências finais do Le2i: reference/le2i-runs.md
+      - Pipelines experimentais: runbooks/pipelines.md
   - Dados:
       - Organização: data/organization.md
       - OmniFall: data/omnifall.md
@@ -58,15 +56,22 @@ nav:
       - Padronização do descritor SAM 3: data/sam3-standardization.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
-      - Arma B0 (fusão pose + DINOv3): train/b0-fusion.md
-      - Arma B1 (fusão adaptativa por gate): train/b1-adaptive-gate.md
-      - Arma C0 (fusão pose + SAM 3): train/c0-fusion.md
-      - Arma C1 (gate adaptativo com SAM 3): train/c1-adaptive-gate.md
+      - Braço B0 (fusão pose + DINOv3): train/baseline-b0.md
+      - Braço B1 (fusão adaptativa por gate): train/baseline-b1.md
+      - Braço C0 (fusão pose + SAM 3): train/baseline-c0.md
+      - Braço C1 (gate adaptativo com SAM 3): train/baseline-c1.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md
-  - Avaliação:
+  - Avaliação por eventos:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
-      - Generalização entre ambientes (Le2i-CV): eval/le2i-cv-generalization.md
-      - Diagnóstico qualitativo (render): eval/qualitative-render.md
-      - Sensibilidade do protocolo de alarme: eval/alarm-protocol-sensitivity.md
-      - Bootstrap agrupado por sujeito (IC): eval/grouped-bootstrap.md
-      - Sumário multi-seed: eval/multiseed-summary.md
+      - Braço B0 (protocolo de alarme): eval/baseline-b0-events.md
+      - Braço B1 (protocolo de alarme): eval/baseline-b1-events.md
+      - Braço C1 (protocolo de alarme): eval/baseline-c1-events.md
+  - Análises:
+      - Generalização entre ambientes (Le2i-CV): analysis/le2i-cv-generalization.md
+      - Diagnóstico qualitativo (render): analysis/qualitative-render.md
+      - Sensibilidade do protocolo de alarme: analysis/alarm-protocol-sensitivity.md
+      - Bootstrap agrupado por sujeito (IC): analysis/grouped-bootstrap.md
+      - Sumário multi-seed: analysis/multiseed-summary.md
+  - Referência:
+      - Referência de comandos: reference/commands.md
+      - Referências finais do Le2i: reference/le2i-runs.md

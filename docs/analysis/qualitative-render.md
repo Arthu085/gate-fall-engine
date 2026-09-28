@@ -1,17 +1,17 @@
-# Avaliação — Diagnóstico qualitativo (render de quadros de alarme)
+# Análise — Diagnóstico qualitativo (render de quadros de alarme)
 
 `src/gatefall/eval/analysis/qualitative.py` é uma ferramenta de diagnóstico
 independente de estágio: renderiza, para cada evento de queda detectado,
 um PNG do quadro real de vídeo decodificado no instante do gatilho do
 alarme, com o esqueleto/bbox do YOLO-Pose sobreposto. Não faz parte do
-protocolo de avaliação (ver [Avaliação — Braço A](baseline-a-events.md));
+protocolo de avaliação (ver [Avaliação — Braço A](../eval/baseline-a-events.md));
 existe só para inspeção visual manual dos alarmes já computados.
 
 ## O que lê e o que nunca toca
 
 `render` lê apenas artefatos já publicados de um run local completo:
 `config.yaml`, `alarm_protocol.yaml` e `event_metrics.json` (ver
-[Avaliação — Braço A](baseline-a-events.md)). É estritamente somente
+[Avaliação — Braço A](../eval/baseline-a-events.md)). É estritamente somente
 leitura contra esses artefatos: nunca escreve, sobrescreve ou toca no
 lock/journal de `gatefall.eval.baseline_a`, nem em
 `checkpoint.pt`, `config.yaml`, `metrics.json`, `alarm_protocol.yaml` ou

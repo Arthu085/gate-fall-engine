@@ -32,7 +32,7 @@ caia sob o diretório local canônico do *outro* protocolo (por exemplo,
 sobrepõe a seed
 padrão (42) e é gravada em `config.yaml`; é o único campo de configuração que
 pode variar entre runs comparáveis (ver "Receita de treino congelada" abaixo
-e [Sumário multi-seed](../eval/multiseed-summary.md)).
+e [Sumário multi-seed](../analysis/multiseed-summary.md)).
 
 Um run completo exige `config.yaml`, `metrics.json` e `checkpoint.pt` válidos e
 coerentes. O treino escreve os três artefatos em um diretório de staging irmão
@@ -62,7 +62,7 @@ B e C):
 - Seed 42 por padrão; `--seed N` da CLI de treino permite variá-la
   explicitamente. A seed é o único campo experimental que pode divergir
   entre runs — todo o restante da receita abaixo permanece fixo. Ver
-  [Avaliação — Sumário multi-seed](../eval/multiseed-summary.md).
+  [Avaliação — Sumário multi-seed](../analysis/multiseed-summary.md).
 - Otimizador AdamW, `lr=1e-3`, `weight_decay=1e-2`.
 - Agendamento de learning rate cosseno.
 - `batch_size=64`, 30 épocas, sem early stopping.
@@ -250,7 +250,7 @@ vídeo/subject justamente para evitar vazamento entre treino e teste
 
 Generalização a ambientes não vistos é medida separadamente pelo protocolo
 `le2i-cv`, disjunto por ambiente e câmera; ver [Generalização entre
-ambientes (Le2i-CV)](../eval/le2i-cv-generalization.md) para o run do braço A
+ambientes (Le2i-CV)](../analysis/le2i-cv-generalization.md) para o run do braço A
 sob esse protocolo e a ressalva de confounding entre os dois.
 
 ## Migração de referência: pipeline de features atual
@@ -295,7 +295,7 @@ Contabilidade do que mudou e do que permaneceu idêntico:
   correntes — nada a montante do treino precisou ser regenerado. O checkpoint
   recém-treinado tem o mesmo sha256 do candidato local pré-existente e do run
   independente de seed 42 do [sumário
-  multi-seed](../eval/multiseed-summary.md), e `metrics.json`,
+  multi-seed](../analysis/multiseed-summary.md), e `metrics.json`,
   `event_metrics.json`, `alarm_protocol.yaml`,
   `alarm_protocol_sensitivity.csv`, `grouped_bootstrap.csv` e
   `multiseed_summary.csv` saíram byte a byte idênticos aos do candidato local.

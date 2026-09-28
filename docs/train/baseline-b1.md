@@ -1,10 +1,10 @@
-# Treino — Arma B1 (fusão adaptativa por gate)
+# Treino — Braço B1 (fusão adaptativa por gate)
 
-`src/gatefall/train/baseline_b1/` implementa a arma B1 do braço B: as mesmas
-projeções de pose (134-d) e DINOv3 (1536-d) da [arma B0](b0-fusion.md), mas
+`src/gatefall/train/baseline_b1/` implementa o braço B1 do braço B: as mesmas
+projeções de pose (134-d) e DINOv3 (1536-d) do [braço B0](baseline-b0.md), mas
 ponderadas por um **gate escalar aprendido por timestep** antes da
 concatenação, seguidas da mesma TCN causal dilatada do [Braço A](baseline-a.md).
-B0 permanece intocada: B1 é uma arma irmã, com dataset, modelo, config,
+B0 permanece intocado: B1 é um braço irmão, com dataset, modelo, config,
 engine, validadores e `run_dir` próprios.
 
 ## Gate adaptativo
@@ -102,7 +102,7 @@ no `run_dir`:
 
 - `guard_not_arm_a_run_dir` (`baseline_b1/run.py`) rejeita `--run-dir` igual, ancestral
   ou descendente do run do braço A;
-- `guard_not_arm_b0_run_dir` (`baseline_b1/run.py`) faz o mesmo em relação ao run da arma
+- `guard_not_arm_b0_run_dir` (`baseline_b1/run.py`) faz o mesmo em relação ao run do braço
   B0 — é essa guarda que impede operacionalmente que um `--force` do B1
   sobrescreva ou renomeie o run de comparação do B0;
 - `validate_local_run_dir(run_dir, dataset_name)` rejeita qualquer `--run-dir`
@@ -113,15 +113,15 @@ resolvidos contra `REPOSITORY_ROOT`, não contra o diretório corrente, de modo
 que as guardas continuam valendo quando a CLI roda de outro `cwd`.
 
 As três guardas só conhecem os run dirs **canônicos**. Um run não canônico de
-outra arma (por exemplo `runs/local/le2i/b0_fusion_seed7`) passaria por elas, e
+outro braço (por exemplo `runs/local/le2i/b0_fusion_seed7`) passaria por elas, e
 por isso `run_b1_training` ainda recusa qualquer `run_dir` cujo `config.yaml`
-declare uma `arm` diferente de `B1` — nem `--force` sobrescreve o run de outra
-arma. Um run B1 válido continua sendo preservado sem `--force` e reconstruído
+declare uma `arm` diferente de `B1` — nem `--force` sobrescreve o run de outro
+braço. Um run B1 válido continua sendo preservado sem `--force` e reconstruído
 com `--force`, como antes.
 
 `report` protege os artefatos (`config.yaml`, `metrics.json`, `checkpoint.pt`,
 `alarm_protocol.yaml`, `event_metrics.json`) de quatro run dirs: o run pedido
-em `--run-dir`, o run **canônico** do B1 e os run dirs canônicos das armas A e
+em `--run-dir`, o run **canônico** do B1 e os run dirs canônicos dos braços A e
 B0. `--output` apontando para qualquer um deles é recusado, assim como qualquer
 caminho sob `runs/reference/`.
 
@@ -175,37 +175,7 @@ confusão, `per_class`, projeção binária `fall`/`fallen`, verificação contr
 `metrics.json`, `class_support_table`, `macro_f1_policy`) a partir de um run B1
 já treinado, sem alterar nenhum artefato protegido.
 
-### Avaliação por eventos
-
-```bash
-uv run python -m gatefall.eval.baseline_b1 selftest
-```
-
-Roda checagens sintéticas da inferência com gate, das guardas de protocolo e do
-lifecycle dos artefatos, sem acessar o dataset real nem um checkpoint.
-
-```bash
-uv run python -m gatefall.eval.baseline_b1 evaluate --dataset le2i \
-  --run-dir runs/local/le2i/b1_adaptive_gate
-```
-
-Avalia `val` e `test` de um run B1 completo. Sem `--run-dir`, usa
-`runs/local/le2i/b1_adaptive_gate/`. A CLI aceita somente Le2i CS. As guardas do
-`run_dir` são as mesmas do treino e do report — ancoradas em `REPOSITORY_ROOT`,
-rejeitam os runs dos braços A e B0 e, para runs não canônicos dessas armas, a
-precheck sobre a `arm` declarada no `config.yaml` recusa o destino.
-
-A qualidade entra no gate **crua** na inferência: pose e DINOv3 são
-padronizados, `[q_pose, q_visual]` não, exatamente como no treino.
-
-A avaliação roda `BASELINE_A_ALARM_PROTOCOL` congelado — não há retuning de
-limiar para o B1 — e reutiliza o mesmo schema de `event_metrics.json`, os mesmos
-hashes e o mesmo lifecycle atômico com lock, journal, staging e promoção
-descrito em [Avaliação — Braço A](../eval/baseline-a-events.md). Publica
-`alarm_protocol.yaml` e `event_metrics.json` no próprio run B1. Sem `--force`,
-preserva um par de saídas íntegro e falha diante de artefatos parciais ou
-inconsistentes; com `--force`, reconstrói e substitui o par somente após validar
-os novos arquivos, com rollback em caso de falha.
+A avaliação por eventos está em [Avaliação — Braço B1](../eval/baseline-b1-events.md).
 
 ## Fora do escopo desta entrega
 

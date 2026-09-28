@@ -52,7 +52,7 @@ e dos nomes ordenados. O JSON de padronização persiste `feature_dim=134` e
 `feature_names` nessa mesma ordem; sua validação rejeita metadados divergentes
 antes de aplicar `mean`, `std` e a máscara de exclusão por coluna. Uma mudança
 na ordem ou semântica das features exige recalcular as estatísticas da fonte
-de pose compartilhadas pelas cinco armas.
+de pose compartilhadas pelas cinco braços.
 
 ## Só no split de treino
 
@@ -192,4 +192,4 @@ nomes das dimensões guardadas, e quantos vídeos distintos foram carregados
 por split. Essa contagem é específica do protocolo: 133/19/38 (total 190)
 para `le2i` (cross-subject); para `le2i-cv` (cross-environment), 97/33/60
 (total 190, o mesmo corpus de vídeos, dividido de outra forma — ver
-[relatório de generalização](../eval/le2i-cv-generalization.md)).
+[relatório de generalização](../analysis/le2i-cv-generalization.md)).

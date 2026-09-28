@@ -4,7 +4,7 @@
 descritor `V_t ∈ R^10` do SAM 3 (ver [Fundação SAM 3](sam3-foundation.md#descritor-v_t)),
 com estatísticas ajustadas **apenas** no split de treino — o mesmo esquema da
 [padronização DINOv3](dinov3-standardization.md). A estatística pertence à
-fonte (`source = "sam3"`), não a uma arma: qualquer arma que consuma `V_t`
+fonte (`source = "sam3"`), não a um braço: qualquer braço que consuma `V_t`
 reusa o mesmo arquivo `src/gatefall/features/stats/sam3_le2i_cs.json`.
 
 ## Ajuste e aplicação

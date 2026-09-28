@@ -27,7 +27,7 @@ runs/
 equivalente `cv`: os comandos DINOv3 recusam o adapter `le2i-cv`. Não existe
 `runs/reference/le2i_cv/`: a promoção de um run a
 referência nunca é automática. Veja o [relatório de
-generalização](../eval/le2i-cv-generalization.md) para o que o protocolo `cv`
+generalização](../analysis/le2i-cv-generalization.md) para o que o protocolo `cv`
 mede.
 
 | Camada | Responsabilidade |
@@ -41,7 +41,7 @@ mede.
 | `runs/local` | Checkpoints e métricas de reproduções locais |
 
 A [política de referências finais](../reference/le2i-runs.md) define os arquivos
-de cada arma e registra por que C0 não possui avaliação de eventos.
+de cada braço e registra por que C0 não possui avaliação de eventos.
 
 ## Migração dos caminhos legados
 
@@ -59,7 +59,7 @@ camadas posteriores não dependem dele.
 
 ## Fluxo
 
-O caminho recomendado é o [pipeline A](../runbooks/pipeline-a.md). As etapas
+O caminho recomendado é o [pipeline A](../runbooks/pipelines.md). As etapas
 continuam executáveis separadamente pela [referência de comandos](../reference/commands.md):
 labels → extração → manifesto → grade → pose → padronização → treino → eventos.
 

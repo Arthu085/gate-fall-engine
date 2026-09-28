@@ -1,10 +1,10 @@
-# Treino — Arma C0 (fusão pose + SAM 3 por concatenação)
+# Treino — Braço C0 (fusão pose + SAM 3 por concatenação)
 
-`src/gatefall/train/baseline_c0/` implementa a arma C0 do braço C: pose (134-d) e o
+`src/gatefall/train/baseline_c0/` implementa o braço C0 do braço C: pose (134-d) e o
 descritor de máscara do SAM 3 `V_t` (10-d, ver [Fundação
 SAM 3](../data/sam3-foundation.md#descritor-v_t)) projetados separadamente e
 fundidos por concatenação simples antes da mesma TCN causal dilatada do
-[Braço A](baseline-a.md). É a contraparte exata da [arma B0](b0-fusion.md):
+[Braço A](baseline-a.md). É a contraparte exata do [braço B0](baseline-b0.md):
 só a fonte visual por timestep muda.
 
 ## Arquitetura

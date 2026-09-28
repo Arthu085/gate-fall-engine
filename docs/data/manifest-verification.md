@@ -18,7 +18,7 @@ uv run python -m gatefall.data.ingest ingest
 `data/processed/le2i_cv/manifest.parquet`, isolado do protocolo `cs` descrito
 nesta página. A disjunção de ambiente e câmera entre splits — a propriedade
 da qual a validade do `le2i-cv` depende — não é verificada aqui; ela é
-tratada pelo [relatório de generalização](../eval/le2i-cv-generalization.md).
+tratada pelo [relatório de generalização](../analysis/le2i-cv-generalization.md).
 
 A ingestão:
 
@@ -127,7 +127,7 @@ da configuração não deve ser interpretado, isoladamente, como garantia de um
 split cross-subject. Sob `--dataset le2i-cv`, a sobreposição de subjects entre
 splits é esperada — o critério de disjunção do protocolo é ambiente/câmera,
 não subject, e os ids de subject do Le2i não são globalmente únicos entre
-ambientes (ver [Le2i-CV](../eval/le2i-cv-generalization.md)). Em ambos os
+ambientes (ver [Le2i-CV](../analysis/le2i-cv-generalization.md)). Em ambos os
 protocolos, essa sobreposição permanece não crítica: o comando não falha por
 causa dela.
 

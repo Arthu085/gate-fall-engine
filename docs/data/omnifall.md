@@ -46,7 +46,7 @@ uv run python scripts/fetch_labels.py --protocol cv
 ```
 
 O split `cv` é disjunto por ambiente e câmera (não por subject — ver
-[relatório de generalização](../eval/le2i-cv-generalization.md) para a
+[relatório de generalização](../analysis/le2i-cv-generalization.md) para a
 distinção):
 
 | Split | Segmentos | Vídeos | Ambientes | Câmeras |

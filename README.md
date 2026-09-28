@@ -10,10 +10,10 @@ O projeto é organizado em três braços experimentais:
 
 - **Braço A — YOLO-Pose + TCN:** implementado.
 - **Braço B — YOLO-Pose + DINOv3 + TCN:** extração offline de features
-  DINOv3, a arma B0 (fusão por concatenação simples com pose) e a arma B1
-  (fusão adaptativa por gate escalar) implementadas.
+  DINOv3, o braço B0 (fusão por concatenação simples com pose) e o braço B1
+  (fusão adaptativa por gate escalar) implementados.
 - **Braço C — YOLO-Pose + SAM 3 + TCN:** fundação de extração offline do
-  descritor de máscara `V_t` do SAM 3, armas C0 (fusão por concatenação simples)
+  descritor de máscara `V_t` do SAM 3, braços C0 (fusão por concatenação simples)
   e C1 (gate adaptativo), e avaliação por eventos e alarmes de C1 implementadas.
 
 Este projeto é **Built with DINOv3**.
@@ -158,7 +158,7 @@ Após a preparação dos dados, cada braço experimental possui seu próprio pip
 
 Os braços compartilham o mesmo protocolo temporal e a mesma base experimental, mas utilizam representações distintas por timestep.
 
-Execute o pipeline completo da arma desejada com `--dataset le2i`:
+Execute o pipeline completo do braço desejado com `--dataset le2i`:
 
 ```bash
 uv run python -m gatefall.pipeline run --dataset le2i --arm A
@@ -168,7 +168,7 @@ uv run python -m gatefall.pipeline run --dataset le2i --arm C0
 uv run python -m gatefall.pipeline run --dataset le2i --arm C1
 ```
 
-Somente a arma A aceita `--dataset le2i-cv`. Consulte o [runbook](docs/runbooks/pipeline-a.md)
+Somente o braço A aceita `--dataset le2i-cv`. Consulte o [runbook](docs/runbooks/pipelines.md)
 e a [referência de comandos](docs/reference/commands.md) para pré-requisitos e detalhes.
 
 ### Braço A — YOLO-Pose + TCN
@@ -179,7 +179,7 @@ O pipeline executa e valida as etapas necessárias para reproduzir o braço A, i
 
 Documentação:
 
-- [Runbook dos pipelines experimentais](docs/runbooks/pipeline-a.md)
+- [Runbook dos pipelines experimentais](docs/runbooks/pipelines.md)
 - [Treino do braço A](docs/train/baseline-a.md)
 - [Avaliação por eventos do braço A](docs/eval/baseline-a-events.md)
 - [Referência de comandos](docs/reference/commands.md)
@@ -192,17 +192,17 @@ A extração offline de features DINOv3 está implementada: veja
 [Features DINOv3](docs/data/dinov3-features.md) para o schema do HDF5
 produzido, a fórmula do descritor e os termos de licença do DINOv3.
 
-A arma B0 (fusão por concatenação simples entre pose e DINOv3 projetados,
-seguida da mesma TCN do braço A) também está implementada: veja
+O braço B0 (fusão por concatenação simples entre pose e DINOv3 projetados,
+seguida da mesma TCN do braço A) também está implementado: veja
 [Padronização de features DINOv3](docs/data/dinov3-standardization.md) e
-[Treino — Arma B0](docs/train/b0-fusion.md) para a arquitetura, a receita de
+[Treino — Braço B0](docs/train/baseline-b0.md) para a arquitetura, a receita de
 treino compartilhada com o braço A e como executar.
 
-A arma B1 acrescenta uma fusão adaptativa: um gate escalar por timestep,
+O braço B1 acrescenta uma fusão adaptativa: um gate escalar por timestep,
 calculado a partir dos proxies de qualidade `q_pose` e `q_visual`, pondera as
 duas fontes antes da TCN. Veja [Features de
-qualidade](docs/data/quality-features.md) e [Treino — Arma
-B1](docs/train/b1-adaptive-gate.md).
+qualidade](docs/data/quality-features.md) e [Treino — Braço
+B1](docs/train/baseline-b1.md).
 
 ### Braço C — YOLO-Pose + SAM 3 + TCN
 
@@ -215,13 +215,13 @@ implementada: veja [Fundação SAM 3](docs/data/sam3-foundation.md) para o
 schema do HDF5 produzido, a fórmula do descritor, a política de seleção de
 instância e o isolamento de ambiente do runtime SAM 3.
 
-A arma C0 (fusão por concatenação simples entre pose e `V_t` projetados,
-seguida da mesma TCN do braço A) também está implementada: veja
+O braço C0 (fusão por concatenação simples entre pose e `V_t` projetados,
+seguida da mesma TCN do braço A) também está implementado: veja
 [Padronização do descritor SAM 3](docs/data/sam3-standardization.md) e
-[Treino — Arma C0](docs/train/c0-fusion.md). A arma C1 também está implementada:
-veja [Treino — Arma C1](docs/train/c1-adaptive-gate.md). A avaliação por
+[Treino — Braço C0](docs/train/baseline-c0.md). O braço C1 também está implementado:
+veja [Treino — Braço C1](docs/train/baseline-c1.md). A avaliação por
 eventos e alarmes de C1 também está implementada e usa o protocolo de alarme
-congelado do braço A: veja [Avaliação por eventos de C1](docs/train/c1-adaptive-gate.md#avaliacao-por-eventos).
+congelado do braço A: veja [Avaliação por eventos de C1](docs/eval/baseline-c1-events.md).
 Conforme o escopo experimental, C0 não possui avaliação final por eventos.
 
 ---
@@ -251,7 +251,7 @@ A CI do projeto também executa os selftests sintéticos, Pyright e a validaçã
 
 A documentação detalhada está organizada por responsabilidade.
 As [referências finais do Le2i](docs/reference/le2i-runs.md) reúnem os
-resultados textuais das armas A, B0, B1, C0 e C1.
+resultados textuais dos braços A, B0, B1, C0 e C1.
 
 ### Arquitetura
 
@@ -265,7 +265,7 @@ resultados textuais das armas A, B0, B1, C0 e C1.
 
 ### Braço A
 
-- [Runbook dos pipelines experimentais](docs/runbooks/pipeline-a.md)
+- [Runbook dos pipelines experimentais](docs/runbooks/pipelines.md)
 - [Treino do braço A](docs/train/baseline-a.md)
 - [Avaliação por eventos](docs/eval/baseline-a-events.md)
 
@@ -273,17 +273,19 @@ resultados textuais das armas A, B0, B1, C0 e C1.
 
 - [Features DINOv3](docs/data/dinov3-features.md)
 - [Padronização de features DINOv3](docs/data/dinov3-standardization.md)
-- [Treino da arma B0 (fusão pose + DINOv3)](docs/train/b0-fusion.md)
+- [Treino do braço B0 (fusão pose + DINOv3)](docs/train/baseline-b0.md)
+- [Avaliação por eventos do braço B0](docs/eval/baseline-b0-events.md)
 - [Features de qualidade (`q_pose`, `q_visual`)](docs/data/quality-features.md)
-- [Treino da arma B1 (fusão adaptativa por gate)](docs/train/b1-adaptive-gate.md)
+- [Treino do braço B1 (fusão adaptativa por gate)](docs/train/baseline-b1.md)
+- [Avaliação por eventos do braço B1](docs/eval/baseline-b1-events.md)
 
 ### Braço C
 
 - [Fundação SAM 3](docs/data/sam3-foundation.md)
 - [Padronização do descritor SAM 3](docs/data/sam3-standardization.md)
-- [Treino da arma C0 (fusão pose + SAM 3)](docs/train/c0-fusion.md)
-- [Treino da arma C1 (gate adaptativo com SAM 3)](docs/train/c1-adaptive-gate.md)
-- [Avaliação por eventos de C1](docs/train/c1-adaptive-gate.md#avaliacao-por-eventos)
+- [Treino do braço C0 (fusão pose + SAM 3)](docs/train/baseline-c0.md)
+- [Treino do braço C1 (gate adaptativo com SAM 3)](docs/train/baseline-c1.md)
+- [Avaliação por eventos de C1](docs/eval/baseline-c1-events.md)
 
 Para abrir a documentação localmente:
 
