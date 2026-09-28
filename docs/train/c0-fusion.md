@@ -1,6 +1,6 @@
 # Treino — Arma C0 (fusão pose + SAM 3 por concatenação)
 
-`src/gatefall/train/c0_*.py` implementa a arma C0 do braço C: pose (134-d) e o
+`src/gatefall/train/baseline_c0/` implementa a arma C0 do braço C: pose (134-d) e o
 descritor de máscara do SAM 3 `V_t` (10-d, ver [Fundação
 SAM 3](../data/sam3-foundation.md#descritor-v_t)) projetados separadamente e
 fundidos por concatenação simples antes da mesma TCN causal dilatada do
@@ -9,7 +9,7 @@ só a fonte visual por timestep muda.
 
 ## Arquitetura
 
-`C0FusionClassifier` (`src/gatefall/train/c0_model.py`):
+`C0FusionClassifier` (`src/gatefall/train/baseline_c0/model.py`):
 
 - `E_P`: `Linear(134, 128) -> LayerNorm(128) -> ReLU`, projeta a pose.
 - `E_V`: `Linear(10, 128) -> LayerNorm(128) -> ReLU`, projeta `V_t`.
@@ -24,13 +24,14 @@ canal projetado entra com peso fixo 1 e é a TCN que aprende a combiná-los. O
 
 ## Receita idêntica ao braço A e ao B0
 
-`C0_FUSION_CONFIG` (`src/gatefall/train/c0_config.py`) copia campo a campo a
+`C0_FUSION_CONFIG` (`src/gatefall/train/baseline_c0/config.py`) copia campo a campo a
 receita compartilhada de `BASELINE_A_CONFIG` (seed, janela, strides, número
-de classes, TCN, otimizador, agenda, épocas, perda). `c0_config_selftest.py`
+de classes, TCN, otimizador, agenda, épocas, perda). `baseline_c0/selftests/config.py`
 verifica essa igualdade e verifica também que, entre os campos que C0 e B0
 têm em comum, só `run_name`, `arm` e `visual_dim` (10 vs. 1536) divergem —
 invariante experimental 1 do `CLAUDE.md`. O loop de treino
-(`c0_engine.py`) reutiliza `configure_determinism` do braço A.
+(`baseline_c0/engine.py`) reutiliza `configure_determinism` de
+`train/shared/determinism.py`.
 
 Campos de auditoria exclusivos do C0: `pose_dim`, `visual_dim`,
 `projection_dim`, `fused_dim`, caminho/sha256 das estatísticas de pose e das
@@ -69,7 +70,7 @@ contrato quadro a quadro de extração/seleção de `"person"` não mudam.
 
 ## Somente Le2i CS
 
-`gatefall.train.c0_fusion` aceita apenas `--dataset le2i`
+`gatefall.train.baseline_c0` aceita apenas `--dataset le2i`
 (`SAM3_SUPPORTED_DATASET_IDENTIFIERS`), pelo mesmo motivo das demais
 operações do SAM 3.
 
@@ -89,7 +90,7 @@ B0 e B1, nem para dentro de `runs/reference/`.
 ## Como executar
 
 ```bash
-uv run python -m gatefall.train.c0_fusion selftest
+uv run python -m gatefall.train.baseline_c0 selftest
 ```
 
 Roda checagens sintéticas da leitura validada de `V_t`, da padronização SAM
@@ -98,7 +99,7 @@ treino, dos validadores de artefato e das guardas de CLI, sem dataset real.
 
 ```bash
 uv run python -m gatefall.features.standardize_sam3 build --dataset le2i
-uv run python -m gatefall.train.c0_fusion train --dataset le2i \
+uv run python -m gatefall.train.baseline_c0 train --dataset le2i \
   --run-dir runs/local/le2i/c0_fusion
 ```
 
@@ -107,7 +108,7 @@ braço A e do B0 (diretório temporário irmão, validação antes de publicar,
 `--force` com backup e rollback).
 
 ```bash
-uv run python -m gatefall.train.c0_fusion report --dataset le2i \
+uv run python -m gatefall.train.baseline_c0 report --dataset le2i \
   --run-dir runs/local/le2i/c0_fusion \
   --output runs/local/le2i/c0_fusion/classification_report.json --force
 ```

@@ -61,37 +61,37 @@ from gatefall.features.standardize_dinov3 import DINOV3_STATS_PATH
 from gatefall.hashing import sha256_file
 from gatefall.runs import validate_local_run_dir
 from gatefall.sam3.dataset_guard import ensure_sam3_dataset_supported
-from gatefall.train.artifacts import validate_training_run
-from gatefall.train.b0_artifacts import validate_b0_training_run
-from gatefall.train.b0_config import B0_FUSION_CONFIG, B0TrainConfig
-from gatefall.train.b0_config import save_config as save_b0_config
-from gatefall.train.b0_model import B0FusionClassifier
-from gatefall.train.b0_run import resolve_b0_config
-from gatefall.train.b1_artifacts import validate_b1_training_run
-from gatefall.train.b1_config import B1_ADAPTIVE_GATE_CONFIG, B1TrainConfig
-from gatefall.train.b1_config import save_config as save_b1_config
-from gatefall.train.b1_model import B1AdaptiveGateClassifier
-from gatefall.train.b1_run import resolve_b1_config
-from gatefall.train.c0_artifacts import validate_c0_training_run
-from gatefall.train.c0_config import C0_FUSION_CONFIG, C0TrainConfig
-from gatefall.train.c0_config import save_config as save_c0_config
-from gatefall.train.c0_fusion import _resolve_config as resolve_c0_config
-from gatefall.train.c0_fusion import _validated_inputs as validated_sam3_inputs
-from gatefall.train.c0_model import C0FusionClassifier
-from gatefall.train.c1_artifacts import validate_c1_training_run
-from gatefall.train.c1_config import C1_ADAPTIVE_GATE_CONFIG, C1TrainConfig
-from gatefall.train.c1_config import save_config as save_c1_config
-from gatefall.train.c1_gate import _resolve_config as resolve_c1_config
-from gatefall.train.c1_model import C1AdaptiveGateClassifier
-from gatefall.train.config import BASELINE_A_CONFIG, TrainConfig, save_config
-from gatefall.train.metrics import (
+from gatefall.train.baseline_a.artifacts import validate_training_run
+from gatefall.train.baseline_b0.artifacts import validate_b0_training_run
+from gatefall.train.baseline_b0.config import B0_FUSION_CONFIG, B0TrainConfig
+from gatefall.train.baseline_b0.config import save_config as save_b0_config
+from gatefall.train.baseline_b0.model import B0FusionClassifier
+from gatefall.train.baseline_b0.run import resolve_b0_config
+from gatefall.train.baseline_b1.artifacts import validate_b1_training_run
+from gatefall.train.baseline_b1.config import B1_ADAPTIVE_GATE_CONFIG, B1TrainConfig
+from gatefall.train.baseline_b1.config import save_config as save_b1_config
+from gatefall.train.baseline_b1.model import B1AdaptiveGateClassifier
+from gatefall.train.baseline_b1.run import resolve_b1_config
+from gatefall.train.baseline_c0.artifacts import validate_c0_training_run
+from gatefall.train.baseline_c0.config import C0_FUSION_CONFIG, C0TrainConfig
+from gatefall.train.baseline_c0.config import save_config as save_c0_config
+from gatefall.train.baseline_c0.run import resolve_c0_config_for_inputs as resolve_c0_config
+from gatefall.train.shared.sam3_inputs import _validated_inputs as validated_sam3_inputs
+from gatefall.train.baseline_c0.model import C0FusionClassifier
+from gatefall.train.baseline_c1.artifacts import validate_c1_training_run
+from gatefall.train.baseline_c1.config import C1_ADAPTIVE_GATE_CONFIG, C1TrainConfig
+from gatefall.train.baseline_c1.config import save_config as save_c1_config
+from gatefall.train.baseline_c1.run import resolve_c1_config_for_inputs as resolve_c1_config
+from gatefall.train.baseline_c1.model import C1AdaptiveGateClassifier
+from gatefall.train.baseline_a.config import BASELINE_A_CONFIG, TrainConfig, save_config
+from gatefall.train.shared.metrics import (
     BINARY_POSITIVE_LABELS,
     RESTRICTED_CLASSES,
     binary_projection_from_confusion_matrix,
     classification_summary,
     restricted_macro_f1,
 )
-from gatefall.train.tcn import TCNClassifier
+from gatefall.train.shared.tcn import TCNClassifier
 
 MULTISEED_SUMMARY_JSON_FILE = "multiseed_summary.json"
 MULTISEED_SUMMARY_CSV_FILE = "multiseed_summary.csv"

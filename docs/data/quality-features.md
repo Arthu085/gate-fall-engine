@@ -61,8 +61,8 @@ inválido — inclusive um cuja pose de origem foi reextraída — faz a extraç
 falhar com o motivo, e só `--force` reextrai. Os schemas persistidos de pose e DINOv3 e seus
 artefatos de padronização não são tocados por esta etapa.
 
-A detecção de sidecar superado vive nesta CLI, não no treino: `b1_gate train` e
-`b1_gate report` hasheiam os arquivos de qualidade, que não mudam quando só a
+A detecção de sidecar superado vive nesta CLI, não no treino: `gatefall.train.baseline_b1 train` e
+`gatefall.train.baseline_b1 report` hasheiam os arquivos de qualidade, que não mudam quando só a
 pose é reextraída. Depois de qualquer reextração de pose, rode
 `quality_extract extract-all` (ou ao menos `quality_extract report`) antes do
 treino do B1 — é esse passo que compara `pose_source_sha256` e recusa a

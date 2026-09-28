@@ -12,7 +12,7 @@ import pandas as pd
 from gatefall.config import IGNORE_LABEL, WINDOW_FRAMES
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
-from gatefall.train.engine import _collect_labels
+from gatefall.train.baseline_a.engine import _collect_labels
 
 _D = 3
 _N_FRAMES_A = 30

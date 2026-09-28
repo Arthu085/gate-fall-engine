@@ -1,6 +1,6 @@
 # Treino — Arma B1 (fusão adaptativa por gate)
 
-`src/gatefall/train/b1_*.py` implementa a arma B1 do braço B: as mesmas
+`src/gatefall/train/baseline_b1/` implementa a arma B1 do braço B: as mesmas
 projeções de pose (134-d) e DINOv3 (1536-d) da [arma B0](b0-fusion.md), mas
 ponderadas por um **gate escalar aprendido por timestep** antes da
 concatenação, seguidas da mesma TCN causal dilatada do [Braço A](baseline-a.md).
@@ -9,7 +9,8 @@ engine, validadores e `run_dir` próprios.
 
 ## Gate adaptativo
 
-`B1AdaptiveGateClassifier` (`src/gatefall/train/b1_model.py`):
+`B1AdaptiveGateClassifier` (`src/gatefall/train/baseline_b1/model.py`) usa a
+implementação comum de `src/gatefall/train/shared/gated_model.py`:
 
 - `E_P`: `Linear(134, 128) -> LayerNorm(128) -> ReLU`, projeta a pose.
 - `E_V`: `Linear(1536, 128) -> LayerNorm(128) -> ReLU`, projeta o DINOv3.
@@ -51,12 +52,13 @@ o futuro.
 
 ## Receita de treino idêntica a A e B0
 
-`src/gatefall/train/b1_config.py` monta `B1_ADAPTIVE_GATE_CONFIG` copiando,
+`src/gatefall/train/baseline_b1/config.py` monta `B1_ADAPTIVE_GATE_CONFIG` a partir
+dos campos comuns em `src/gatefall/train/shared/gated_config.py`, que copia,
 campo a campo, todos os campos da receita compartilhada de `BASELINE_A_CONFIG`
 (seed, `window_frames`, `train_stride`, `eval_stride`, `num_classes`,
 `kernel_size`, `dilations`, `channels`, `dropout`, `receptive_field`,
 `optimizer_name`, `lr`, `weight_decay`, `grad_clip_norm`, `lr_schedule_name`,
-`batch_size`, `epochs`, `loss_name`, `class_weighted`). `b1_config_selftest.py`
+`batch_size`, `epochs`, `loss_name`, `class_weighted`). `baseline_b1/selftests/config.py`
 verifica mecanicamente essa igualdade e, além dela, a paridade campo a campo
 com `B0_FUSION_CONFIG`: fora de `run_name` e `arm`, a única diferença admitida
 são os campos exclusivos do gate (`gate_input_dim=2`, `gate_output_dim=1`,
@@ -68,8 +70,9 @@ e C só podem diferir no vetor de feature por timestep. Ver ["Receita de treino
 congelada"](baseline-a.md#receita-de-treino-congelada) no braço A para o
 detalhamento de cada hiperparâmetro.
 
-`src/gatefall/train/b1_engine.py` reutiliza `configure_determinism` do braço A
-(`train/engine.py`) e o mesmo `torch.Generator` semeado do DataLoader de treino,
+`src/gatefall/train/baseline_b1/engine.py` usa o loop em
+`train/shared/gated_engine.py`, `configure_determinism` em
+`train/shared/determinism.py` e o mesmo `torch.Generator` semeado do DataLoader de treino,
 em vez de reimplementar determinismo. O selftest do engine trava que dois
 treinos B1 com a mesma seed produzem checkpoints com o mesmo SHA-256.
 
@@ -86,7 +89,7 @@ cabeça de classificação (`CLAUDE.md`, invariante 4).
 
 ## Somente Le2i CS
 
-Como B0, `gatefall.train.b1_gate` aceita apenas `--dataset le2i`
+Como B0, `gatefall.train.baseline_b1` aceita apenas `--dataset le2i`
 (`DINOV3_SUPPORTED_DATASET_IDENTIFIERS = ("le2i",)`). B1 não tem suporte a
 `le2i-cv` nesta entrega.
 
@@ -97,9 +100,9 @@ para `runs/local/le2i/b1_adaptive_gate/`, irmão de `baseline_a/` e de
 `b0_fusion/`. `run_train` e `run_report` aplicam **três** guardas antes de tocar
 no `run_dir`:
 
-- `guard_not_arm_a_run_dir` (`b1_run.py`) rejeita `--run-dir` igual, ancestral
+- `guard_not_arm_a_run_dir` (`baseline_b1/run.py`) rejeita `--run-dir` igual, ancestral
   ou descendente do run do braço A;
-- `guard_not_arm_b0_run_dir` (`b1_run.py`) faz o mesmo em relação ao run da arma
+- `guard_not_arm_b0_run_dir` (`baseline_b1/run.py`) faz o mesmo em relação ao run da arma
   B0 — é essa guarda que impede operacionalmente que um `--force` do B1
   sobrescreva ou renomeie o run de comparação do B0;
 - `validate_local_run_dir(run_dir, dataset_name)` rejeita qualquer `--run-dir`
@@ -130,7 +133,7 @@ casos em que o `resolve()` do run pedido, sozinho, não o cobriria.
 
 ## Integridade dos artefatos
 
-`b1_artifacts.py` espelha o validador do B0: exige `config.yaml`,
+`baseline_b1/artifacts.py` espelha o validador do B0: exige `config.yaml`,
 `metrics.json` e `checkpoint.pt`, confere `config_sha256`/`checkpoint_sha256`,
 a consistência de `history`, `final` e das classes restritas, e carrega o
 checkpoint com `strict=True`. Consequência direta: um checkpoint do B0 é
@@ -140,7 +143,7 @@ run com `fields_allowed_to_differ = {"seed", "trainable_param_count"}`.
 ## Como executar
 
 ```bash
-uv run python -m gatefall.train.b1_gate selftest
+uv run python -m gatefall.train.baseline_b1 selftest
 ```
 
 Roda as checagens sintéticas da montagem da qualidade, do armazenamento dos
@@ -151,7 +154,7 @@ guardas de CLI — sem treinar nem tocar no dataset real.
 
 ```bash
 uv run python -m gatefall.features.quality_extract extract-all --dataset le2i
-uv run python -m gatefall.train.b1_gate train --dataset le2i \
+uv run python -m gatefall.train.baseline_b1 train --dataset le2i \
   --run-dir runs/local/le2i/b1_adaptive_gate
 ```
 
@@ -162,7 +165,7 @@ calcula o digest do conjunto de sidecars. O lifecycle de staging/promoção do r
 rollback) é o mesmo do braço A.
 
 ```bash
-uv run python -m gatefall.train.b1_gate report --dataset le2i \
+uv run python -m gatefall.train.baseline_b1 report --dataset le2i \
   --run-dir runs/local/le2i/b1_adaptive_gate \
   --output runs/local/le2i/b1_adaptive_gate/classification_report.json --force
 ```

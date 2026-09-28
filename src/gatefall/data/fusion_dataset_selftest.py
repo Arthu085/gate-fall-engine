@@ -15,8 +15,8 @@ import pandas as pd
 from gatefall.config import WINDOW_FRAMES
 from gatefall.data.fusion_dataset import FusionWindowDataset
 from gatefall.data.windowing import build_window_index, window_frame_indices
-from gatefall.train.b0_engine import _collect_labels as collect_b0_labels
-from gatefall.train.c0_engine import _collect_labels as collect_c0_labels
+from gatefall.train.baseline_b0.engine import _collect_labels as collect_b0_labels
+from gatefall.train.baseline_c0.engine import _collect_labels as collect_c0_labels
 
 _POSE_DIM = 134
 _VISUAL_DIM = 1536

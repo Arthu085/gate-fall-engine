@@ -57,13 +57,13 @@ from gatefall.features.standardize_dinov3 import DINOV3_STATS_PATH
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import build_pose_features
 from gatefall.runs import default_run_dir_for_arm, validate_local_run_dir
-from gatefall.train.b1_artifacts import (
+from gatefall.train.baseline_b1.artifacts import (
     load_compatible_b1_checkpoint,
     validate_b1_training_run,
 )
-from gatefall.train.b1_config import B1_ADAPTIVE_GATE_CONFIG, B1TrainConfig
-from gatefall.train.b1_model import B1AdaptiveGateClassifier
-from gatefall.train.b1_run import (
+from gatefall.train.baseline_b1.config import B1_ADAPTIVE_GATE_CONFIG, B1TrainConfig
+from gatefall.train.baseline_b1.model import B1AdaptiveGateClassifier
+from gatefall.train.baseline_b1.run import (
     guard_not_arm_a_run_dir,
     guard_not_arm_b0_run_dir,
     resolve_b1_config,

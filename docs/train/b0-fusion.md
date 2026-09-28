@@ -1,6 +1,6 @@
 # Treino — Arma B0 (fusão pose + DINOv3 por concatenação)
 
-`src/gatefall/train/b0_*.py` implementa a arma B0 do braço B: pose (134-d) e
+`src/gatefall/train/baseline_b0/` implementa a arma B0 do braço B: pose (134-d) e
 DINOv3 (1536-d) projetados separadamente e fundidos por concatenação
 simples, antes da mesma TCN causal dilatada do [Braço A](baseline-a.md).
 `src/gatefall/data/fusion_dataset.py` (`FusionWindowDataset`) devolve, por
@@ -12,7 +12,7 @@ braço A: pose via [`apply_standardization`
 
 ## Arquitetura
 
-`B0FusionClassifier` (`src/gatefall/train/b0_model.py`):
+`B0FusionClassifier` (`src/gatefall/train/baseline_b0/model.py`):
 
 - `E_P`: `Linear(134, 128) -> LayerNorm(128) -> ReLU`, projeta a pose.
 - `E_V`: `Linear(1536, 128) -> LayerNorm(128) -> ReLU`, projeta o DINOv3.
@@ -31,13 +31,13 @@ los.
 
 ## Receita de treino idêntica ao braço A
 
-`src/gatefall/train/b0_config.py` monta `B0_FUSION_CONFIG` copiando, campo a
+`src/gatefall/train/baseline_b0/config.py` monta `B0_FUSION_CONFIG` copiando, campo a
 campo, todos os campos da receita compartilhada de `BASELINE_A_CONFIG`
 (seed, `window_frames`, `train_stride`, `eval_stride`, `num_classes`,
 `kernel_size`, `dilations`, `channels`, `dropout`, `receptive_field`,
 `optimizer_name`, `lr`, `weight_decay`, `grad_clip_norm`,
 `lr_schedule_name`, `batch_size`, `epochs`, `loss_name`, `class_weighted`) —
-`b0_config_selftest.py` verifica mecanicamente essa igualdade, campo a
+`baseline_b0/selftests/config.py` verifica mecanicamente essa igualdade, campo a
 campo, contra `BASELINE_A_CONFIG`. Só os campos exclusivos de auditoria da
 fusão são específicos do B0: `pose_dim`, `visual_dim`, `projection_dim`,
 `fused_dim` e os caminhos/hashes das duas fontes de estatística de
@@ -51,8 +51,8 @@ receita (janela, split, seed, encoder temporal, épocas) permanece fixo. Ver
 congelada"](baseline-a.md#receita-de-treino-congelada) no braço A para o
 detalhamento de cada hiperparâmetro.
 
-`src/gatefall/train/b0_engine.py` reutiliza `configure_determinism` do
-braço A (`train/engine.py`) em vez de duplicá-lo, mantendo as mesmas guardas
+`src/gatefall/train/baseline_b0/engine.py` reutiliza `configure_determinism` de
+`train/shared/determinism.py`, mantendo as mesmas guardas
 de determinismo de GPU (`cudnn.deterministic`, `cudnn.benchmark=False`,
 `torch.use_deterministic_algorithms(True)`, `CUBLAS_WORKSPACE_CONFIG`).
 
@@ -69,7 +69,7 @@ permanece congelado e não entra no grafo de treino (`CLAUDE.md`, invariante
 
 Assim como `standardize_dinov3` (ver [Padronização de features
 DINOv3](../data/dinov3-standardization.md#somente-le2i-cs)),
-`gatefall.train.b0_fusion` aceita apenas `--dataset le2i`
+`gatefall.train.baseline_b0` aceita apenas `--dataset le2i`
 (`DINOV3_SUPPORTED_DATASET_IDENTIFIERS = ("le2i",)`) — `ensure_dinov3_dataset_supported`
 recusa `le2i-cv`, porque os dois adapters do Le2i apontam para o mesmo
 `dinov3_root` físico. B0 não tem suporte a `le2i-cv` nesta entrega.
@@ -95,7 +95,7 @@ não detecta a raiz do `le2i-cv`.
 ## Como executar
 
 ```bash
-uv run python -m gatefall.train.b0_fusion selftest
+uv run python -m gatefall.train.baseline_b0 selftest
 ```
 
 Roda checagens sintéticas de `FusionWindowDataset`, da padronização DINOv3,
@@ -104,7 +104,7 @@ braço A, do loop de treino/avaliação, dos validadores de artefato e da CLI,
 sem treinar nem tocar no dataset real.
 
 ```bash
-uv run python -m gatefall.train.b0_fusion train --dataset le2i \
+uv run python -m gatefall.train.baseline_b0 train --dataset le2i \
   --run-dir runs/local/le2i/b0_fusion
 ```
 
@@ -118,7 +118,7 @@ antes de publicar, `--force` com backup e rollback) é o mesmo do braço A —
 ver ["Como executar" no braço A](baseline-a.md#como-executar).
 
 ```bash
-uv run python -m gatefall.train.b0_fusion report --dataset le2i \
+uv run python -m gatefall.train.baseline_b0 report --dataset le2i \
   --run-dir runs/local/le2i/b0_fusion \
   --output runs/local/le2i/b0_fusion/classification_report.json --force
 ```
