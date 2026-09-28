@@ -1,7 +1,7 @@
 {
   "run_name": "b1_adaptive_gate",
   "dataset": "le2i",
-  "run_dir": "runs/reference/le2i/b1_adaptive_gate",
+  "run_dir": "runs/reference/le2i/baseline_b1",
   "checkpoint_sha256": "74e66a5c7687617124e04b37b72d6effc218587b1caafa6c0cff2ed4fc88fe21",
   "device": "cuda",
   "splits": {

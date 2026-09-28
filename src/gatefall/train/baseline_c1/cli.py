@@ -37,7 +37,7 @@ from gatefall.train.shared.sam3_inputs import _validated_inputs
 from gatefall.train.baseline_c1.artifacts import load_compatible_c1_checkpoint, validate_c1_training_run
 from gatefall.train.baseline_c1.config import C1_ADAPTIVE_GATE_CONFIG
 from gatefall.train.baseline_c1.engine import run_c1_training
-from gatefall.train.baseline_c1.run import ARM_NAME, comparison_run_dirs, guard_not_comparison_run_dir, resolve_c1_config_for_inputs as _resolve_config
+from gatefall.train.baseline_c1.run import comparison_run_dirs, guard_not_comparison_run_dir, resolve_c1_config_for_inputs as _resolve_config
 from gatefall.train.shared.metrics import (
     BINARY_POSITIVE_LABELS,
     RESTRICTED_CLASSES,
@@ -61,7 +61,7 @@ def _guard_run_dir(run_dir: Path, dataset_name: str) -> None:
 
 def _protected_run_dirs(run_dir: Path, dataset_name: str) -> list[Path]:
     return [run_dir.resolve(),
-            repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, ARM_NAME)),
+            repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, "C1")),
             *comparison_run_dirs(dataset_name).values()]
 
 
@@ -108,7 +108,7 @@ def _split_sources(adapter: DatasetAdapter, frames: pd.DataFrame) -> dict[str, G
 
 def run_train(force: bool, dataset_name: str = "le2i", run_dir: Path | None = None, seed: int = C1_ADAPTIVE_GATE_CONFIG.seed) -> None:
     if run_dir is None:
-        run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
+        run_dir = default_run_dir_for_arm(dataset_name, "C1")
     _guard_run_dir(run_dir, dataset_name)
     adapter = get_dataset(dataset_name)
     ensure_sam3_dataset_supported(adapter)
@@ -165,7 +165,7 @@ def run_report(
     force: bool,
 ) -> bool:
     if run_dir is None:
-        run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
+        run_dir = default_run_dir_for_arm(dataset_name, "C1")
     _guard_run_dir(run_dir, dataset_name)
     _guard_protected_output(run_dir, output_path, dataset_name)
     if output_path.exists() and not force:
@@ -342,7 +342,7 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command in ("train", "report") and args.run_dir is None:
-        args.run_dir = default_run_dir_for_arm(args.dataset, ARM_NAME)
+        args.run_dir = default_run_dir_for_arm(args.dataset, "C1")
     if args.command == "train":
         run_train(
             force=args.force,

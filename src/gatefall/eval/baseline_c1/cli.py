@@ -392,7 +392,7 @@ def run_evaluate(
     if dataset_name != "le2i":
         raise ValueError("avaliação de eventos C1 suporta somente le2i (CS)")
     if run_dir is None:
-        run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
+        run_dir = default_run_dir_for_arm(dataset_name, "C1")
     guard_not_comparison_run_dir(run_dir, dataset_name)
     validate_local_run_dir(run_dir, dataset_name)
     _guard_foreign_arm_run_dir(run_dir)

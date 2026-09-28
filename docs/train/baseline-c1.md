@@ -14,6 +14,6 @@ uv run python -m gatefall.train.baseline_c1 train --dataset le2i --seed 42
 uv run python -m gatefall.train.baseline_c1 report --dataset le2i
 ```
 
-O diretório padrão é `runs/local/le2i/c1_adaptive_gate`. `train` grava `config.yaml`, `checkpoint.pt` e `metrics.json`; `report` grava `classification_report.json` após verificar a configuração, os hashes das fontes, a integridade dos artefatos e a compatibilidade do checkpoint. O config registra os hashes das estatísticas, dos arquivos de pose e SAM 3, a proveniência SAM 3 e a identidade das duas fórmulas de qualidade. O destino de C1 não pode coincidir com, conter ou ficar dentro dos runs de A, B0, B1, C0, `runs/reference/` ou do protocolo `le2i-cv`. `--force` substitui apenas um run C1 no destino escolhido.
+O diretório padrão é `runs/local/le2i/baseline_c1`. `train` grava `config.yaml`, `checkpoint.pt` e `metrics.json`; `report` grava `classification_report.json` após verificar a configuração, os hashes das fontes, a integridade dos artefatos e a compatibilidade do checkpoint. O config registra os hashes das estatísticas, dos arquivos de pose e SAM 3, a proveniência SAM 3 e a identidade das duas fórmulas de qualidade. O destino de C1 não pode coincidir com, conter ou ficar dentro dos runs de A, B0, B1, C0, `runs/reference/` ou do protocolo `le2i-cv`. `--force` substitui apenas um run C1 no destino escolhido.
 
 A avaliação por eventos está em [Avaliação — Braço C1](../eval/baseline-c1-events.md).

@@ -17,12 +17,9 @@ from gatefall.train.shared.run_paths import repository_anchored_run_dir
 from gatefall.train.shared.run_paths import comparison_run_dirs as c0_comparison_run_dirs
 from gatefall.train.baseline_c1.config import C1_ADAPTIVE_GATE_CONFIG, C1TrainConfig
 
-ARM_NAME = "c1_adaptive_gate"
-
-
 def comparison_run_dirs(dataset_name: str) -> dict[str, Path]:
     return c0_comparison_run_dirs(dataset_name) | {
-        "C0": repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, "c0_fusion"))
+        "C0": repository_anchored_run_dir(default_run_dir_for_arm(dataset_name, "C0"))
     }
 
 

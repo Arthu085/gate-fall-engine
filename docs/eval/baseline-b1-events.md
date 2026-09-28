@@ -11,11 +11,11 @@ lifecycle dos artefatos, sem acessar o dataset real nem um checkpoint.
 
 ```bash
 uv run python -m gatefall.eval.baseline_b1 evaluate --dataset le2i \
-  --run-dir runs/local/le2i/b1_adaptive_gate
+  --run-dir runs/local/le2i/baseline_b1
 ```
 
 Avalia `val` e `test` de um run B1 completo. Sem `--run-dir`, usa
-`runs/local/le2i/b1_adaptive_gate/`. A CLI aceita somente Le2i CS. As guardas do
+`runs/local/le2i/baseline_b1/`. A CLI aceita somente Le2i CS. As guardas do
 `run_dir` são as mesmas do treino e do report — ancoradas em `REPOSITORY_ROOT`,
 rejeitam os runs dos braços A e B0 e, para runs não canônicos desses braços, a
 precheck sobre a `arm` declarada no `config.yaml` recusa o destino.

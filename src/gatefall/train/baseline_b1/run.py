@@ -10,9 +10,6 @@ from gatefall.runs import (
 from gatefall.train.baseline_b1.config import B1_ADAPTIVE_GATE_CONFIG, B1TrainConfig
 from gatefall.train.shared.run_paths import repository_anchored_run_dir
 
-B0_ARM_NAME = "b0_fusion"
-
-
 def resolve_b1_config(
     seed: int,
     pose_stats_path: Path,
@@ -52,7 +49,7 @@ def guard_not_arm_a_run_dir(run_dir: Path, dataset_name: str) -> None:
 def guard_not_arm_b0_run_dir(run_dir: Path, dataset_name: str) -> None:
     resolved_run_dir = run_dir.resolve()
     arm_b0_run_dir = repository_anchored_run_dir(
-        default_run_dir_for_arm(dataset_name, B0_ARM_NAME)
+        default_run_dir_for_arm(dataset_name, "B0")
     )
     is_same = resolved_run_dir == arm_b0_run_dir
     is_ancestor = resolved_run_dir in arm_b0_run_dir.parents

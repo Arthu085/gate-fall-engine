@@ -1,7 +1,7 @@
 {
   "run_name": "c1_adaptive_gate",
-  "checkpoint_path": "runs/reference/le2i/c1_adaptive_gate/checkpoint.pt",
-  "alarm_protocol_path": "runs/reference/le2i/c1_adaptive_gate/alarm_protocol.yaml",
+  "checkpoint_path": "runs/reference/le2i/baseline_c1/checkpoint.pt",
+  "alarm_protocol_path": "runs/reference/le2i/baseline_c1/alarm_protocol.yaml",
   "splits": {
     "val": {
       "usable_windows": 2080,

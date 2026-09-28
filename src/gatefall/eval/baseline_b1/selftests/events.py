@@ -264,7 +264,7 @@ def check_b1_defaults_to_own_run_and_rejects_arm_a_and_b0() -> bool:
     try:
         b1_events.run_evaluate(force=False, dataset_name="le2i", run_dir=None)
         arm_a_run_dir = default_run_dir("le2i")
-        arm_b0_run_dir = default_run_dir_for_arm("le2i", "b0_fusion")
+        arm_b0_run_dir = default_run_dir_for_arm("le2i", "B0")
         foreign_rejected = all(
             _raises_value_error(
                 lambda candidate=candidate: b1_events.run_evaluate(
@@ -278,7 +278,7 @@ def check_b1_defaults_to_own_run_and_rejects_arm_a_and_b0() -> bool:
             lambda: b1_events.run_evaluate(
                 force=False,
                 dataset_name="le2i-cv",
-                run_dir=Path("runs/local/le2i_cv/b1_adaptive_gate"),
+                run_dir=Path("runs/local/le2i_cv/baseline_b1"),
             )
         )
     finally:
@@ -290,11 +290,11 @@ def check_b1_defaults_to_own_run_and_rejects_arm_a_and_b0() -> bool:
         "run_dir"
     ].default is None
     return _check(
-        "run_evaluate B1: usa o run canônico b1_adaptive_gate por default, "
+        "run_evaluate B1: usa o run canônico baseline_b1 por default, "
         "recusa os run_dirs das armas A e B0 (iguais, ancestrais ou "
         "descendentes) e recusa --dataset le2i-cv fora do escopo atual",
         default_is_optional
-        and captured == [default_run_dir_for_arm("le2i", "b1_adaptive_gate")]
+        and captured == [default_run_dir_for_arm("le2i", "B1")]
         and foreign_rejected
         and cv_scope_rejected,
     )
@@ -308,7 +308,7 @@ def check_guards_are_anchored_at_repository_root() -> bool:
 
     arm_a_run_dir = repository_anchored_run_dir(default_run_dir("le2i"))
     arm_b0_run_dir = repository_anchored_run_dir(
-        default_run_dir_for_arm("le2i", "b0_fusion")
+        default_run_dir_for_arm("le2i", "B0")
     )
     original_cwd = Path.cwd()
     try:
@@ -399,8 +399,8 @@ def _published_event_report_fields() -> set[str]:
 
 
 def check_event_artifact_contract_accepts_b1_identity() -> bool:
-    checkpoint_path = Path("runs/local/le2i/b1_adaptive_gate/checkpoint.pt")
-    protocol_path = Path("runs/local/le2i/b1_adaptive_gate/alarm_protocol.yaml")
+    checkpoint_path = Path("runs/local/le2i/baseline_b1/checkpoint.pt")
+    protocol_path = Path("runs/local/le2i/baseline_b1/alarm_protocol.yaml")
     split = _empty_event_split()
     report = {
         "run_name": B1_ADAPTIVE_GATE_CONFIG.run_name,
@@ -466,8 +466,8 @@ def _staged_event_pair(run_dir: Path) -> tuple[Path, Path]:
 def check_event_artifact_lifecycle_promotes_and_isolates_b1_run() -> bool:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        b1_run_dir = root / "b1_adaptive_gate"
-        sibling_dirs = [root / "b0_fusion", root / "baseline_a"]
+        b1_run_dir = root / "baseline_b1"
+        sibling_dirs = [root / "baseline_b0", root / "baseline_a"]
         b1_run_dir.mkdir()
         for sibling in sibling_dirs:
             sibling.mkdir()
@@ -581,7 +581,7 @@ def check_non_canonical_foreign_arm_run_dir_is_rejected_without_creating_anythin
             root = Path(tmp)
             foreign_dirs = []
             for name, config in (
-                ("b0_fusion_seed7", B0_FUSION_CONFIG.to_dict()),
+                ("baseline_b0_seed7", B0_FUSION_CONFIG.to_dict()),
                 ("baseline_a_seed13", BASELINE_A_CONFIG.to_dict()),
             ):
                 run_dir = root / name
@@ -613,7 +613,7 @@ def check_non_canonical_foreign_arm_run_dir_is_rejected_without_creating_anythin
 
             setattr(b1_events, "EventEvaluationLock", cast(Any, _Lock))
             setattr(b1_events, "_run_evaluate_locked", noop)
-            fresh_run_dir = root / "b1_adaptive_gate_seed7"
+            fresh_run_dir = root / "baseline_b1_seed7"
             fresh_accepted = True
             try:
                 b1_events.run_evaluate(
@@ -629,7 +629,7 @@ def check_non_canonical_foreign_arm_run_dir_is_rejected_without_creating_anythin
         setattr(b1_events, "_run_evaluate_locked", original_locked)
     return _check(
         "run_evaluate B1 recusa um run_dir não canônico de outra arma "
-        "(b0_fusion_seed7, baseline_a_seed13) antes de adquirir o lock, sem "
+        "(baseline_b0_seed7, baseline_a_seed13) antes de adquirir o lock, sem "
         "criar diretório nem gravar .event-evaluation.lock, e mantém o "
         "caminho de um run_dir B1 ainda sem config.yaml",
         foreign_rejected and no_lock_written and fresh_accepted,

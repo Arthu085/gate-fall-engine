@@ -156,15 +156,15 @@ def run_c1_selftest() -> bool:
     checks.append(_check("run C1 isolado dos runs A/B0/B1/C0 e referência", all(
         _raises(lambda path=path: _guard_run_dir(path, "le2i"))
         for path in (default_run_dir_for_arm("le2i", name)
-                     for name in ("baseline_a", "b0_fusion", "b1_adaptive_gate", "c0_fusion")))
+                     for name in ("A", "B0", "B1", "C0")))
         and _raises(lambda: _guard_run_dir(REFERENCE_RUN_ROOT, "le2i"))
-        and _raises(lambda: _guard_run_dir(default_run_dir_for_arm("le2i-cv", "c1_adaptive_gate"), "le2i"))
+        and _raises(lambda: _guard_run_dir(default_run_dir_for_arm("le2i-cv", "C1"), "le2i"))
         and _raises(lambda: _guard_protected_output(
-            default_run_dir_for_arm("le2i", "c1_adaptive_gate"),
-            default_run_dir_for_arm("le2i", "c0_fusion") / "checkpoint.pt", "le2i"))
+            default_run_dir_for_arm("le2i", "C1"),
+            default_run_dir_for_arm("le2i", "C0") / "checkpoint.pt", "le2i"))
         and _raises(lambda: _guard_protected_output(
-            default_run_dir_for_arm("le2i", "c1_adaptive_gate"),
-            default_run_dir_for_arm("le2i-cv", "baseline_a") / "metrics.json", "le2i"))))
+            default_run_dir_for_arm("le2i", "C1"),
+            default_run_dir_for_arm("le2i-cv", "A") / "metrics.json", "le2i"))))
     config = replace(C1_ADAPTIVE_GATE_CONFIG, epochs=1, batch_size=4, channels=[8, 8],
                      dilations=[1, 2], pose_standardization_stats_sha256="pose-stats",
                      visual_standardization_stats_sha256="sam3-stats",

@@ -76,9 +76,9 @@ recusa `le2i-cv`, porque os dois adapters do Le2i apontam para o mesmo
 
 ## `run_dir` irmão do braço A, nunca dentro dele
 
-`default_run_dir_for_arm(dataset, "b0_fusion")` resolve o destino padrão
-para `runs/local/le2i/b0_fusion/`, irmão de `runs/local/le2i/baseline_a/`
-(que continua acessível via `default_run_dir_for_arm(dataset, "baseline_a")`,
+`default_run_dir_for_arm(dataset, "B0")` resolve o destino padrão
+para `runs/local/le2i/baseline_b0/`, irmão de `runs/local/le2i/baseline_a/`
+(que continua acessível via `default_run_dir_for_arm(dataset, "A")`,
 reexportado como `default_run_dir` para compatibilidade). `run_train` e
 `run_report` aplicam duas guardas complementares antes de tocar no
 `run_dir`: `_guard_not_arm_a_run_dir` rejeita qualquer `--run-dir` que seja
@@ -105,7 +105,7 @@ sem treinar nem tocar no dataset real.
 
 ```bash
 uv run python -m gatefall.train.baseline_b0 train --dataset le2i \
-  --run-dir runs/local/le2i/b0_fusion
+  --run-dir runs/local/le2i/baseline_b0
 ```
 
 Treina B0 sobre o Le2i real. Antes de montar os splits, valida que as
@@ -119,8 +119,8 @@ ver ["Como executar" no braço A](baseline-a.md#como-executar).
 
 ```bash
 uv run python -m gatefall.train.baseline_b0 report --dataset le2i \
-  --run-dir runs/local/le2i/b0_fusion \
-  --output runs/local/le2i/b0_fusion/classification_report.json --force
+  --run-dir runs/local/le2i/baseline_b0 \
+  --output runs/local/le2i/baseline_b0/classification_report.json --force
 ```
 
 Gera o mesmo diagnóstico de classificação do braço A (matriz de confusão,

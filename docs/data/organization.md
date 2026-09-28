@@ -15,7 +15,7 @@ data/
 └── scratch/
 
 runs/
-├── reference/le2i/{baseline_a,b0_fusion,b1_adaptive_gate,c0_fusion,c1_adaptive_gate}/
+├── reference/le2i/{baseline_a,baseline_b0,baseline_b1,baseline_c0,baseline_c1}/
 ├── local/le2i/<arma>/           # reprodução local ignorada pelo Git
 └── local/le2i_cv/baseline_a/    # reprodução local do protocolo cv, ignorada pelo Git
 ```

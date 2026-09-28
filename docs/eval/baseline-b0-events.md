@@ -11,12 +11,12 @@ do lifecycle dos artefatos, sem acessar o dataset real nem um checkpoint.
 
 ```bash
 uv run python -m gatefall.eval.baseline_b0 evaluate --dataset le2i \
-  --run-dir runs/local/le2i/b0_fusion
+  --run-dir runs/local/le2i/baseline_b0
 ```
 
 Avalia `val` e `test` de um run B0 completo usando pose e DINOv3 já
 extraídos, as duas estatísticas de padronização e o checkpoint treinado. Sem
-`--run-dir`, usa `runs/local/le2i/b0_fusion/`. A CLI aceita somente Le2i CS,
+`--run-dir`, usa `runs/local/le2i/baseline_b0/`. A CLI aceita somente Le2i CS,
 rejeita o run do braço A e não oferece suporte a `le2i-cv`.
 
 A avaliação reutiliza `BASELINE_A_ALARM_PROTOCOL`, as mesmas métricas por

@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 import torch
+import yaml
 
 from gatefall.datasets.le2i import Le2iDatasetAdapter
 from gatefall.eval.shared.event_artifacts import (
@@ -21,10 +22,11 @@ from gatefall.eval.shared.alarm_protocol import (
     save_alarm_protocol,
 )
 from gatefall.hashing import sha256_file
-from gatefall.runs import REFERENCE_RUN_ROOT, validate_local_run_dir
+from gatefall.runs import ARM_RUN_DIR_NAMES, REFERENCE_RUN_ROOT, default_run_dir_for_arm, validate_local_run_dir
 from gatefall.train.baseline_a.artifacts import validate_training_run
 from gatefall.train.baseline_a.config import BASELINE_A_CONFIG, save_config
 from gatefall.train.shared.metrics import RESTRICTED_CLASSES
+from gatefall.train.shared.run_paths import guard_not_foreign_arm_run_dir
 from gatefall.train.shared.tcn import TCNClassifier
 
 
@@ -98,6 +100,43 @@ def check_reference_protected_outside_repository() -> bool:
     return _check(
         "runs/reference: path absoluto e relativo equivalente são recusados com CWD=/tmp",
         absolute_rejected and relative_rejected,
+    )
+
+
+def check_canonical_directories_and_legacy_runs(root: Path) -> bool:
+    expected = {
+        "A": ("baseline_a", "baseline_a"),
+        "B0": ("baseline_b0", "b0_fusion"),
+        "B1": ("baseline_b1", "b1_adaptive_gate"),
+        "C0": ("baseline_c0", "c0_fusion"),
+        "C1": ("baseline_c1", "c1_adaptive_gate"),
+    }
+    canonical = ARM_RUN_DIR_NAMES == {arm: name for arm, (name, _) in expected.items()}
+    canonical = canonical and all(
+        default_run_dir_for_arm(dataset, arm) == Path(f"runs/local/{directory}/{name}")
+        for dataset, directory in (("le2i", "le2i"), ("le2i-cv", "le2i_cv"))
+        for arm, (name, _) in expected.items()
+    )
+    legacy_accepted = True
+    for arm, (_, run_name) in expected.items():
+        legacy = root / run_name
+        legacy.mkdir(parents=True)
+        (legacy / "config.yaml").write_text(
+            yaml.safe_dump({"arm": arm, "run_name": run_name}), encoding="utf-8"
+        )
+        try:
+            validate_local_run_dir(legacy, "le2i")
+            guard_not_foreign_arm_run_dir(legacy, arm)
+        except (ValueError, RuntimeError):
+            legacy_accepted = False
+    old_name_rejected = False
+    try:
+        default_run_dir_for_arm("le2i", "b0_fusion")
+    except ValueError:
+        old_name_rejected = True
+    return _check(
+        "run dirs padrão usam baseline_*; caminhos locais legados explícitos preservam o run_name",
+        canonical and legacy_accepted and old_name_rejected,
     )
 
 
@@ -528,6 +567,7 @@ def run_selftest() -> None:
         checks.extend(
             [
                 check_relative_path_confinement(root / "paths"),
+                check_canonical_directories_and_legacy_runs(root / "legacy-runs"),
                 check_invalid_training_artifacts_do_not_skip(root / "artifacts"),
                 check_second_promotion_failure_rolls_back(root / "promotion"),
                 check_event_writer_lock(root / "lock"),

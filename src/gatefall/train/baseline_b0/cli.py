@@ -72,9 +72,6 @@ PROTECTED_ARTIFACT_NAMES = (
     "event_metrics.json",
 )
 
-ARM_NAME = "b0_fusion"
-
-
 def _resolve_config(
     seed: int,
     pose_stats_path: Path,
@@ -98,7 +95,7 @@ def run_train(
     seed: int = B0_FUSION_CONFIG.seed,
 ) -> None:
     if run_dir is None:
-        run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
+        run_dir = default_run_dir_for_arm(dataset_name, "B0")
     _guard_not_arm_a_run_dir(run_dir, dataset_name)
     validate_local_run_dir(run_dir, dataset_name)
     adapter = get_dataset(dataset_name)
@@ -212,7 +209,7 @@ def run_report(
     force: bool,
 ) -> bool:
     if run_dir is None:
-        run_dir = default_run_dir_for_arm(dataset_name, ARM_NAME)
+        run_dir = default_run_dir_for_arm(dataset_name, "B0")
     _guard_not_arm_a_run_dir(run_dir, dataset_name)
     validate_local_run_dir(run_dir, dataset_name)
     _guard_protected_output(run_dir, output_path)
@@ -422,7 +419,7 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command in ("train", "report") and args.run_dir is None:
-        args.run_dir = default_run_dir_for_arm(args.dataset, ARM_NAME)
+        args.run_dir = default_run_dir_for_arm(args.dataset, "B0")
     if args.command == "train":
         run_train(
             force=args.force, dataset_name=args.dataset, run_dir=args.run_dir, seed=args.seed

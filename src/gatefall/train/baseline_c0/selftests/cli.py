@@ -10,12 +10,11 @@ from dataclasses import replace
 from pathlib import Path
 
 from gatefall.runs import REFERENCE_RUN_ROOT, default_run_dir_for_arm
-from gatefall.train.shared.run_paths import repository_anchored_run_dir
+from gatefall.train.shared.run_paths import comparison_run_dirs, repository_anchored_run_dir
 from gatefall.train.baseline_c0.config import C0_FUSION_CONFIG
 from gatefall.train.baseline_c0.run import resolve_c0_config
-from gatefall.train.shared.run_paths import COMPARISON_ARM_NAMES
 
-_C0_RUN_DIR = Path("runs/local/le2i/c0_fusion")
+_C0_RUN_DIR = Path("runs/local/le2i/baseline_c0")
 
 
 def _check(name: str, condition: bool) -> bool:
@@ -33,16 +32,13 @@ def _raises_value_error(callback) -> bool:
 
 
 def _comparison_run_dirs() -> list[Path]:
-    return [
-        repository_anchored_run_dir(default_run_dir_for_arm("le2i", arm_name))
-        for arm_name in COMPARISON_ARM_NAMES.values()
-    ]
+    return list(comparison_run_dirs("le2i").values())
 
 
 def check_guard_rejects_output_under_reference_root() -> bool:
     from gatefall.train.baseline_c0.cli import _guard_protected_output
 
-    output_path = REFERENCE_RUN_ROOT / "le2i/c0_fusion/classification_report.json"
+    output_path = REFERENCE_RUN_ROOT / "le2i/baseline_c0/classification_report.json"
     return _check(
         "_guard_protected_output recusa --output sob runs/reference/",
         _raises_value_error(
@@ -57,8 +53,8 @@ def check_guard_rejects_protected_output_in_all_protected_run_dirs() -> bool:
         _guard_protected_output,
     )
 
-    canonical_c0 = repository_anchored_run_dir(default_run_dir_for_arm("le2i", "c0_fusion"))
-    non_canonical_c0 = canonical_c0.parent / "c0_fusion_seed7"
+    canonical_c0 = repository_anchored_run_dir(default_run_dir_for_arm("le2i", "C0"))
+    non_canonical_c0 = canonical_c0.parent / "baseline_c0_seed7"
     protected = [_C0_RUN_DIR, canonical_c0, *_comparison_run_dirs()]
     all_raised = all(
         _raises_value_error(
@@ -136,7 +132,7 @@ def check_guard_accepts_c0_own_run_dir() -> bool:
 
     return _check(
         "_guard_run_dir aceita o run_dir próprio da arma C0 "
-        "(runs/local/le2i/c0_fusion), irmão dos runs de A, B0 e B1",
+        "(runs/local/le2i/baseline_c0), irmão dos runs de A, B0 e B1",
         not _raises_value_error(lambda: _guard_run_dir(_C0_RUN_DIR, "le2i")),
     )
 

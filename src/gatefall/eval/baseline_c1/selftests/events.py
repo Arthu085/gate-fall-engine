@@ -305,7 +305,7 @@ def check_evaluation_and_artifacts() -> bool:
 
 
 def check_isolation() -> bool:
-    default = default_run_dir_for_arm("le2i", "c1_adaptive_gate")
+    default = default_run_dir_for_arm("le2i", "C1")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         foreign = root / "foreign"
@@ -318,10 +318,10 @@ def check_isolation() -> bool:
         for path in comparison_run_dirs("le2i").values()
     )
     return _check("run C1 padrão e isolamento de armas, referência e protocolo",
-                  c1_events.ARM_NAME == default.name and foreign_rejected and no_lock
+                  c1_events.ARM_NAME == "c1_adaptive_gate" and default.name == "baseline_c1" and foreign_rejected and no_lock
                   and comparisons
-                  and _raises(lambda: c1_events.run_evaluate(False, run_dir=Path("runs/reference/le2i/c1")))
-                  and _raises(lambda: c1_events.run_evaluate(False, run_dir=Path("runs/local/le2i_cv/c1")))
+                  and _raises(lambda: c1_events.run_evaluate(False, run_dir=Path("runs/reference/le2i/baseline_c1")))
+                  and _raises(lambda: c1_events.run_evaluate(False, run_dir=Path("runs/local/le2i_cv/baseline_c1")))
                   and _raises(lambda: c1_events.run_evaluate(False, dataset_name="le2i-cv")))
 
 

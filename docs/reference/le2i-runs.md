@@ -6,13 +6,18 @@ congelada em `config.yaml`; nenhum braço, época ou artefato foi escolhido pelo
 desempenho no teste. Referências são somente leitura e não são destinos de
 treino, `report` ou avaliação.
 
-| Braço | Diretório | Classificação | Eventos sob o protocolo congelado |
-| --- | --- | --- | --- |
-| A | `baseline_a/` | Sim | Sim |
-| B0 | `b0_fusion/` | Sim | Sim |
-| B1 | `b1_adaptive_gate/` | Sim | Sim |
-| C0 | `c0_fusion/` | Sim | Não há avaliador final de eventos C0 |
-| C1 | `c1_adaptive_gate/` | Sim | Sim |
+| Braço | Diretório | `run_name` persistido | Classificação | Eventos sob o protocolo congelado |
+| --- | --- | --- | --- | --- |
+| A | `baseline_a/` | `baseline_a` | Sim | Sim |
+| B0 | `baseline_b0/` | `b0_fusion` | Sim | Sim |
+| B1 | `baseline_b1/` | `b1_adaptive_gate` | Sim | Sim |
+| C0 | `baseline_c0/` | `c0_fusion` | Sim | Não há avaliador final de eventos C0 |
+| C1 | `baseline_c1/` | `c1_adaptive_gate` | Sim | Sim |
+
+Os nomes físicos seguem `baseline_*`; os valores de `run_name` mantêm a identidade
+experimental original. Um `--run-dir` local explícito com nome legado continua
+válido se a configuração persistida corresponder ao braço. Não há migração
+automática dos diretórios locais.
 
 ## Regra de promoção
 

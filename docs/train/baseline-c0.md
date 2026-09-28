@@ -76,10 +76,10 @@ operações do SAM 3.
 
 ## `run_dir` isolado
 
-O destino padrão é `runs/local/le2i/c0_fusion/`. Antes de tocar no
+O destino padrão é `runs/local/le2i/baseline_c0/`. Antes de tocar no
 `run_dir`, `train` e `report` recusam qualquer `--run-dir` igual, ancestral
-ou descendente dos runs canônicos de A (`baseline_a`), B0 (`b0_fusion`) e B1
-(`b1_adaptive_gate`), ancorados na raiz do repositório — um `--force` do C0
+ou descendente dos runs canônicos de A (`baseline_a`), B0 (`baseline_b0`) e B1
+(`baseline_b1`), ancorados na raiz do repositório — um `--force` do C0
 nunca pode substituir um run de comparação. `validate_local_run_dir` recusa
 ainda `runs/reference/` e a árvore local do `le2i-cv`. O `--output` do
 `report` não pode apontar para artefatos protegidos (`config.yaml`,
@@ -100,7 +100,7 @@ treino, dos validadores de artefato e das guardas de CLI, sem dataset real.
 ```bash
 uv run python -m gatefall.features.standardize_sam3 build --dataset le2i
 uv run python -m gatefall.train.baseline_c0 train --dataset le2i \
-  --run-dir runs/local/le2i/c0_fusion
+  --run-dir runs/local/le2i/baseline_c0
 ```
 
 Treina C0 sobre o Le2i real, com o mesmo lifecycle de staging/promoção do
@@ -109,8 +109,8 @@ braço A e do B0 (diretório temporário irmão, validação antes de publicar,
 
 ```bash
 uv run python -m gatefall.train.baseline_c0 report --dataset le2i \
-  --run-dir runs/local/le2i/c0_fusion \
-  --output runs/local/le2i/c0_fusion/classification_report.json --force
+  --run-dir runs/local/le2i/baseline_c0 \
+  --output runs/local/le2i/baseline_c0/classification_report.json --force
 ```
 
 Gera o mesmo diagnóstico de classificação do B0 a partir de um run C0 já
