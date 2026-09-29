@@ -22,7 +22,6 @@ from gatefall.eval.shared.alarm_protocol import (
     save_alarm_protocol,
 )
 from gatefall.eval.shared.events import extract_label_segments, split_event_report
-from gatefall.eval.shared.selftests.events import run_events_selftest
 from gatefall.features.standardization import (
     StandardizationStats,
     apply_standardization,
@@ -306,6 +305,8 @@ def run_evaluate(
 
 
 def run_selftest() -> None:
+    from gatefall.eval.shared.selftests.events import run_events_selftest
+
     if not run_events_selftest():
         sys.exit(1)
 

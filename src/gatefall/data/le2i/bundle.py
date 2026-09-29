@@ -135,7 +135,7 @@ def main() -> None:
     commands.add_parser("selftest", help="Executa casos sintéticos do pacote")
     args = parser.parse_args()
     if args.command == "selftest":
-        from gatefall.data.le2i.bundle_selftest import run_bundle_selftest
+        from gatefall.data.le2i.selftests.bundle import run_bundle_selftest
 
         run_bundle_selftest()
         return

@@ -13,7 +13,7 @@ from gatefall.data.le2i.manual_bbox import (
     discover_annotation_files,
     parse_annotation_file,
 )
-from gatefall.pose.loading import _write_synthetic_pose
+from gatefall.pose.selftests.fixtures import _write_synthetic_pose
 from gatefall.pose.manual_bbox_audit import FrameRecord, _miss_runs, build_report
 
 

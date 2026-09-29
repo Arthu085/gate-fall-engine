@@ -21,7 +21,6 @@ from gatefall.data.le2i.generalization import (
 )
 from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.datasets.le2i import Le2iDatasetAdapter
-from gatefall.pose.loading import _write_synthetic_pose
 
 
 def _check(name: str, condition: bool) -> bool:
@@ -51,6 +50,8 @@ def run_report(dataset_name: str, output: Path) -> None:
 
 
 def _build_fixture(pose_root: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame]]:
+    from gatefall.pose.selftests.fixtures import _write_synthetic_pose
+
     videos = [
         ("train", "Kitchen", 1, 1, "Kitchen/video_a", 320, 240, 10.0),
         ("train", "Kitchen", 1, 1, "Kitchen/video_b", 320, 240, 10.0),
@@ -135,6 +136,8 @@ def check_resolution_and_fps_aggregation() -> bool:
 
 
 def check_pose_coverage_fraction() -> bool:
+    from gatefall.pose.selftests.fixtures import _write_synthetic_pose
+
     with tempfile.TemporaryDirectory() as tmp:
         pose_root = Path(tmp) / "pose"
         _write_synthetic_pose(

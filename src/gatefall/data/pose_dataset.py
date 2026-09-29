@@ -50,7 +50,7 @@ class PoseWindowDataset:
 
 def main() -> None:
     from gatefall.data.le2i.pose_dataset import report_pose_dataset
-    from gatefall.data.le2i.pose_dataset_selftest import run_pose_dataset_selftest
+    from gatefall.data.le2i.selftests.pose_dataset import run_pose_dataset_selftest
     from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 
     parser = argparse.ArgumentParser(description=__doc__)

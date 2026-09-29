@@ -127,7 +127,7 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command == "selftest":
-        from gatefall.pose.selection_selftest import run_selftest
+        from gatefall.pose.selftests.selection import run_selftest
 
         run_selftest()
 

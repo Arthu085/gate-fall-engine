@@ -387,7 +387,7 @@ def main() -> None:
         if args.command == "report":
             run_report(args.output)
         else:
-            from gatefall.pose.manual_bbox_audit_selftest import run_selftest
+            from gatefall.pose.selftests.manual_bbox_audit import run_selftest
 
             run_selftest()
     except (FileNotFoundError, FileExistsError, ValueError) as exc:

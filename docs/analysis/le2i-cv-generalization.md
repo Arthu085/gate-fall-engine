@@ -26,7 +26,7 @@ O braço DINOv3 não está disponível sob o `cv`: seus comandos aceitam somente
 `--dataset le2i` (ver [features DINOv3](../data/dinov3-features.md)).
 
 Não existe `runs/reference/le2i_cv/`: a promoção de um run a referência nunca
-é automática. `gatefall.protocol_isolation_selftest` cobre que os paths do
+é automática. `gatefall.selftests.protocol_isolation` cobre que os paths do
 adapter `cv` nunca caem sob caminhos `cs`, que `load_annotation_splits`
 respeita o protocolo pedido, e que a receita de treino congelada do braço A é
 idêntica entre protocolos exceto o path/hash de padronização.

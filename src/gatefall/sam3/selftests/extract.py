@@ -1627,7 +1627,7 @@ def _check_normalize_distribution_name_collapses_separator_runs() -> bool:
 
 
 def _check_sam3_runtime_lock_pins_setuptools_below_pkg_resources_removal() -> bool:
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     pyproject_path = root / "sam3_runtime" / "pyproject.toml"
     lock_path = root / "sam3_runtime" / "uv.lock"
 
@@ -1645,7 +1645,7 @@ def _check_sam3_runtime_lock_pins_setuptools_below_pkg_resources_removal() -> bo
 
 
 def _check_sam3_runtime_worker_declares_same_inference_autocast_policy() -> bool:
-    worker_path = Path(__file__).resolve().parents[3] / "sam3_runtime" / "run_sam3.py"
+    worker_path = Path(__file__).resolve().parents[4] / "sam3_runtime" / "run_sam3.py"
     try:
         worker_source = worker_path.read_text(encoding="utf-8")
     except OSError:

@@ -4,7 +4,6 @@ import argparse
 from typing import cast
 
 from gatefall.data.le2i.video_io import report_le2i_frame_decode
-from gatefall.data.video_io_selftest import run_video_io_selftest
 from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.datasets.le2i import Le2iDatasetAdapter
 
@@ -26,6 +25,8 @@ def main() -> None:
     if args.command == "report":
         report_le2i_frame_decode(adapter=cast(Le2iDatasetAdapter, get_dataset(args.dataset)))
     elif args.command == "selftest":
+        from gatefall.data.selftests.video_io import run_video_io_selftest
+
         run_video_io_selftest()
 
 

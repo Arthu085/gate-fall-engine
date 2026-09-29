@@ -262,11 +262,11 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command == "selftest":
-        from gatefall.pose.quality_selftest import run_selftest
+        from gatefall.pose.selftests.quality import run_selftest
 
         run_selftest()
     elif args.command == "degradation":
-        from gatefall.pose.quality_selftest import run_degradation
+        from gatefall.pose.selftests.quality import run_degradation
 
         run_degradation()
     elif args.command == "report":

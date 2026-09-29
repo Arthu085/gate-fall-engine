@@ -4,9 +4,7 @@ import argparse
 from typing import cast
 
 from gatefall.data.le2i.manifest import ingest_le2i_dataset
-from gatefall.data.le2i.manifest_selftest import run_manifest_selftest
 from gatefall.data.le2i.verification import verify_le2i_manifest
-from gatefall.data.le2i.verification_selftest import run_verification_selftest
 from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.datasets.le2i import Le2iDatasetAdapter
 
@@ -42,6 +40,9 @@ def main() -> None:
     elif args.command == "verify":
         verify_le2i_manifest(adapter=adapter)
     elif args.command == "selftest":
+        from gatefall.data.le2i.selftests.manifest import run_manifest_selftest
+        from gatefall.data.le2i.selftests.verification import run_verification_selftest
+
         run_manifest_selftest()
         run_verification_selftest()
 

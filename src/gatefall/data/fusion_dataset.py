@@ -100,7 +100,7 @@ class FusionWindowDataset:
 
 
 def main() -> None:
-    from gatefall.data.fusion_dataset_selftest import run_fusion_dataset_selftest
+    from gatefall.data.selftests.fusion_dataset import run_fusion_dataset_selftest
 
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)

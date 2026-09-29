@@ -5,7 +5,6 @@ from typing import cast
 
 from gatefall.data.le2i.frames import build_le2i_timegrid
 from gatefall.data.le2i.timeline import report_le2i_timegrid
-from gatefall.data.resampling_selftest import run_resampling_selftest
 from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.datasets.le2i import Le2iDatasetAdapter
 
@@ -35,6 +34,8 @@ def main() -> None:
     if args.command == "report":
         report_le2i_timegrid(adapter=adapter)
     elif args.command == "selftest":
+        from gatefall.data.selftests.resampling import run_resampling_selftest
+
         run_resampling_selftest()
     elif args.command == "build":
         build_le2i_timegrid(force=args.force, adapter=adapter)
