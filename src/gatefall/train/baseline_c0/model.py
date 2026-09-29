@@ -1,19 +1,14 @@
-"""Classificador de fusão C0: concatenação simples de pose e SAM 3 V_t projetados, seguida de TCN."""
+"""Classificador C0 de fusão por concatenação."""
 
-import torch
-from torch import nn
-
-from gatefall.config import NUM_CLASSES, WINDOW_FRAMES
+from gatefall.config import NUM_CLASSES
 from gatefall.sam3.descriptors import V_T_DIM
-from gatefall.train.shared.tcn import TCNEncoder
+from gatefall.train.shared.concat_model import ConcatFusionClassifier
+from gatefall.train.shared.concat_model import FUSED_DIM, POSE_DIM, PROJECTION_DIM
 
-POSE_DIM = 134
 VISUAL_DIM = V_T_DIM
-PROJECTION_DIM = 128
-FUSED_DIM = PROJECTION_DIM * 2
 
 
-class C0FusionClassifier(nn.Module):
+class C0FusionClassifier(ConcatFusionClassifier):
     def __init__(
         self,
         channels: list[int],
@@ -22,34 +17,4 @@ class C0FusionClassifier(nn.Module):
         dropout: float = 0.3,
         num_classes: int = NUM_CLASSES,
     ) -> None:
-        super().__init__()
-        self.e_p = nn.Sequential(
-            nn.Linear(POSE_DIM, PROJECTION_DIM),
-            nn.LayerNorm(PROJECTION_DIM),
-            nn.ReLU(),
-        )
-        self.e_v = nn.Sequential(
-            nn.Linear(VISUAL_DIM, PROJECTION_DIM),
-            nn.LayerNorm(PROJECTION_DIM),
-            nn.ReLU(),
-        )
-        self.encoder = TCNEncoder(FUSED_DIM, channels, kernel_size, dilations, dropout)
-        self.classifier = nn.Linear(channels[-1], num_classes)
-
-    def forward(self, x_pose: torch.Tensor, x_visual: torch.Tensor) -> torch.Tensor:
-        if x_pose.shape[1] != WINDOW_FRAMES:
-            raise ValueError(
-                f"x_pose com {x_pose.shape[1]} quadros; esperado {WINDOW_FRAMES}"
-            )
-        if x_visual.shape[1] != WINDOW_FRAMES:
-            raise ValueError(
-                f"x_visual com {x_visual.shape[1]} quadros; esperado {WINDOW_FRAMES}"
-            )
-        projected_pose = self.e_p(x_pose)
-        projected_visual = self.e_v(x_visual)
-        fused = torch.cat([projected_pose, projected_visual], dim=-1)
-        # [B, T, FUSED_DIM] -> [B, FUSED_DIM, T] para Conv1d.
-        fused = fused.permute(0, 2, 1)
-        encoded = self.encoder(fused)
-        last_timestep = encoded[:, :, -1]
-        return self.classifier(last_timestep)
+        super().__init__(VISUAL_DIM, channels, kernel_size, dilations, dropout, num_classes)
