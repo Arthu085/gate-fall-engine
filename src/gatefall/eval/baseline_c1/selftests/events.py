@@ -14,6 +14,7 @@ import torch
 import yaml
 
 import gatefall.eval.baseline_c1.cli as c1_events
+import gatefall.eval.shared.orchestration as event_orchestration
 from gatefall.config import IGNORE_LABEL
 from gatefall.datasets import DatasetAdapter
 from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, load_alarm_protocol
@@ -272,7 +273,7 @@ def check_evaluation_and_artifacts() -> bool:
             def failed_promotion(*args, **kwargs) -> None:
                 _promote_event_outputs(*args, **kwargs, after_step=fail_after_protocol)
 
-            with patch.object(c1_events, "_promote_event_outputs", side_effect=failed_promotion):
+            with patch.object(event_orchestration, "_promote_event_outputs", side_effect=failed_promotion):
                 rejects_failed_promotion = _raises(
                     lambda: c1_events.run_evaluate(True, run_dir=run_dir), RuntimeError
                 )
