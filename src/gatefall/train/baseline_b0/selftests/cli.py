@@ -1,5 +1,5 @@
 """Selftest sintético dos guards de CLI da arma B0 (`cli.py`). Não toca
-em dados reais. Espelha `baseline_a_selftest.py` adaptado à arma B0."""
+em dados reais. Espelha `gatefall.train.baseline_a.selftests.cli` adaptado à arma B0."""
 
 import inspect
 import sys

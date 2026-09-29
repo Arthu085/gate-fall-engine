@@ -183,11 +183,11 @@ def run_report(
 
 
 def run_selftest() -> None:
-    from gatefall.data.fusion_dataset_selftest import run_fusion_dataset_selftest
-    from gatefall.features.sam3_standardization_selftest import (
+    from gatefall.data.selftests.fusion_dataset import run_fusion_dataset_selftest
+    from gatefall.features.selftests.sam3_standardization import (
         run_sam3_standardization_selftest,
     )
-    from gatefall.sam3.features_selftest import run_sam3_features_selftest
+    from gatefall.sam3.selftests.features import run_sam3_features_selftest
     from gatefall.train.baseline_c0.selftests.artifacts import run_c0_artifacts_selftest
     from gatefall.train.baseline_c0.selftests.config import run_c0_config_selftest
     from gatefall.train.baseline_c0.selftests.engine import run_c0_engine_selftest

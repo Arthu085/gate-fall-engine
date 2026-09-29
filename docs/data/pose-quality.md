@@ -82,7 +82,7 @@ adicional.
 
 ## `selftest` e `degradation`: sintéticos e determinísticos
 
-`src/gatefall/pose/quality_selftest.py` cobre dois níveis, sempre com dados
+`src/gatefall/pose/selftests/quality.py` cobre dois níveis, sempre com dados
 sintéticos e seed fixa (`SEED = 20260916`), sem tocar no dataset real:
 
 - `run_selftest` trava a semântica unitária dos quatro componentes: limites

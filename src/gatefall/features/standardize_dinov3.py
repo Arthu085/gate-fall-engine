@@ -24,9 +24,6 @@ from gatefall.features.dinov3_standardization import (
     stale_stats_mismatches,
     validate_stats_layout,
 )
-from gatefall.features.dinov3_standardization_selftest import (
-    run_dinov3_standardization_selftest,
-)
 from gatefall.features.standardize import EXPECTED_USABLE_WINDOWS_STRIDE4
 from gatefall.hashing import sha256_file
 
@@ -212,6 +209,10 @@ def main() -> None:
     if args.command == "build":
         run_build(force=args.force, dataset_name=args.dataset)
     elif args.command == "selftest":
+        from gatefall.features.selftests.dinov3_standardization import (
+            run_dinov3_standardization_selftest,
+        )
+
         ok = run_dinov3_standardization_selftest()
         if not ok:
             sys.exit(1)

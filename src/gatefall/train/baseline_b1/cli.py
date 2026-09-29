@@ -280,11 +280,11 @@ def run_report(
 
 
 def run_selftest() -> None:
-    from gatefall.data.gated_fusion_dataset_selftest import (
+    from gatefall.data.selftests.gated_fusion_dataset import (
         run_gated_fusion_dataset_selftest,
     )
-    from gatefall.features.quality_extract_selftest import run_quality_extract_selftest
-    from gatefall.features.quality_sequence_selftest import (
+    from gatefall.features.selftests.quality_extract import run_quality_extract_selftest
+    from gatefall.features.selftests.quality_sequence import (
         run_quality_sequence_selftest,
     )
     from gatefall.train.baseline_b1.selftests.artifacts import run_b1_artifacts_selftest

@@ -114,7 +114,7 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command == "selftest":
-        from gatefall.sam3.selection_selftest import run_sam3_selection_selftest
+        from gatefall.sam3.selftests.selection import run_sam3_selection_selftest
 
         run_sam3_selection_selftest()
 

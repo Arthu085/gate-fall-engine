@@ -20,7 +20,6 @@ from gatefall.features.standardization import (
     stale_stats_mismatches,
     validate_stats_layout,
 )
-from gatefall.features.standardization_selftest import run_standardization_selftest
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features, feature_blocks
 
@@ -267,6 +266,8 @@ def main() -> None:
     if args.command == "build":
         run_build(force=args.force, dataset_name=args.dataset)
     elif args.command == "selftest":
+        from gatefall.features.selftests.standardization import run_standardization_selftest
+
         run_standardization_selftest()
     elif args.command == "report":
         run_report(dataset_name=args.dataset)

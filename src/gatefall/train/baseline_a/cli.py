@@ -16,16 +16,9 @@ from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features
 from gatefall.runs import REFERENCE_RUN_ROOT, default_run_dir, validate_local_run_dir
 from gatefall.train.baseline_a.artifacts import load_compatible_checkpoint, validate_training_run
-from gatefall.train.baseline_a.selftests.artifacts import run_artifacts_selftest
-from gatefall.train.baseline_a.selftests.cli import run_baseline_a_selftest
 from gatefall.train.baseline_a.config import BASELINE_A_CONFIG, TrainConfig
 from gatefall.train.baseline_a.engine import _StandardizedTorchDataset, _predict, run_training
-from gatefall.train.baseline_a.selftests.engine import run_engine_selftest
 from gatefall.train.shared.classification_report import publish_classification_report
-from gatefall.train.shared.selftests.classification_report import run_classification_report_selftest
-from gatefall.train.shared.selftests.determinism import run_determinism_selftest
-from gatefall.train.shared.selftests.metrics import run_metrics_selftest
-from gatefall.train.shared.selftests.tcn import run_tcn_selftest
 
 PROTECTED_ARTIFACT_NAMES = (
     "config.yaml",
@@ -167,6 +160,14 @@ def run_report(
 
 
 def run_selftest() -> None:
+    from gatefall.train.baseline_a.selftests.artifacts import run_artifacts_selftest
+    from gatefall.train.baseline_a.selftests.cli import run_baseline_a_selftest
+    from gatefall.train.baseline_a.selftests.engine import run_engine_selftest
+    from gatefall.train.shared.selftests.classification_report import run_classification_report_selftest
+    from gatefall.train.shared.selftests.determinism import run_determinism_selftest
+    from gatefall.train.shared.selftests.metrics import run_metrics_selftest
+    from gatefall.train.shared.selftests.tcn import run_tcn_selftest
+
     tcn_ok = run_tcn_selftest()
     metrics_ok = run_metrics_selftest()
     report_ok = run_classification_report_selftest()

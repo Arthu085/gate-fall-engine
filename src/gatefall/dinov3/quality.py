@@ -575,7 +575,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "selftest":
-        from gatefall.dinov3.quality_selftest import run_selftest
+        from gatefall.dinov3.selftests.quality import run_selftest
 
         run_selftest()
         return

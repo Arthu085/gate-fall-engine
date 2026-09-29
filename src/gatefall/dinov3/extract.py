@@ -403,7 +403,7 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command == "selftest":
-        from gatefall.dinov3.extract_selftest import run_dinov3_selftest
+        from gatefall.dinov3.selftests.extract import run_dinov3_selftest
 
         run_dinov3_selftest()
         return

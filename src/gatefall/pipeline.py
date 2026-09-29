@@ -207,7 +207,7 @@ def main() -> None:
             parser.error(str(exc))
         raise SystemExit(execute_pipeline(steps, dry_run=args.dry_run))
     if args.command == "selftest":
-        from gatefall.pipeline_selftest import run_pipeline_selftest
+        from gatefall.selftests.pipeline import run_pipeline_selftest
 
         run_pipeline_selftest()
 

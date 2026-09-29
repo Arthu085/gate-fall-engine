@@ -61,8 +61,8 @@ jobs:
           uv run python -m gatefall.eval.analysis.multiseed_summary selftest
           uv run python -m gatefall.eval.analysis.generalization_report selftest
           uv run python -m gatefall.pipeline selftest
-          uv run python -m gatefall.protocol_isolation_selftest
-          uv run python -m gatefall.runs_selftest
+          uv run python -m gatefall.selftests.protocol_isolation
+          uv run python -m gatefall.selftests.runs
       - name: Verificar tipos
         run: uv run pyright
       - name: Construir documentação

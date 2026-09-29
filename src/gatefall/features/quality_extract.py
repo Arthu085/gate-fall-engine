@@ -317,8 +317,8 @@ def run_quality_report(*, adapter: DatasetAdapter) -> None:
 
 
 def run_selftest() -> None:
-    from gatefall.features.quality_extract_selftest import run_quality_extract_selftest
-    from gatefall.features.quality_sequence_selftest import (
+    from gatefall.features.selftests.quality_extract import run_quality_extract_selftest
+    from gatefall.features.selftests.quality_sequence import (
         run_quality_sequence_selftest,
     )
 

@@ -525,7 +525,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "selftest":
-        from gatefall.sam3.quality_selftest import run_selftest
+        from gatefall.sam3.selftests.quality import run_selftest
 
         run_selftest()
         return

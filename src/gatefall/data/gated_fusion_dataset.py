@@ -125,7 +125,7 @@ class GatedFusionWindowDataset:
 
 
 def main() -> None:
-    from gatefall.data.gated_fusion_dataset_selftest import (
+    from gatefall.data.selftests.gated_fusion_dataset import (
         run_gated_fusion_dataset_selftest,
     )
 

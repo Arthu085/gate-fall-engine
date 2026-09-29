@@ -39,16 +39,7 @@ from gatefall.runs import (
 from gatefall.train.baseline_b0.artifacts import load_compatible_b0_checkpoint, validate_b0_training_run
 from gatefall.train.baseline_b0.config import B0_FUSION_CONFIG, B0TrainConfig
 from gatefall.train.baseline_b0.engine import _StandardizedFusionTorchDataset, _predict, run_b0_training
-from gatefall.train.baseline_b0.selftests.model import run_b0_model_selftest
 from gatefall.train.baseline_b0.run import guard_not_arm_a_run_dir, resolve_b0_config
-from gatefall.train.baseline_b0.selftests.config import run_b0_config_selftest
-from gatefall.train.baseline_b0.selftests.engine import run_b0_engine_selftest
-from gatefall.train.baseline_b0.selftests.artifacts import run_b0_artifacts_selftest
-from gatefall.data.fusion_dataset_selftest import run_fusion_dataset_selftest
-from gatefall.features.dinov3_standardization_selftest import (
-    run_dinov3_standardization_selftest,
-)
-from gatefall.train.baseline_b0.selftests.cli import run_b0_fusion_selftest
 from gatefall.train.shared.classification_report import publish_classification_report
 
 PROTECTED_ARTIFACT_NAMES = (
@@ -225,6 +216,16 @@ def run_report(
 
 
 def run_selftest() -> None:
+    from gatefall.train.baseline_b0.selftests.model import run_b0_model_selftest
+    from gatefall.train.baseline_b0.selftests.config import run_b0_config_selftest
+    from gatefall.train.baseline_b0.selftests.engine import run_b0_engine_selftest
+    from gatefall.train.baseline_b0.selftests.artifacts import run_b0_artifacts_selftest
+    from gatefall.data.selftests.fusion_dataset import run_fusion_dataset_selftest
+    from gatefall.features.selftests.dinov3_standardization import (
+        run_dinov3_standardization_selftest,
+    )
+    from gatefall.train.baseline_b0.selftests.cli import run_b0_fusion_selftest
+
     fusion_dataset_ok = run_fusion_dataset_selftest()
     dinov3_standardization_ok = run_dinov3_standardization_selftest()
     model_ok = run_b0_model_selftest()

@@ -4,7 +4,6 @@ import argparse
 from typing import cast
 
 from gatefall.data.le2i.windows import report_le2i_windows
-from gatefall.data.windowing_selftest import run_windowing_selftest
 from gatefall.datasets import SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.datasets.le2i import Le2iDatasetAdapter
 
@@ -26,6 +25,8 @@ def main() -> None:
     if args.command == "report":
         report_le2i_windows(adapter=cast(Le2iDatasetAdapter, get_dataset(args.dataset)))
     elif args.command == "selftest":
+        from gatefall.data.selftests.windowing import run_windowing_selftest
+
         run_windowing_selftest()
 
 

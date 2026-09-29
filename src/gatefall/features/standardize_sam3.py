@@ -170,10 +170,6 @@ def run_report(dataset_name: str = "le2i") -> None:
 
 
 def main() -> None:
-    from gatefall.features.sam3_standardization_selftest import (
-        run_sam3_standardization_selftest,
-    )
-
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     build_parser = subparsers.add_parser(
@@ -195,6 +191,10 @@ def main() -> None:
     if args.command == "build":
         run_build(force=args.force, dataset_name=args.dataset)
     elif args.command == "selftest":
+        from gatefall.features.selftests.sam3_standardization import (
+            run_sam3_standardization_selftest,
+        )
+
         if not run_sam3_standardization_selftest():
             sys.exit(1)
     elif args.command == "report":
