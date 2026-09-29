@@ -6,8 +6,9 @@ implementados a extração offline de features, o braço B0 (fusão por
 concatenação simples com pose) e o braço B1 (fusão adaptativa por gate escalar
 sobre os proxies de qualidade). No braço C (SAM 3), estão implementados a
 extração offline do descritor de máscara `V_t`, o braço C0 (fusão por
-concatenação simples com pose) e o braço C1 (gate adaptativo). A, B0, B1 e C1
-possuem avaliação por eventos; C0 possui apenas avaliação de classificação.
+concatenação simples com pose) e o braço C1 (gate adaptativo). A, B0, B1,
+C0 e C1 possuem avaliadores de eventos. Os resultados de eventos C0 ainda
+não foram registrados nas referências.
 
 ## Comece aqui
 

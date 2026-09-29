@@ -73,7 +73,7 @@ próprio diretório em `runs/local/le2i/`:
 | --- | --- | --- | --- |
 | B0 | `dinov3.extract`: selftest, extract-all, report; `features.standardize_dinov3`: selftest, build, report; `train.baseline_b0`: selftest, train, report; `eval.baseline_b0`: selftest, evaluate | `baseline_b0/` | 33 |
 | B1 | Extração e padronização DINOv3 de B0; `features.quality_extract`: selftest, extract-all, report; `train.baseline_b1`: selftest, train, report; `eval.baseline_b1`: selftest, evaluate | `baseline_b1/` | 36 |
-| C0 | `sam3.extract`: selftest, extract-all, report; `features.standardize_sam3`: selftest, build, report; `train.baseline_c0`: selftest, train, report | `baseline_c0/` | 31 |
+| C0 | `sam3.extract`: selftest, extract-all, report; `features.standardize_sam3`: selftest, build, report; `train.baseline_c0`: selftest, train, report; `eval.baseline_c0`: selftest, evaluate | `baseline_c0/` | 33 |
 | C1 | Extração e padronização SAM 3 de C0; `sam3.quality`: selftest; `train.baseline_c1`: selftest, train, report; `eval.baseline_c1`: selftest, evaluate | `baseline_c1/` | 34 |
 
 ```bash
@@ -87,8 +87,8 @@ B0 e B1 exigem os pesos e o runtime locais do DINOv3. B1 extrai também os
 sidecars de `q_pose` e `q_visual`. C0 e C1 exigem o runtime isolado e o
 checkpoint do SAM 3. C1 calcula `q_pose` e `q_sam3` a partir das features de
 pose e dos HDF5 do SAM 3 durante treino e avaliação; o selftest de
-`sam3.quality` verifica a fórmula. C0 termina no relatório de classificação,
-pois não há avaliação final por eventos para esse braço.
+`sam3.quality` verifica a fórmula. C0 avalia eventos após o relatório de
+classificação, com o protocolo de alarme congelado do braço A.
 
 Os comandos `report` de classificação recusam um arquivo já existente sem
 `--force`. Portanto, ao repetir um pipeline B0/B1/C0/C1 que já gerou

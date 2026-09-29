@@ -54,16 +54,7 @@ def _selftest_all_arms() -> bool:
                         return _check("armas com evento exigem evidência completa", False)
                 else:
                     return _check("armas com evento exigem evidência completa", False)
-            else:
-                if (run_dirs[1] / "event_metrics.json").exists():
-                    return _check("C0 dispensa artefatos de evento", False)
-                (run_dirs[1] / "event_metrics.json").write_text("{}", encoding="utf-8")
-                c0_report, c0_rows = _summarize(run_dirs, expected, adapter)
-                if "events" in c0_report["aggregate"] or any(
-                    row["metric_group"] == "events" for row in c0_rows
-                ):
-                    return _check("C0 omite evento mesmo se houver arquivo extra", False)
         return _check(
-            "A/B0/B1/C0/C1: classificação validada; evento obrigatório exceto C0",
+            "A/B0/B1/C0/C1: classificação e evento validados",
             True,
         )

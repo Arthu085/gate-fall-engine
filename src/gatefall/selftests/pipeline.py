@@ -136,6 +136,8 @@ def check_new_arm_command_order() -> bool:
             ("gatefall.train.baseline_c0", "selftest"),
             ("gatefall.train.baseline_c0", "train", "--dataset", "le2i", "--run-dir", "runs/local/le2i/baseline_c0"),
             ("gatefall.train.baseline_c0", "report", "--dataset", "le2i", "--run-dir", "runs/local/le2i/baseline_c0"),
+            ("gatefall.eval.baseline_c0", "selftest"),
+            ("gatefall.eval.baseline_c0", "evaluate", "--dataset", "le2i", "--run-dir", "runs/local/le2i/baseline_c0"),
         ],
         "C1": [
             ("gatefall.sam3.extract", "selftest"),
@@ -201,7 +203,7 @@ def check_success_reaches_final_step() -> bool:
         "A": ("gatefall.eval.baseline_a", "evaluate"),
         "B0": ("gatefall.eval.baseline_b0", "evaluate"),
         "B1": ("gatefall.eval.baseline_b1", "evaluate"),
-        "C0": ("gatefall.train.baseline_c0", "report"),
+        "C0": ("gatefall.eval.baseline_c0", "evaluate"),
         "C1": ("gatefall.eval.baseline_c1", "evaluate"),
     }
     for arm, final_command in final_commands.items():
@@ -236,7 +238,7 @@ def check_force_only_on_supported_producers() -> bool:
         "A": {("gatefall.train.baseline_a", "train"), ("gatefall.eval.baseline_a", "evaluate")},
         "B0": {("gatefall.dinov3.extract", "extract-all"), ("gatefall.features.standardize_dinov3", "build"), ("gatefall.train.baseline_b0", "train"), ("gatefall.train.baseline_b0", "report"), ("gatefall.eval.baseline_b0", "evaluate")},
         "B1": {("gatefall.dinov3.extract", "extract-all"), ("gatefall.features.standardize_dinov3", "build"), ("gatefall.features.quality_extract", "extract-all"), ("gatefall.train.baseline_b1", "train"), ("gatefall.train.baseline_b1", "report"), ("gatefall.eval.baseline_b1", "evaluate")},
-        "C0": {("gatefall.sam3.extract", "extract-all"), ("gatefall.features.standardize_sam3", "build"), ("gatefall.train.baseline_c0", "train"), ("gatefall.train.baseline_c0", "report")},
+        "C0": {("gatefall.sam3.extract", "extract-all"), ("gatefall.features.standardize_sam3", "build"), ("gatefall.train.baseline_c0", "train"), ("gatefall.train.baseline_c0", "report"), ("gatefall.eval.baseline_c0", "evaluate")},
         "C1": {("gatefall.sam3.extract", "extract-all"), ("gatefall.features.standardize_sam3", "build"), ("gatefall.train.baseline_c1", "train"), ("gatefall.train.baseline_c1", "report"), ("gatefall.eval.baseline_c1", "evaluate")},
     }
     cases = [("le2i", arm) for arm in expected_by_arm] + [("le2i-cv", "A")]
@@ -255,7 +257,7 @@ def check_force_only_on_supported_producers() -> bool:
 
 
 def check_output_is_always_local() -> bool:
-    expected_run_steps = {"A": 2, "B0": 3, "B1": 3, "C0": 2, "C1": 3}
+    expected_run_steps = {"A": 2, "B0": 3, "B1": 3, "C0": 3, "C1": 3}
     for arm, count in expected_run_steps.items():
         for force in (False, True):
             commands = [" ".join(step.command) for step in build_pipeline("le2i", arm, force=force)]

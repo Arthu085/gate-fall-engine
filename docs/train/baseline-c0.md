@@ -121,6 +121,9 @@ uv run python -m gatefall.train.baseline_c0 report --dataset le2i \
 Gera o mesmo diagnóstico de classificação do B0 a partir de um run C0 já
 treinado, sem alterar nenhum artefato existente.
 
+A avaliação por eventos do checkpoint treinado está em
+[Avaliação — Braço C0](../eval/baseline-c0-events.md).
+
 ## Limitação conhecida: sem identidade de quadro por linha
 
 Como no B0, nenhum dos HDF5 persiste um identificador de quadro por linha. O
@@ -132,5 +135,4 @@ cobrem `video_id`, `split` e `K`, não uma reordenação interna de linhas.
 
 C1 e qualquer gate adaptativo, um `q_visual` específico do SAM 3 (a fórmula
 do DINOv3 não é reutilizada), atenção cruzada, tracking de vídeo do SAM 3,
-SAM 3.1, prompts relacionados a queda, bboxes de pose como prompt, avaliação
-por eventos do C0.
+SAM 3.1, prompts relacionados a queda e bboxes de pose como prompt.

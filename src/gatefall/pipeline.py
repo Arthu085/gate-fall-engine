@@ -15,7 +15,7 @@ SUPPORTED_ARMS = ("A", "B0", "B1", "C0", "C1")
 ARM_MODULES = {
     "B0": ("gatefall.train.baseline_b0", "gatefall.eval.baseline_b0"),
     "B1": ("gatefall.train.baseline_b1", "gatefall.eval.baseline_b1"),
-    "C0": ("gatefall.train.baseline_c0", None),
+    "C0": ("gatefall.train.baseline_c0", "gatefall.eval.baseline_c0"),
     "C1": ("gatefall.train.baseline_c1", "gatefall.eval.baseline_c1"),
 }
 

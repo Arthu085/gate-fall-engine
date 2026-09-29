@@ -2,9 +2,8 @@
 
 `src/gatefall/eval/analysis/multiseed_summary.py` agrega treinos independentes de um
 braço selecionado entre A, B0, B1, C0 e C1 no protocolo `le2i`, produzindo
-estatísticas descritivas (n/mean/desvio-padrão amostral/min/max). A, B0, B1
-e C1 agregam classificação e evento; C0 agrega apenas classificação, pois
-não há avaliação de evento contratada para esse braço. É somente leitura:
+estatísticas descritivas (n/mean/desvio-padrão amostral/min/max). Todas as
+armas agregam classificação e evento. É somente leitura:
 nenhum artefato dos runs de entrada é modificado.
 
 ## Fronteira com o bootstrap agrupado por sujeito
@@ -29,9 +28,9 @@ Nenhum dos dois seleciona, ranqueia ou promove nenhum run ou seed.
 Todos os `--run-dir` devem pertencer ao mesmo braço e conter
 `config.yaml`/`metrics.json`/`checkpoint.pt` íntegros. O validador de treino
 do próprio braço verifica configuração, métricas, hashes e checkpoint. A,
-B0, B1 e C1 exigem também `alarm_protocol.yaml` igual ao protocolo
+B0, B1, C0 e C1 exigem também `alarm_protocol.yaml` igual ao protocolo
 congelado e `event_metrics.json` validado com hashes de checkpoint,
-métricas de treino e protocolo. C0 não exige nem agrega esses arquivos.
+métricas de treino e protocolo.
 
 A ferramenta calcula um fingerprint sha256 da configuração de cada run com
 `seed` removido. Para B0, B1, C0 e C1, remove também
@@ -73,7 +72,7 @@ mensagem de skip nomeia exatamente o(s) arquivo(s) encontrado(s).
   `gatefall.train.baseline_a` e `grouped_bootstrap` usam a partir dos
   arrays de predição, agora expressa em termos da matriz de confusão
   (`gatefall.train.shared.metrics.binary_projection_from_confusion_matrix`).
-- Evento (`events`, somente A/B0/B1/C1): todo campo escalar de
+- Evento (`events`, A/B0/B1/C0/C1): todo campo escalar de
   `event_metrics.json[splits][split]` (`sensitivity`, `fall_sensitivity`,
   `fall_or_fallen_sensitivity`, `false_alarms_per_hour`, `n_false_alarms`,
   `latency_seconds_mean`, `latency_seconds_median` e os demais campos
@@ -359,8 +358,10 @@ Fingerprint SHA-256 da configuração normalizada: `7ce58d7ea967633a340396757acf
 | Validação | 5 | 0,6617 | 0,0140 | 0,6448 | 0,6784 |
 | Teste | 5 | 0,6391 | 0,0071 | 0,6314 | 0,6461 |
 
-C0 tem apenas classificação; não há avaliação final de eventos
-contratada para esse braço.
+Estes valores de classificação foram registrados antes da avaliação por
+eventos C0. O sumário atual exige `alarm_protocol.yaml` e
+`event_metrics.json` válidos para cada seed; os resultados de evento serão
+registrados após a avaliação separada dos checkpoints existentes.
 
 Os valores completos por seed e agregados estão em
 `runs/local/le2i/baseline_c0_multiseed/multiseed_summary.json` e `.csv`.

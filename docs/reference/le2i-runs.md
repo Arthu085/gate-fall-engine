@@ -11,7 +11,7 @@ treino, `report` ou avaliação.
 | A | `baseline_a/` | `baseline_a` | Sim | Sim |
 | B0 | `baseline_b0/` | `b0_fusion` | Sim | Sim |
 | B1 | `baseline_b1/` | `b1_adaptive_gate` | Sim | Sim |
-| C0 | `baseline_c0/` | `c0_fusion` | Sim | Não há avaliador final de eventos C0 |
+| C0 | `baseline_c0/` | `c0_fusion` | Sim | Pendente de avaliação dos checkpoints existentes |
 | C1 | `baseline_c1/` | `c1_adaptive_gate` | Sim | Sim |
 
 Os nomes físicos seguem `baseline_*`; os valores de `run_name` mantêm a identidade
@@ -23,10 +23,10 @@ automática dos diretórios locais.
 
 Cada diretório contém `config.yaml`, `metrics.json` e
 `classification_report.json` do mesmo run final. O par
-`alarm_protocol.yaml` e `event_metrics.json` entra apenas quando o braço já
-possui avaliação final de eventos sob o protocolo de alarme congelado. A
-ausência desse par em C0 significa **avaliação não realizada**, não resultado
-zero. As métricas de classificação cobrem `train`, `val` e `test`; as métricas
+`alarm_protocol.yaml` e `event_metrics.json` entra apenas após a avaliação
+final de eventos sob o protocolo de alarme congelado. A ausência desse par
+em C0 significa **avaliação ainda não realizada**, não resultado zero. As
+métricas de classificação cobrem `train`, `val` e `test`; as métricas
 de eventos cobrem `val` e `test`.
 
 `config.yaml` fixa a receita e os hashes/proveniência das fontes disponíveis
