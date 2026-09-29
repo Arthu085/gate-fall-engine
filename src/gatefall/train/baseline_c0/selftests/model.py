@@ -6,6 +6,7 @@ import torch
 
 from gatefall.config import NUM_CLASSES, WINDOW_FRAMES
 from gatefall.train.baseline_c0.model import C0FusionClassifier
+from gatefall.train.shared.selftests.concat import check_concat_checkpoint_layout
 
 _POSE_DIM = 134
 _VISUAL_DIM = 10
@@ -151,6 +152,7 @@ def run_c0_model_selftest() -> bool:
         check_forward_logits_shape(),
         check_forward_rejects_wrong_temporal_length(),
         check_parameter_count_deterministic_and_all_trainable(),
+        check_concat_checkpoint_layout(_build_model(), _VISUAL_DIM, 67882),
     ]
     ok = all(checks)
     if not ok:

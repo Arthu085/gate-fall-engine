@@ -14,6 +14,9 @@ braço A: pose via [`apply_standardization`
 
 `B0FusionClassifier` (`src/gatefall/train/baseline_b0/model.py`):
 
+A implementação da projeção, concatenação e TCN fica em
+`train/shared/concat_model.py`; a classe B0 fixa a dimensão visual em 1536.
+
 - `E_P`: `Linear(134, 128) -> LayerNorm(128) -> ReLU`, projeta a pose.
 - `E_V`: `Linear(1536, 128) -> LayerNorm(128) -> ReLU`, projeta o DINOv3.
 - Concatenação de `E_P(pose)` e `E_V(visual)` no eixo de feature, produzindo
@@ -51,9 +54,11 @@ receita (janela, split, seed, encoder temporal, épocas) permanece fixo. Ver
 congelada"](baseline-a.md#receita-de-treino-congelada) no braço A para o
 detalhamento de cada hiperparâmetro.
 
-`src/gatefall/train/baseline_b0/engine.py` reutiliza `configure_determinism` de
-`train/shared/determinism.py`, mantendo as mesmas guardas
-de determinismo de GPU (`cudnn.deterministic`, `cudnn.benchmark=False`,
+`src/gatefall/train/baseline_b0/engine.py` mantém a entrada pública do treino e
+seleciona a padronização DINOv3. O loop e a validação dos artefatos ficam em
+`train/shared/concat_engine.py` e `train/shared/concat_artifacts.py`. O loop
+reutiliza `configure_determinism` de `train/shared/determinism.py`, mantendo
+as mesmas guardas de determinismo de GPU (`cudnn.deterministic`, `cudnn.benchmark=False`,
 `torch.use_deterministic_algorithms(True)`, `CUBLAS_WORKSPACE_CONFIG`).
 
 ## Backbone DINOv3 congelado e offline

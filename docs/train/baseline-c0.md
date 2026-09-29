@@ -11,6 +11,9 @@ só a fonte visual por timestep muda.
 
 `C0FusionClassifier` (`src/gatefall/train/baseline_c0/model.py`):
 
+A implementação da projeção, concatenação e TCN fica em
+`train/shared/concat_model.py`; a classe C0 fixa a dimensão visual em 10.
+
 - `E_P`: `Linear(134, 128) -> LayerNorm(128) -> ReLU`, projeta a pose.
 - `E_V`: `Linear(10, 128) -> LayerNorm(128) -> ReLU`, projeta `V_t`.
 - Concatenação de `E_P(pose)` e `E_V(V_t)` no eixo de feature, produzindo um
@@ -29,9 +32,11 @@ receita compartilhada de `BASELINE_A_CONFIG` (seed, janela, strides, número
 de classes, TCN, otimizador, agenda, épocas, perda). `baseline_c0/selftests/config.py`
 verifica essa igualdade e verifica também que, entre os campos que C0 e B0
 têm em comum, só `run_name`, `arm` e `visual_dim` (10 vs. 1536) divergem —
-invariante experimental 1 do `CLAUDE.md`. O loop de treino
-(`baseline_c0/engine.py`) reutiliza `configure_determinism` de
-`train/shared/determinism.py`.
+invariante experimental 1 do `CLAUDE.md`. `baseline_c0/engine.py` mantém a
+entrada pública e seleciona a padronização SAM 3. O loop e a validação dos
+artefatos ficam em `train/shared/concat_engine.py` e
+`train/shared/concat_artifacts.py`. O loop reutiliza `configure_determinism`
+de `train/shared/determinism.py`.
 
 Campos de auditoria exclusivos do C0: `pose_dim`, `visual_dim`,
 `projection_dim`, `fused_dim`, caminho/sha256 das estatísticas de pose e das
