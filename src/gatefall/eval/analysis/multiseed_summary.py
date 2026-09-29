@@ -9,10 +9,10 @@ seeds de treino na mesma estatística.
 
 Cada `--run-dir` deve ser um run local completo da arma selecionada,
 diferindo apenas na seed e nos campos de auditoria permitidos pelo validador.
-As armas A, B0, B1 e C1 exigem avaliação de evento íntegra; C0 agrega apenas
-classificação. O módulo valida um fingerprint sha256 da configuração
-normalizada, guarda por seed os blocos de classificação e, quando aplicável,
-evento validados na íntegra (confusion_matrix, per_class, latências por evento) e
+As armas A, B0, B1, C0 e C1 exigem classificação e avaliação de evento
+íntegras. O módulo valida um fingerprint sha256 da configuração
+normalizada, guarda por seed os blocos de classificação e evento validados
+na íntegra (confusion_matrix, per_class, latências por evento) e
 agrega estatísticas descritivas (n/mean/std/min/max) sobre `macro_f1_restricted`
 e `f1_by_class` (splits train/val/test), `per_class` (splits train/val/test),
 a projeção binária queda/caído derivada da confusion_matrix (splits
@@ -79,7 +79,7 @@ MULTISEED_SUMMARY_CSV_FILE = "multiseed_summary.csv"
 
 MIN_SEEDS = 2
 ARMS = ("A", "B0", "B1", "C0", "C1")
-EVENT_ARMS = frozenset({"A", "B0", "B1", "C1"})
+EVENT_ARMS = frozenset({"A", "B0", "B1", "C0", "C1"})
 RunConfig = TrainConfig | B0TrainConfig | B1TrainConfig | C0TrainConfig | C1TrainConfig
 AUDIT_FIELDS = frozenset({"seed", "trainable_param_count"})
 

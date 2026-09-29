@@ -25,6 +25,7 @@ from gatefall.eval.analysis import (
 )
 from gatefall.eval.baseline_b0 import cli as b0_events
 from gatefall.eval.baseline_b1 import cli as b1_events
+from gatefall.eval.baseline_c0 import cli as c0_events
 from gatefall.eval.baseline_c1 import cli as c1_events
 from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
 from gatefall.runs import default_run_dir, validate_local_run_dir
@@ -302,6 +303,23 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
     except ValueError:
         b1_cv_scope_rejected = True
 
+    c0_events_rejected = _raises_cross_protocol_guard(
+        lambda: c0_events.run_evaluate(
+            force=False,
+            dataset_name="le2i",
+            run_dir=Path("runs/local/le2i_cv/baseline_c0"),
+        )
+    )
+    c0_cv_scope_rejected = False
+    try:
+        c0_events.run_evaluate(
+            force=False,
+            dataset_name="le2i-cv",
+            run_dir=Path("runs/local/le2i_cv/baseline_c0"),
+        )
+    except ValueError:
+        c0_cv_scope_rejected = True
+
     c1_events_rejected = _raises_cross_protocol_guard(
         lambda: c1_events.run_evaluate(
             force=False,
@@ -324,9 +342,10 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         "qualitative/multiseed_summary/baseline_b0.run_train/baseline_b0.run_report/"
         "b0_events.run_evaluate/baseline_b1.run_train/baseline_b1.run_report/"
         "b1_events.run_evaluate/baseline_c0.run_train/baseline_c0.run_report/"
+        "c0_events.run_evaluate/"
         "baseline_c1.run_train/baseline_c1.run_report/c1_events.run_evaluate) "
         "recusam --run-dir sob runs/local/le2i_cv/ mesmo com --dataset le2i, "
-        "através da própria função de produção; B0, B1 e C1 events também "
+        "através da própria função de produção; B0, B1, C0 e C1 events também "
         "recusam --dataset le2i-cv fora do escopo atual",
         sensitivity_rejected
         and bootstrap_rejected
@@ -340,6 +359,8 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         and b1_report_rejected
         and b1_events_rejected
         and b1_cv_scope_rejected
+        and c0_events_rejected
+        and c0_cv_scope_rejected
         and c1_events_rejected
         and c1_cv_scope_rejected
         and c0_train_rejected
@@ -397,6 +418,7 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
         tempfile.TemporaryDirectory() as b1_events_tmp,
         tempfile.TemporaryDirectory() as c0_train_tmp,
         tempfile.TemporaryDirectory() as c0_report_tmp,
+        tempfile.TemporaryDirectory() as c0_events_tmp,
         tempfile.TemporaryDirectory() as c1_train_tmp,
         tempfile.TemporaryDirectory() as c1_report_tmp,
         tempfile.TemporaryDirectory() as c1_events_tmp,
@@ -462,6 +484,11 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
                 force=False,
             )
         )
+        c0_events_ok = _passes_guard_and_fails_downstream(
+            lambda: c0_events.run_evaluate(
+                force=False, dataset_name="le2i", run_dir=Path(c0_events_tmp)
+            )
+        )
 
         c1_train_ok = _passes_guard_and_fails_downstream(
             lambda: baseline_c1.run_train(force=False, dataset_name="le2i", run_dir=Path(c1_train_tmp))
@@ -493,6 +520,7 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
         and b1_events_ok
         and c0_train_ok
         and c0_report_ok
+        and c0_events_ok
         and c1_train_ok
         and c1_report_ok
         and c1_events_ok,

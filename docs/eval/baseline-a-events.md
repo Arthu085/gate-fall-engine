@@ -8,12 +8,13 @@ usada no treino, aqui a unidade de avaliação é o evento de queda: quantos
 eventos reais foram detectados, com que latência, e quantos alarmes
 dispararam sem um evento correspondente.
 
-Os braços B0 e B1 reutilizam exatamente o mesmo `BASELINE_A_ALARM_PROTOCOL`,
+Os braços B0, B1, C0 e C1 reutilizam exatamente o mesmo `BASELINE_A_ALARM_PROTOCOL`,
 schema de métricas e lifecycle de publicação descritos nesta página. Seus entry
 points carregam janelas fundidas de pose+DINOv3 — com ponderação por gate no
-caso do B1 — e estão documentados em [Avaliação — Braço
-B0](baseline-b0-events.md) e [Avaliação — Braço
-B1](baseline-b1-events.md). Os resultados de
+caso do B1 — ou pose+`V_t` de SAM 3, com qualidade adicional no C1. Estão documentados em
+[Avaliação — Braço B0](baseline-b0-events.md), [Avaliação — Braço
+B1](baseline-b1-events.md), [Avaliação — Braço
+C0](baseline-c0-events.md) e [Avaliação — Braço C1](baseline-c1-events.md). Os resultados de
 referência abaixo continuam sendo exclusivos do braço A.
 
 ## Como executar
