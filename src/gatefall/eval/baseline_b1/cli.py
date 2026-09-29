@@ -1,12 +1,10 @@
 """Avaliação de eventos da arma B1 sobre o protocolo Le2i-CS."""
 
 import argparse
-import json
 import sys
-import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Protocol
 
 import numpy as np
 import pandas as pd
@@ -15,26 +13,19 @@ import yaml
 
 from gatefall.config import EVAL_STRIDE
 from gatefall.data.gated_fusion_dataset import GatedFusionWindowDataset
-from gatefall.data.windowing import build_window_index
 from gatefall.datasets import DatasetAdapter, get_dataset
 from gatefall.dinov3.dataset_guard import (
     DINOV3_SUPPORTED_DATASET_IDENTIFIERS,
     ensure_dinov3_dataset_supported,
 )
 from gatefall.dinov3.storage import dinov3_path, read_features
-from gatefall.eval.shared.alarm_protocol import (
-    BASELINE_A_ALARM_PROTOCOL,
-    load_alarm_protocol,
-    save_alarm_protocol,
+from gatefall.eval.shared.event_artifacts import EventEvaluationLock
+from gatefall.eval.shared.orchestration import (
+    EventEvaluation,
+    Predictions,
+    SplitEvaluator,
+    run_event_evaluation,
 )
-from gatefall.eval.shared.event_artifacts import (
-    EventEvaluationLock,
-    _promote_event_outputs,
-    _recover_event_publication,
-    _require_event_lock,
-    validate_event_metrics,
-)
-from gatefall.eval.shared.events import extract_label_segments, split_event_report
 from gatefall.features.dinov3_standardization import (
     Dinov3StandardizationStats,
     apply_standardization as apply_visual_standardization,
@@ -151,22 +142,6 @@ def _predict_with_identity(
     return video_ids, k_ends, true_labels, pred_labels
 
 
-def _n_fall_segments_in_annotation(frames: pd.DataFrame, split: str) -> int:
-    split_frames = cast(
-        pd.DataFrame, frames[frames["split"] == split]
-    ).sort_values(["video_id", "frame_index"])
-    total_segments = 0
-    for _video_id, group in split_frames.groupby("video_id", sort=False):
-        total_segments += len(
-            extract_label_segments(
-                group["frame_index"].to_numpy(),
-                group["label"].to_numpy(),
-                BASELINE_A_ALARM_PROTOCOL.fall_label,
-            )
-        )
-    return total_segments
-
-
 def _quality_set_sha256(adapter: DatasetAdapter) -> str:
     frames = adapter.load_frames()
     video_ids = [str(video_id) for video_id in frames["video_id"].unique()]
@@ -223,165 +198,53 @@ def _run_evaluate_locked(
     run_dir: Path,
     lock: EventEvaluationLock,
 ) -> None:
-    _require_event_lock(run_dir, lock)
-    checkpoint_path = run_dir / "checkpoint.pt"
-    alarm_protocol_path = run_dir / "alarm_protocol.yaml"
-    event_metrics_path = run_dir / "event_metrics.json"
-    recovery = _recover_event_publication(run_dir, lock)
-    if recovery is not None:
-        print(f"recovery de avaliação concluído: {recovery}")
-
-    adapter, config, pose_stats, visual_stats, model = _load_run_assets(
-        dataset_name, run_dir
-    )
-    event_outputs = (alarm_protocol_path, event_metrics_path)
-    present_outputs = [path for path in event_outputs if path.is_file()]
-    previous_pair_valid = False
-    if len(present_outputs) == len(event_outputs):
-        try:
-            protocol = load_alarm_protocol(alarm_protocol_path)
-            if protocol != BASELINE_A_ALARM_PROTOCOL:
-                raise ValueError("alarm_protocol.yaml incompatível com a arma B1")
-            with event_metrics_path.open(encoding="utf-8") as stream:
-                existing_report = json.load(stream)
-            validate_event_metrics(
-                existing_report,
-                config,
-                checkpoint_path,
-                alarm_protocol_path,
-                training_metrics_path=run_dir / "metrics.json",
-                require_hashes=True,
-            )
-        except (OSError, ValueError, TypeError, KeyError) as exc:
-            if not force:
-                raise RuntimeError(
-                    f"avaliação de eventos inconsistente ({exc}); "
-                    "use --force para reconstruir"
-                ) from exc
-        else:
-            previous_pair_valid = True
-            if not force:
-                print(f"skip {event_metrics_path} (avaliação completa e íntegra)")
-                return
-    elif present_outputs and not force:
-        missing_outputs = [str(path) for path in event_outputs if not path.is_file()]
-        raise RuntimeError(
-            "avaliação de eventos parcial; artefatos ausentes: "
-            + ", ".join(missing_outputs)
-            + "; use --force para reconstruir"
+    def load_run() -> EventEvaluation:
+        adapter, config, pose_stats, visual_stats, model = _load_run_assets(
+            dataset_name, run_dir
         )
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
-    model.eval()
-    frames = adapter.load_frames()
-    pose_loader: Callable[[str], np.ndarray] = lambda video_id: build_pose_features(
-        video_id, pose_root=adapter.pose_root
-    )[0]
-    visual_loader: Callable[[str], np.ndarray] = lambda video_id: read_features(
-        dinov3_path(video_id, dinov3_root=adapter.dinov3_root)
-    ).astype("float32")
-    quality_loader: Callable[[str], np.ndarray] = lambda video_id: read_quality(
-        quality_path(video_id, quality_root=adapter.quality_root)
-    ).astype("float32")
+        def prepare() -> tuple[pd.DataFrame, SplitEvaluator]:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            evaluation_model = model.to(device)
+            evaluation_model.eval()
+            frames = adapter.load_frames()
+            pose_loader: Callable[[str], np.ndarray] = (
+                lambda video_id: build_pose_features(
+                    video_id, pose_root=adapter.pose_root
+                )[0]
+            )
+            visual_loader: Callable[[str], np.ndarray] = lambda video_id: read_features(
+                dinov3_path(video_id, dinov3_root=adapter.dinov3_root)
+            ).astype("float32")
+            quality_loader: Callable[[str], np.ndarray] = lambda video_id: read_quality(
+                quality_path(video_id, quality_root=adapter.quality_root)
+            ).astype("float32")
 
-    splits: dict[str, dict] = {}
-    for split in ("val", "test"):
-        source = GatedFusionWindowDataset(
-            frames,
-            split,
-            EVAL_STRIDE,
-            pose_loader,
-            visual_loader,
-            quality_loader,
-            drop_ignored=False,
-        )
-        video_ids, k_ends, true_labels, pred_labels = _predict_with_identity(
-            model,
-            source,
-            pose_stats,
-            visual_stats,
-            device,
-            batch_size=config.batch_size,
-        )
-        split_frames = cast(pd.DataFrame, frames[frames["split"] == split])
-        usable_windows = len(source)
-        total_windows = len(
-            build_window_index(
-                split_frames, stride=EVAL_STRIDE, drop_ignored=False
-            )
-        )
-        if usable_windows != total_windows:
-            raise RuntimeError(
-                f"split={split!r}: usable_windows ({usable_windows}) != "
-                f"total_windows ({total_windows}) apesar de drop_ignored=False"
-            )
-        labeled_windows = len(
-            build_window_index(
-                split_frames, stride=EVAL_STRIDE, drop_ignored=True
-            )
-        )
-        split_report = split_event_report(
-            video_ids,
-            k_ends,
-            true_labels,
-            pred_labels,
-            BASELINE_A_ALARM_PROTOCOL,
-            usable_windows,
-            total_windows,
-            labeled_windows,
-        )
-        annotated_fall_segments = _n_fall_segments_in_annotation(frames, split)
-        if split_report["n_fall_events"] != annotated_fall_segments:
-            raise ValueError(
-                f"split={split!r}: n_fall_events extraído das janelas usáveis "
-                f"({split_report['n_fall_events']}) diverge da contagem de "
-                "segmentos fall na anotação bruta "
-                f"({annotated_fall_segments}) — possível janela IGNORE_LABEL "
-                "descartada dentro de um run fall, dividindo um evento real em dois"
-            )
-        splits[split] = split_report
+            def evaluate_split(split: str) -> tuple[int, Predictions]:
+                source = GatedFusionWindowDataset(
+                    frames,
+                    split,
+                    EVAL_STRIDE,
+                    pose_loader,
+                    visual_loader,
+                    quality_loader,
+                    drop_ignored=False,
+                )
+                predictions = _predict_with_identity(
+                    evaluation_model,
+                    source,
+                    pose_stats,
+                    visual_stats,
+                    device,
+                    batch_size=config.batch_size,
+                )
+                return len(source), predictions
 
-    report = {
-        "run_name": config.run_name,
-        "checkpoint_path": str(checkpoint_path),
-        "alarm_protocol_path": str(alarm_protocol_path),
-        "splits": splits,
-    }
-    token = uuid.uuid4().hex
-    protocol_tmp = run_dir / f".alarm_protocol.pending-{token}.yaml"
-    metrics_tmp = run_dir / f".event_metrics.pending-{token}.json"
-    save_alarm_protocol(BASELINE_A_ALARM_PROTOCOL, protocol_tmp, force=True)
-    report["checkpoint_sha256"] = sha256_file(checkpoint_path)
-    report["training_metrics_sha256"] = sha256_file(run_dir / "metrics.json")
-    report["alarm_protocol_sha256"] = sha256_file(protocol_tmp)
-    with metrics_tmp.open("w", encoding="utf-8") as stream:
-        json.dump(report, stream, indent=2, ensure_ascii=False)
-    with metrics_tmp.open(encoding="utf-8") as stream:
-        staged_report = json.load(stream)
-    if load_alarm_protocol(protocol_tmp) != BASELINE_A_ALARM_PROTOCOL:
-        raise RuntimeError("staging de alarm_protocol.yaml divergiu do protocolo")
-    validate_event_metrics(
-        staged_report,
-        config,
-        checkpoint_path,
-        alarm_protocol_path,
-        training_metrics_path=run_dir / "metrics.json",
-        protocol_file_path=protocol_tmp,
-        require_hashes=True,
-    )
-    _promote_event_outputs(
-        protocol_tmp,
-        metrics_tmp,
-        alarm_protocol_path,
-        event_metrics_path,
-        lock,
-        preserve_previous=previous_pair_valid,
-    )
-    print(
-        f"{event_metrics_path}: métricas de eventos gravadas "
-        f"(run_name={config.run_name})"
-    )
+            return frames, evaluate_split
+
+        return EventEvaluation(config, prepare)
+
+    run_event_evaluation(force, "B1", run_dir, lock, load_run)
 
 
 def _guard_foreign_arm_run_dir(run_dir: Path) -> None:

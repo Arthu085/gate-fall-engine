@@ -366,12 +366,12 @@ def _empty_event_split() -> dict[str, object]:
 
 
 def _published_event_report_fields() -> set[str]:
-    """Campos de topo que `_run_evaluate_locked` grava em event_metrics.json,
+    """Campos de topo que `_publish_report` grava em event_metrics.json,
     lidos da própria fonte para que renomear/adicionar/remover um campo quebre
     a checagem."""
-    import gatefall.eval.baseline_b1.cli as b1_events
+    from gatefall.eval.shared.orchestration import _publish_report
 
-    tree = ast.parse(inspect.getsource(b1_events._run_evaluate_locked))
+    tree = ast.parse(inspect.getsource(_publish_report))
     fields: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
