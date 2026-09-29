@@ -41,7 +41,7 @@ mede.
 | `runs/local` | Checkpoints e métricas de reproduções locais |
 
 A [política de referências finais](../reference/le2i-runs.md) define os arquivos
-de cada braço e registra a avaliação de eventos C0 ainda pendente nas referências.
+de cada braço, incluindo a evidência de eventos C0.
 
 ## Migração dos caminhos legados
 

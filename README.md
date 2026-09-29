@@ -14,7 +14,7 @@ O projeto é organizado em três braços experimentais:
   (fusão adaptativa por gate escalar) implementados.
 - **Braço C — YOLO-Pose + SAM 3 + TCN:** fundação de extração offline do
   descritor de máscara `V_t` do SAM 3, braços C0 (fusão por concatenação simples)
-  e C1 (gate adaptativo), e avaliação por eventos e alarmes de C1 implementadas.
+  e C1 (gate adaptativo), e avaliação por eventos e alarmes de ambos implementadas.
 
 Este projeto é **Built with DINOv3**.
 
@@ -220,9 +220,9 @@ seguida da mesma TCN do braço A) também está implementado: veja
 [Padronização do descritor SAM 3](docs/data/sam3-standardization.md) e
 [Treino — Braço C0](docs/train/baseline-c0.md). O braço C1 também está implementado:
 veja [Treino — Braço C1](docs/train/baseline-c1.md). A avaliação por
-eventos e alarmes de C1 também está implementada e usa o protocolo de alarme
-congelado do braço A: veja [Avaliação por eventos de C1](docs/eval/baseline-c1-events.md).
-Conforme o escopo experimental, C0 não possui avaliação final por eventos.
+eventos e alarmes de C0 e C1 também está implementada e usa o protocolo de alarme
+congelado do braço A: veja [Avaliação por eventos de C0](docs/eval/baseline-c0-events.md)
+e [Avaliação por eventos de C1](docs/eval/baseline-c1-events.md).
 
 ---
 
@@ -284,6 +284,7 @@ resultados textuais dos braços A, B0, B1, C0 e C1.
 - [Fundação SAM 3](docs/data/sam3-foundation.md)
 - [Padronização do descritor SAM 3](docs/data/sam3-standardization.md)
 - [Treino do braço C0 (fusão pose + SAM 3)](docs/train/baseline-c0.md)
+- [Avaliação por eventos de C0](docs/eval/baseline-c0-events.md)
 - [Treino do braço C1 (gate adaptativo com SAM 3)](docs/train/baseline-c1.md)
 - [Avaliação por eventos de C1](docs/eval/baseline-c1-events.md)
 

@@ -14,4 +14,4 @@ A inferência usa a pose e o descritor `V_t` de 10 canais já extraídos, cada u
 
 A publicação segue o [contrato compartilhado de eventos](baseline-a-events.md): grava `alarm_protocol.yaml` e `event_metrics.json` juntos no próprio run C0, com lock, journal, staging e hashes. Sem `--force`, preserva um par íntegro e recusa saídas parciais ou inválidas. Com `--force`, reconstrói o par com recuperação transacional. Destinos de A, B0, B1, C1, `runs/reference/` e `le2i-cv` são recusados.
 
-Os checkpoints C0 existentes serão avaliados separadamente. Esta entrega não registra resultados nem altera artefatos canônicos de `runs/reference/`.
+Os cinco checkpoints C0 das seeds 42–46 foram avaliados separadamente sob o protocolo congelado. A evidência textual da seed 42, referência canônica, está em `runs/reference/le2i/baseline_c0/`; o [sumário multi-seed](../analysis/multiseed-summary.md#c0) registra os agregados das cinco seeds. A escolha da referência não depende do desempenho no teste.
