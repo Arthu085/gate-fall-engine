@@ -92,7 +92,7 @@ mensagem de skip nomeia exatamente o(s) arquivo(s) encontrado(s).
     completo (`tp`/`tn`/`fp`/`fn`/`support`/`precision`/`recall`/`f1`).
   - `binary_fall_fallen[split]` (train/val/test): derivado da
     `confusion_matrix` acima, sem rodar inferência de novo.
-  - `events[split]` (val/test, ausente para C0): o bloco de split validado de
+  - `events[split]` (val/test): o bloco de split validado de
     `event_metrics.json`, na íntegra, incluindo `latency_seconds.per_event`
     e as métricas binárias de janela.
   - `aggregate`: as mesmas famílias de métricas (`classification`,
@@ -101,8 +101,7 @@ mensagem de skip nomeia exatamente o(s) arquivo(s) encontrado(s).
 - `multiseed_summary.csv`: achatado, uma linha por
   `(split, metric_group, entity, metric)`, colunas `split`, `metric_group`,
   `entity`, `metric`, `n`, `mean`, `std`, `min`, `max`. `metric_group` é um
-  de `classification`, `per_class`, `binary`, `events`; C0 não tem linhas
-  `events`. `entity` carrega o
+  de `classification`, `per_class`, `binary`, `events`. `entity` carrega o
   nome da classe nas linhas `f1_by_class` (metric_group `classification`) e
   `per_class`; fica vazio nas demais. `f1_by_class` (por classe restrita,
   metric_group `classification`) é mantido deliberadamente distinto de
@@ -358,10 +357,22 @@ Fingerprint SHA-256 da configuração normalizada: `7ce58d7ea967633a340396757acf
 | Validação | 5 | 0,6617 | 0,0140 | 0,6448 | 0,6784 |
 | Teste | 5 | 0,6391 | 0,0071 | 0,6314 | 0,6461 |
 
-Estes valores de classificação foram registrados antes da avaliação por
-eventos C0. O sumário atual exige `alarm_protocol.yaml` e
-`event_metrics.json` válidos para cada seed; os resultados de evento serão
-registrados após a avaliação separada dos checkpoints existentes.
+#### Eventos — protocolo de alarme congelado
+
+| Split | Métrica | n | Média | Desvio-padrão | Mín | Máx |
+| --- | --- | --- | --- | --- | --- | --- |
+| Validação | sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | fall_sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | fall_or_fallen_sensitivity | 5 | 1,0000 | 0,0000 | 1,0000 | 1,0000 |
+| Validação | false_alarms_per_hour | 5 | 0,0000 | 0,0000 | 0,0000 | 0,0000 |
+| Validação | latency_seconds_mean | 5 | 0,3400 | 0,0548 | 0,3000 | 0,4000 |
+| Validação | latency_seconds_median | 5 | 0,3000 | 0,0707 | 0,2000 | 0,4000 |
+| Teste | sensitivity | 5 | 0,9727 | 0,0407 | 0,9091 | 1,0000 |
+| Teste | fall_sensitivity | 5 | 0,9636 | 0,0380 | 0,9091 | 1,0000 |
+| Teste | fall_or_fallen_sensitivity | 5 | 0,9727 | 0,0407 | 0,9091 | 1,0000 |
+| Teste | false_alarms_per_hour | 5 | 35,0195 | 11,6732 | 23,3463 | 52,5292 |
+| Teste | latency_seconds_mean | 5 | 0,3800 | 0,0447 | 0,3000 | 0,4000 |
+| Teste | latency_seconds_median | 5 | 0,3000 | 0,0000 | 0,3000 | 0,3000 |
 
 Os valores completos por seed e agregados estão em
 `runs/local/le2i/baseline_c0_multiseed/multiseed_summary.json` e `.csv`.

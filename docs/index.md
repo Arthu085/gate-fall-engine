@@ -7,8 +7,7 @@ concatenação simples com pose) e o braço B1 (fusão adaptativa por gate escal
 sobre os proxies de qualidade). No braço C (SAM 3), estão implementados a
 extração offline do descritor de máscara `V_t`, o braço C0 (fusão por
 concatenação simples com pose) e o braço C1 (gate adaptativo). A, B0, B1,
-C0 e C1 possuem avaliadores de eventos. Os resultados de eventos C0 ainda
-não foram registrados nas referências.
+C0 e C1 possuem avaliadores de eventos e resultados registrados nas referências.
 
 ## Comece aqui
 
@@ -41,6 +40,7 @@ não foram registrados nas referências.
 - [Avaliação por eventos do braço A](eval/baseline-a-events.md)
 - [Avaliação por eventos do braço B0](eval/baseline-b0-events.md)
 - [Avaliação por eventos do braço B1](eval/baseline-b1-events.md)
+- [Avaliação por eventos do braço C0](eval/baseline-c0-events.md)
 - [Avaliação por eventos do braço C1](eval/baseline-c1-events.md)
 
 Os resultados históricos ficam em `runs/reference/`; novas reproduções ficam
