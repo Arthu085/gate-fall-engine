@@ -114,14 +114,15 @@ sobrescreveria os `.h5` do `cs`.
    termos antes do download. O SAM 3.1 não substitui esse checkpoint: o
    GateFall usa o SAM 3 base com a revisão do código oficial já fixada em
    `sam3_runtime/pyproject.toml`.
-2. Instale a [CLI oficial do Hugging Face](https://huggingface.co/docs/huggingface_hub/guides/cli)
-   se `hf` ainda não estiver disponível. Depois da aprovação, autentique-se
-   no seu próprio terminal e obtenha `sam3.pt` do repositório oficial:
+2. A CLI `hf` vem da dependência `huggingface-hub` instalada pelo `uv sync` do
+   GateFall. Depois da aprovação, use `uv run hf` para executá-la no ambiente
+   do projeto, autentique-se no seu próprio terminal e obtenha `sam3.pt` do
+   repositório oficial:
 
    ```bash
-   hf auth login
-   hf auth whoami
-   hf download facebook/sam3 sam3.pt --local-dir data/scratch/weights/sam3
+   uv run hf auth login
+   uv run hf auth whoami
+   uv run hf download facebook/sam3 sam3.pt --local-dir data/scratch/weights/sam3
    ```
 
 3. Na raiz do GateFall, coloque o checkpoint no caminho padrão e confira os
