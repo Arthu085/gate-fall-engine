@@ -351,7 +351,7 @@ def check_non_conflicting_local_run_dir_still_accepted() -> bool:
     )
 
 
-def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
+def check_entry_points_reject_mismatched_run_dir() -> bool:
     cv_run_dir = Path("runs/local/le2i_cv/baseline_a")
 
     def _raises_cross_protocol_guard(callback) -> bool:
@@ -459,7 +459,7 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         )
     )
     return _check(
-        "entry points CS-only (alarm_protocol_sensitivity/grouped_bootstrap/"
+        "entry points (alarm_protocol_sensitivity/grouped_bootstrap/"
         "qualitative/multiseed_summary/baseline_b0.run_train/baseline_b0.run_report/"
         "b0_events.run_evaluate/baseline_b1.run_train/baseline_b1.run_report/"
         "b1_events.run_evaluate/baseline_c0.run_train/baseline_c0.run_report/"
@@ -486,7 +486,7 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
     )
 
 
-def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
+def check_entry_points_accept_matching_run_dirs() -> bool:
     cs_run_dir = default_run_dir("le2i")
     third_party_run_dir = Path("runs/local/custom_experiment/baseline_a")
 
@@ -523,6 +523,13 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
             [cs_run_dir, third_party_run_dir],
             BASELINE_A_CONFIG,
             adapter,
+        )
+    )
+    multiseed_cv_ok = _passes_guard_and_fails_downstream(
+        lambda: multiseed_summary._summarize(
+            [default_run_dir("le2i-cv"), Path("runs/local/custom_experiment/baseline_a_cv")],
+            BASELINE_A_CONFIG,
+            get_dataset("le2i-cv"),
         )
     )
     with (
@@ -621,13 +628,14 @@ def check_cs_only_analysis_entry_points_still_accept_cs_run_dirs() -> bool:
         )
 
     return _check(
-        "entry points CS-only: run_dir canônico do próprio protocolo e run_dir "
+        "entry points: run_dir canônico do próprio protocolo e run_dir "
         "de terceiros continuam passando pelo guard (a falha, se houver, vem "
         "de artefatos ausentes, não do guard de protocolo)",
         sensitivity_ok
         and bootstrap_ok
         and qualitative_ok
         and multiseed_ok
+        and multiseed_cv_ok
         and b0_train_ok
         and b0_report_ok
         and b0_events_ok
@@ -672,8 +680,8 @@ def run_selftest() -> None:
         check_cv_run_dir_not_classified_under_cs_root_despite_string_prefix(),
         check_cross_protocol_run_dir_guard_rejects_both_directions(),
         check_non_conflicting_local_run_dir_still_accepted(),
-        check_cs_only_analysis_entry_points_reject_cv_run_dir(),
-        check_cs_only_analysis_entry_points_still_accept_cs_run_dirs(),
+        check_entry_points_reject_mismatched_run_dir(),
+        check_entry_points_accept_matching_run_dirs(),
         check_alarm_protocol_unaffected_by_dataset_selection(),
     ]
     if not all(checks):
