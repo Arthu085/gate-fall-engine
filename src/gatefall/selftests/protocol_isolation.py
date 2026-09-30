@@ -29,6 +29,12 @@ from gatefall.features.standardize_sam3 import sam3_stats_path
 from gatefall.features.dinov3_standardization import load_stats as load_dinov3_stats
 from gatefall.features.sam3_standardization import load_stats as load_sam3_stats
 from gatefall.features.quality_storage import quality_path, read_quality
+from gatefall.pose.extract import (
+    main as pose_extract_main,
+    run_pose_extract,
+    run_pose_extract_all,
+)
+from gatefall.pose.loading import pose_path
 from gatefall.sam3.features import load_v_t
 from gatefall.dinov3.storage import dinov3_path
 from gatefall.sam3.storage import sam3_path
@@ -121,9 +127,11 @@ def check_shared_features_and_separate_statistics() -> bool:
             and read_quality(quality_path(video_id, quality_root=cv.quality_root)).shape == (2, 2)
         )
     paths = (
-        cs.dinov3_root == get_dataset("le2i-cv").dinov3_root
+        cs.pose_root == get_dataset("le2i-cv").pose_root
+        and cs.dinov3_root == get_dataset("le2i-cv").dinov3_root
         and cs.sam3_root == get_dataset("le2i-cv").sam3_root
         and cs.quality_root == get_dataset("le2i-cv").quality_root
+        and cs.pose_stats_path != cv.pose_stats_path
         and dinov3_stats_path("le2i") != dinov3_stats_path("le2i-cv")
         and sam3_stats_path("le2i") != sam3_stats_path("le2i-cv")
     )
@@ -159,20 +167,73 @@ def check_cv_timegrid_mismatch_rejected() -> bool:
 
 def check_cv_extraction_commands_rejected() -> bool:
     commands = (
+        "gatefall.pose.extract",
         "gatefall.dinov3.extract",
         "gatefall.sam3.extract",
         "gatefall.features.quality_extract",
     )
     results = [
         subprocess.run(
-            [sys.executable, "-m", module, "extract-all", "--dataset", "le2i-cv"],
-            capture_output=True, text=True, check=False,
+            [sys.executable, "-m", module, command, "--dataset", "le2i-cv"]
+            + (["--video-id", "room/video_1"] if command == "extract" else []),
+            capture_output=True,
+            text=True,
+            check=False,
         )
         for module in commands
+        for command in ("extract", "extract-all")
     ]
     return _check(
-        "CLIs de extração DINOv3, SAM 3 e qualidade recusam CV antes de gravar",
-        all(result.returncode == 2 and "invalid choice" in result.stderr for result in results),
+        "CLIs de extração pose, DINOv3, SAM 3 e qualidade recusam CV antes de gravar",
+        all(
+            result.returncode == 2 and "invalid choice" in result.stderr
+            for result in results
+        ),
+    )
+
+
+def check_cv_pose_programmatic_extraction_rejected() -> bool:
+    with tempfile.TemporaryDirectory() as tmp:
+        adapter = replace(
+            Le2iDatasetAdapter(protocol="cv"), pose_root=Path(tmp) / "pose"
+        )
+        output_path = pose_path("room/video_1", pose_root=adapter.pose_root)
+        output_path.parent.mkdir(parents=True)
+        output_path.write_bytes(b"pose CS preservada")
+        with patch("gatefall.pose.extract.YOLO") as model:
+            rejected = []
+            for run in (
+                lambda: run_pose_extract(
+                    "room/video_1", "unused.pt", True, adapter=adapter
+                ),
+                lambda: run_pose_extract_all("unused.pt", True, adapter=adapter),
+            ):
+                try:
+                    run()
+                except ValueError as exc:
+                    rejected.append("le2i-cv" in str(exc) and "le2i" in str(exc))
+                else:
+                    rejected.append(False)
+            preserved = output_path.read_bytes() == b"pose CS preservada" and not model.called
+    return _check(
+        "entry points de pose recusam CV antes de carregar modelo ou sobrescrever HDF5 CS",
+        all(rejected) and preserved,
+    )
+
+
+def check_cv_pose_report_remains_supported() -> bool:
+    adapter = Le2iDatasetAdapter(protocol="cv")
+    with (
+        patch.object(
+            sys, "argv", ["gatefall.pose.extract", "report", "--dataset", "le2i-cv"]
+        ),
+        patch("gatefall.pose.extract.get_dataset", return_value=adapter),
+        patch("gatefall.pose.report.run_pose_report") as report,
+    ):
+        pose_extract_main()
+    return _check(
+        "pose report mantém leitura do protocolo CV",
+        report.call_args.kwargs == {"adapter": adapter},
     )
 
 
@@ -603,6 +664,8 @@ def run_selftest() -> None:
         check_shared_features_and_separate_statistics(),
         check_cv_timegrid_mismatch_rejected(),
         check_cv_extraction_commands_rejected(),
+        check_cv_pose_programmatic_extraction_rejected(),
+        check_cv_pose_report_remains_supported(),
         check_load_annotation_splits_respects_protocol(),
         check_frozen_train_config_identical_except_standardization(),
         check_default_run_dir_is_dataset_aware(),

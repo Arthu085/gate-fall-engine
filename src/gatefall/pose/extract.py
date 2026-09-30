@@ -25,6 +25,16 @@ TRACKER_NAME = "bytetrack.yaml"
 WEIGHTS_DIR = Path("data/scratch/weights")
 
 N_KEYPOINTS = 17
+POSE_EXTRACTION_DATASET_IDENTIFIERS = ("le2i",)
+
+
+def ensure_pose_extraction_supported(adapter: DatasetAdapter) -> None:
+    if adapter.identifier not in POSE_EXTRACTION_DATASET_IDENTIFIERS:
+        raise ValueError(
+            f"extração de pose não suporta {adapter.identifier!r}: os .h5 em "
+            f"{adapter.pose_root} são compartilhados e só podem ser gravados "
+            "pelo protocolo le2i"
+        )
 
 
 class PoseExtractSkipped(Exception):
@@ -101,6 +111,7 @@ def run_pose_extract(
     adapter: DatasetAdapter,
     model: YOLO | None = None,
 ) -> PoseExtractResult:
+    ensure_pose_extraction_supported(adapter)
     output_path = pose_path(video_id, pose_root=adapter.pose_root)
     if output_path.exists() and not force:
         raise PoseExtractSkipped(
@@ -373,6 +384,7 @@ def _print_summary(
 def run_pose_extract_all(
     model_name: str, force: bool, *, adapter: DatasetAdapter
 ) -> None:
+    ensure_pose_extraction_supported(adapter)
     if not adapter.frames_path.exists():
         print(
             f"\npose extract-all FALHOU: {adapter.frames_path} não existe — rode "
@@ -440,7 +452,7 @@ def main() -> None:
     extract_parser.add_argument("--video-id", required=True)
     extract_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_parser.add_argument("--force", action="store_true")
-    extract_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
+    extract_parser.add_argument("--dataset", default="le2i", choices=POSE_EXTRACTION_DATASET_IDENTIFIERS)
 
     extract_all_parser = subparsers.add_parser(
         "extract-all",
@@ -448,7 +460,7 @@ def main() -> None:
     )
     extract_all_parser.add_argument("--model", default=DEFAULT_MODEL)
     extract_all_parser.add_argument("--force", action="store_true")
-    extract_all_parser.add_argument("--dataset", default="le2i", choices=SUPPORTED_DATASET_IDENTIFIERS)
+    extract_all_parser.add_argument("--dataset", default="le2i", choices=POSE_EXTRACTION_DATASET_IDENTIFIERS)
 
     report_parser = subparsers.add_parser(
         "report",
