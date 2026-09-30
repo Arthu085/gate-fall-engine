@@ -4,25 +4,19 @@ Execute os comandos na raiz do repositório, após `uv sync`. `--dataset le2i`
 é opcional nas CLIs genéricas porque Le2i (protocolo `cs`) é o padrão;
 `--dataset le2i-cv` seleciona o protocolo cross-environment em artefatos
 isolados (ver [OmniFall](../data/omnifall.md) e [relatório de
-generalização](../analysis/le2i-cv-generalization.md)); as sub-CLIs de
-`gatefall.dinov3.extract`, `gatefall.features.standardize_dinov3` e
-`gatefall.train.baseline_b0`, `gatefall.eval.baseline_b0`,
-`gatefall.features.quality_extract`, `gatefall.train.baseline_b1`,
-`gatefall.eval.baseline_b1`, `gatefall.sam3.extract`, `gatefall.sam3.quality`,
-`gatefall.features.standardize_sam3`, `gatefall.train.baseline_c0`,
-`gatefall.eval.baseline_c0`, `gatefall.train.baseline_c1` e
-`gatefall.eval.baseline_c1` são exceções e aceitam
-somente `--dataset le2i` (ver [features DINOv3](../data/dinov3-features.md)
-e [fundação SAM 3](../data/sam3-foundation.md)). “Dados” indica acesso ao
-dataset real; “GPU/pesos” indica necessidade ou benefício de aceleração e
-pesos. Links apontam para o contrato detalhado.
+generalização](../analysis/le2i-cv-generalization.md)). Os braços A,
+B0, B1, C0 e C1 aceitam ambos os protocolos. A extração das features
+compartilhadas de pose, DINOv3, SAM 3 e qualidade permanece restrita a
+`le2i`; em `le2i-cv`, os consumidores reutilizam os arquivos já extraídos.
+“Dados” indica acesso ao dataset real; “GPU/pesos” indica necessidade ou
+benefício de aceleração e pesos. Links apontam para o contrato detalhado.
 
 ## Orquestração e preparação
 
 | Sintaxe | Propósito e pré-requisitos | Entrada → saída; mutação e idempotência | Dados | GPU/pesos | Detalhes |
 | --- | --- | --- | --- | --- | --- |
-| `uv run python -m gatefall.pipeline run [--dataset {le2i,le2i-cv}] [--arm {A,B0,B1,C0,C1}] [--dry-run] [--force]` | Reproduz o braço escolhido; B0/B1/C0/C1 aceitam somente `le2i`; ambiente sincronizado, ZIP preparado e backbones locais exigidos conforme o braço | A: 26 estágios (27 em `le2i-cv`); B0: 33; B1: 36; C0: 33; C1: 34. Todos usam artefatos locais; `--force` chega só aos produtores compatíveis. O `report` de classificação dos braços B/C recusa saída existente sem `--force` | Sim, exceto `--dry-run` | Sim nas fases de ML | [Runbook](../runbooks/pipelines.md) |
-| `uv run python -m gatefall.pipeline selftest` | Valida comandos e ordem de A, B0, B1, C0, C1 e A em `le2i-cv`, além de combinações rejeitadas, dry-run, fail-fast, force e destino local | Entradas sintéticas → stdout; não muta; repetível | Não | Não | [Runbook](../runbooks/pipelines.md) |
+| `uv run python -m gatefall.pipeline run [--dataset {le2i,le2i-cv}] [--arm {A,B0,B1,C0,C1}] [--dry-run] [--force]` | Reproduz A, B0, B1, C0 ou C1 em `le2i` ou `le2i-cv`; a extração das features compartilhadas ocorre somente em `le2i`; ambiente sincronizado, ZIP preparado e backbones locais exigidos na extração CS conforme o braço | Etapas CS/CV: A 26/26; B0 33/31; B1 36/33; C0 33/31; C1 34/32. Todos usam artefatos locais; `--force` chega só aos produtores compatíveis. O `report` de classificação dos braços B/C recusa saída existente sem `--force` | Sim, exceto `--dry-run` | Sim nas fases de ML | [Runbook](../runbooks/pipelines.md) |
+| `uv run python -m gatefall.pipeline selftest` | Valida comandos e ordem de A, B0, B1, C0 e C1 em `le2i` e os planos de A, B0, B1, C0 e C1 em `le2i-cv`, além de combinações rejeitadas, dry-run, fail-fast, force e destino local | Entradas sintéticas → stdout; não muta; repetível | Não | Não | [Runbook](../runbooks/pipelines.md) |
 | `uv run python scripts/fetch_labels.py [--protocol {cs,cv}] [--force]` | Baixa o snapshot OmniFall; requer rede | Fonte fixada → `data/labels/omnifall/` (`cs`) ou `data/labels/omnifall_cv/` (`cv`); muta; preserva existentes; `--force` baixa/sobrescreve | Não antes do comando | Não | [OmniFall](../data/omnifall.md) |
 | `uv run python scripts/fetch_labels.py --verify [--protocol {cs,cv}]` | Verifica hashes/proveniência; requer labels baixadas | Labels + `PROVENANCE.json` do protocolo escolhido → stdout; não muta; repetível; sem `--force` | Sim, labels | Não | [OmniFall](../data/omnifall.md) |
 | `uv run python scripts/extract_le2i.py [--zip PATH] [--force]` | Extrai o ZIP obtido manualmente | ZIP → `data/raw/le2i/<ambientes>`; muta; preserva extraídos; `--force` reextrai somente destinos conhecidos | Sim | Não | [Le2i](../data/le2i.md) |
@@ -137,7 +131,7 @@ pesos. Links apontam para o contrato detalhado.
 | `uv run python -m gatefall.eval.analysis.multiseed_summary summarize [--dataset le2i] [--arm {A,B0,B1,C0,C1}] --run-dir PATH [--run-dir PATH ...] --output-dir PATH [--force]` | Agrega treinos independentes do mesmo braço com seeds distintas (mínimo 2); A é o padrão. A/B0/B1/C0/C1 exigem evento validado. Deriva a projeção binária da confusion_matrix, sem inferência | Runs completos e íntegros → `multiseed_summary.json`/`.csv`; sem `--force` preserva saída existente | Sim | Checkpoints; GPU não necessária | [Sumário multi-seed](../analysis/multiseed-summary.md#como-executar) |
 | `uv run python -m gatefall.eval.analysis.generalization_report selftest` | Testa o relatório de fatores de domínio: agregação de resolução/fps, cobertura de pose, disjunção de ambiente/câmera e de subject, classes ausentes do treino, e as guardas de forma esperada do `le2i-cv` | Casos sintéticos → stdout; não muta | Não | Não | [Generalização (le2i-cv)](../analysis/le2i-cv-generalization.md) |
 | `uv run python -m gatefall.eval.analysis.generalization_report report --dataset {le2i,le2i-cv} --output PATH` | Gera o relatório auditável de fatores de domínio sobre o dataset real; para `le2i-cv`, falha se ambiente/câmera não forem disjuntos entre splits ou se a forma dos splits não bater com a revisão pinada | manifesto + grade + HDF5 → JSON em `PATH`; muta apenas o arquivo de saída, atomicamente | Sim | Não | [Generalização (le2i-cv)](../analysis/le2i-cv-generalization.md) |
-| `uv run python -m gatefall.selftests.protocol_isolation` | Testa que os artefatos do adapter `le2i-cv` nunca caem sob caminhos do `le2i` (cs), que `load_annotation_splits` respeita o protocolo pedido, que a receita de treino/protocolo de alarme do braço A permanece idêntica entre protocolos exceto o path/hash de padronização, que o run-dir padrão é dependente do dataset e que `--run-dir` sob o diretório canônico do outro protocolo é rejeitado, inclusive pelos entry points CS-only (`alarm_protocol_sensitivity`, `grouped_bootstrap`, `qualitative`, `multiseed_summary`, `baseline_b0.cli.run_train`, `baseline_b0.cli.run_report`, `b0_events.run_evaluate`, `baseline_b1.cli.run_train`, `baseline_b1.cli.run_report`, `b1_events.run_evaluate`, `baseline_c0.cli.run_train`, `baseline_c0.cli.run_report`, `c0_events.run_evaluate`, `baseline_c1.cli.run_train`, `baseline_c1.cli.run_report`, `c1_events.run_evaluate`) | Casos sintéticos → stdout; não muta | Não | Não | [Generalização (le2i-cv)](../analysis/le2i-cv-generalization.md) |
+| `uv run python -m gatefall.selftests.protocol_isolation` | Testa isolamento dos artefatos `le2i-cv`, leitura do protocolo pedido, compartilhamento das features e separação das estatísticas, receita congelada do braço A, destino padrão por dataset e rejeição de `--run-dir` do outro protocolo pelos comandos de análise restritos a CS e pelos entry points de treino, relatório e avaliação de B0/B1/C0/C1 | Casos sintéticos → stdout; não muta | Não | Não | [Generalização (le2i-cv)](../analysis/le2i-cv-generalization.md) |
 | `uv run python -m gatefall.selftests.runs` | Testa proteção de referências e o lifecycle transacional da avaliação, incluindo lock, journal e rollback | Temporários sintéticos → stdout; não muta o projeto | Não | Não | [Runbook](../runbooks/pipelines.md) |
 | `uv run pyright` | Verificação estática obrigatória após Python | Fontes → stdout; não muta | Não | Não | [Tecnologias](../architecture/technology-stack.md) |
 | `uv run mkdocs build --strict` | Valida e constrói o site | `docs/` + `mkdocs.yml` → `site/`; muta saída gerada; repetível; sem `--force` | Não | Não | [Início](../index.md) |

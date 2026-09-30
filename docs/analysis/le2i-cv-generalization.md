@@ -12,18 +12,22 @@ já usada pelo `cs` (`68e5cee56a4bad38cca4aea791cac248f96e79a0` — ela serve
 `parquet/le2i-cs/*` e `parquet/le2i-cv/*`; não é um fallback para upstream
 não pinado). Veja [OmniFall](../data/omnifall.md) para os dois protocolos.
 
-Os artefatos do `cv` são isolados dos equivalentes `cs`, sem compartilhar
-arquivo algum:
+Labels, manifesto, grade temporal, estatísticas de padronização e runs locais
+são específicos de cada protocolo e permanecem em caminhos isolados:
 
 | Artefato | `cs` | `cv` |
 | --- | --- | --- |
 | Labels | `data/labels/omnifall/` | `data/labels/omnifall_cv/` |
-| Manifesto/grade | `data/processed/le2i/` | `data/processed/le2i_cv/` |
-| Estatísticas de padronização | `pose_le2i_cs.json` | `pose_le2i_cv.json` |
-| Run local do braço A | `runs/local/le2i/` | `runs/local/le2i_cv/` |
+| Manifesto/grade temporal | `data/processed/le2i/` | `data/processed/le2i_cv/` |
+| Estatísticas de padronização | `*_le2i_cs.json` | `*_le2i_cv.json` |
+| Runs locais | `runs/local/le2i/` | `runs/local/le2i_cv/` |
 
-O braço DINOv3 não está disponível sob o `cv`: seus comandos aceitam somente
-`--dataset le2i` (ver [features DINOv3](../data/dinov3-features.md)).
+Os arquivos de features de pose, DINOv3, qualidade e SAM 3 em
+`data/features/le2i/` são compartilhados entre `cs` e `cv`. Somente a
+extração pelo protocolo `le2i` (`cs`) pode gravá-los; os consumidores
+`le2i-cv` reutilizam os arquivos existentes. B0/B1 reutilizam as features
+DINOv3 (ver [features DINOv3](../data/dinov3-features.md)) e C0/C1
+reutilizam as features SAM 3 (ver [fundação SAM 3](../data/sam3-foundation.md)).
 
 Não existe `runs/reference/le2i_cv/`: a promoção de um run a referência nunca
 é automática. `gatefall.selftests.protocol_isolation` cobre que os paths do
