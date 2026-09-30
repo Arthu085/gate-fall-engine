@@ -5,6 +5,7 @@ from pathlib import Path
 
 from gatefall.runs import default_run_dir
 from gatefall.train.baseline_b0.config import B0_FUSION_CONFIG, B0TrainConfig
+from gatefall.train.shared.run_paths import repository_anchored_run_dir
 
 
 def resolve_b0_config(
@@ -26,7 +27,7 @@ def resolve_b0_config(
 
 def guard_not_arm_a_run_dir(run_dir: Path, dataset_name: str) -> None:
     resolved_run_dir = run_dir.resolve()
-    arm_a_run_dir = default_run_dir(dataset_name).resolve()
+    arm_a_run_dir = repository_anchored_run_dir(default_run_dir(dataset_name))
     is_same = resolved_run_dir == arm_a_run_dir
     is_ancestor = resolved_run_dir in arm_a_run_dir.parents
     is_descendant = arm_a_run_dir in resolved_run_dir.parents

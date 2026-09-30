@@ -274,13 +274,7 @@ def check_b1_defaults_to_own_run_and_rejects_arm_a_and_b0() -> bool:
             for run_dir in (arm_a_run_dir, arm_b0_run_dir)
             for candidate in (run_dir, run_dir.parent, run_dir / "stray")
         )
-        cv_scope_rejected = _raises_value_error(
-            lambda: b1_events.run_evaluate(
-                force=False,
-                dataset_name="le2i-cv",
-                run_dir=Path("runs/local/le2i_cv/baseline_b1"),
-            )
-        )
+        b1_events.run_evaluate(force=False, dataset_name="le2i-cv", run_dir=None)
     finally:
         setattr(b1_events, "EventEvaluationLock", original_lock)
         setattr(b1_events, "_run_evaluate_locked", original_locked)
@@ -292,11 +286,10 @@ def check_b1_defaults_to_own_run_and_rejects_arm_a_and_b0() -> bool:
     return _check(
         "run_evaluate B1: usa o run canônico baseline_b1 por default, "
         "recusa os run_dirs das armas A e B0 (iguais, ancestrais ou "
-        "descendentes) e recusa --dataset le2i-cv fora do escopo atual",
+        "descendentes) e direciona CV ao run isolado",
         default_is_optional
-        and captured == [default_run_dir_for_arm("le2i", "B1")]
+        and captured == [default_run_dir_for_arm("le2i", "B1"), default_run_dir_for_arm("le2i-cv", "B1")]
         and foreign_rejected
-        and cv_scope_rejected,
     )
 
 

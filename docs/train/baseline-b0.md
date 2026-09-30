@@ -70,14 +70,12 @@ treino e report leem apenas features já persistidas em HDF5 via
 permanece congelado e não entra no grafo de treino (`CLAUDE.md`, invariante
 4).
 
-## Somente Le2i CS
+## Protocolos Le2i CS e CV
 
-Assim como `standardize_dinov3` (ver [Padronização de features
-DINOv3](../data/dinov3-standardization.md#somente-le2i-cs)),
-`gatefall.train.baseline_b0` aceita apenas `--dataset le2i`
-(`DINOV3_SUPPORTED_DATASET_IDENTIFIERS = ("le2i",)`) — `ensure_dinov3_dataset_supported`
-recusa `le2i-cv`, porque os dois adapters do Le2i apontam para o mesmo
-`dinov3_root` físico. B0 não tem suporte a `le2i-cv` nesta entrega.
+`train` e `report` aceitam `--dataset le2i` e `--dataset le2i-cv`.
+O CV reutiliza os HDF5 compartilhados de DINOv3, valida cobertura e
+alinhamento e carrega estatísticas ajustadas somente no treino CV.
+O destino padrão CV é `runs/local/le2i_cv/baseline_b0/`.
 
 ## `run_dir` irmão do braço A, nunca dentro dele
 
@@ -92,10 +90,9 @@ caminho onde um `--force` de B0 poderia ter sobrescrito ou destruído o run
 de referência do braço A — e `validate_local_run_dir(run_dir, dataset_name)`
 (a mesma guarda de isolamento entre protocolos do braço A, ver
 [Generalização (le2i-cv)](../analysis/le2i-cv-generalization.md)) rejeita
-qualquer `--run-dir` sob a árvore de runs local do `le2i-cv`. Cada guarda
-cobre o que a outra não alcança: a guarda compartilhada não detecta o
-próprio diretório do braço A (mesma raiz de protocolo), e a guarda do braço
-não detecta a raiz do `le2i-cv`.
+qualquer `--run-dir` sob a árvore local do outro protocolo. A guarda do
+braço protege o run A no protocolo escolhido; a guarda compartilhada
+protege a separação CS/CV.
 
 ## Como executar
 

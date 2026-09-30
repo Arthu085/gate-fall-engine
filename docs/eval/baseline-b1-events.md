@@ -15,7 +15,7 @@ uv run python -m gatefall.eval.baseline_b1 evaluate --dataset le2i \
 ```
 
 Avalia `val` e `test` de um run B1 completo. Sem `--run-dir`, usa
-`runs/local/le2i/baseline_b1/`. A CLI aceita somente Le2i CS. As guardas do
+`runs/local/le2i/baseline_b1/`. A CLI aceita CS e CV, com run local isolado por protocolo. As guardas do
 `run_dir` são as mesmas do treino e do report — ancoradas em `REPOSITORY_ROOT`,
 rejeitam os runs dos braços A e B0 e, para runs não canônicos desses braços, a
 precheck sobre a `arm` declarada no `config.yaml` recusa o destino.

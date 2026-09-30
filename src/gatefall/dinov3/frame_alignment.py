@@ -90,6 +90,10 @@ def run_dinov3_verify_frame_alignment(
     decode_single_frame: Callable[[Path, int], np.ndarray] | None = None,
 ) -> None:
     ensure_dinov3_dataset_supported(adapter)
+    if adapter.identifier == "le2i-cv":
+        from gatefall.features.shared_le2i import shared_source
+
+        shared_source(adapter)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if backbone is None:

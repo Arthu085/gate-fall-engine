@@ -13,10 +13,10 @@ interrompe imediatamente a sequência, mostra nome, comando e código de saída 
 confirma que etapas posteriores não rodaram. Uma nova execução retoma pelo
 comportamento idempotente de cada produtor; validações rodam novamente.
 
-`--dataset le2i-cv` executa o mesmo pipeline sobre o protocolo Le2i
-cross-environment, em artefatos isolados (`data/labels/omnifall_cv/`,
-`data/processed/le2i_cv/`, `runs/local/le2i_cv/baseline_a/`) e com uma etapa
-27 adicional que gera o relatório de generalização. Veja [Generalização entre
+`--dataset le2i-cv` executa o protocolo Le2i cross-environment em
+artefatos isolados (`data/labels/omnifall_cv/`,
+`data/processed/le2i_cv/`, `runs/local/le2i_cv/`). No braço A, ele reutiliza
+a pose já extraída e acrescenta o relatório de generalização. Veja [Generalização entre
 ambientes (Le2i-CV)](../analysis/le2i-cv-generalization.md) para o que esse
 protocolo mede e suas ressalvas.
 
@@ -61,9 +61,9 @@ necessariamente a palavra literal `python`. O contador exibido é `[01/26]` a
 
 ## Braços B0, B1, C0 e C1
 
-Com `--dataset le2i`, o orquestrador também aceita `--arm B0`, `B1`, `C0` ou
-`C1`. Somente A aceita `--dataset le2i-cv`; uma combinação incompatível é
-recusada antes de qualquer subprocesso.
+O orquestrador aceita `--arm B0`, `B1`, `C0` ou `C1` em CS e CV. Em CV,
+reutiliza pose, DINOv3, SAM 3 e sidecars de qualidade dos mesmos diretórios
+por vídeo. Nenhuma etapa de extração desses arquivos entra no plano CV.
 
 Antes de executar B0 ou B1 em um clone novo, conclua a
 [preparação do DINOv3](../data/dinov3-features.md#preparacao-do-dinov3-a-partir-de-um-clone-limpo):
@@ -74,9 +74,11 @@ acesso oficial aprovado, checkpoint local, runtime isolado sincronizado e
 selftest sintético. A [instalação do Le2i](../data/le2i.md) também é necessária
 para os quatro braços.
 
-Cada braço executa os 22 primeiros passos de preparação, pose e padronização
-listados acima. Depois, executa o sufixo correspondente, sempre com seu
-próprio diretório em `runs/local/le2i/`:
+Em CS, cada braço executa os 22 primeiros passos de preparação, pose e
+padronização listados acima. Em CV, omite a extração de pose; depois executa
+o sufixo sem extração de DINOv3, SAM 3 ou qualidade. As estatísticas visuais
+são calculadas no treino do protocolo escolhido e cada braço usa seu
+próprio diretório em `runs/local/le2i/` ou `runs/local/le2i_cv/`:
 
 | Braço | Etapas após o passo 22 | Destino local | Total |
 | --- | --- | --- | --- |
@@ -92,10 +94,14 @@ uv run python -m gatefall.pipeline run --dataset le2i --arm C0
 uv run python -m gatefall.pipeline run --dataset le2i --arm C1
 ```
 
-B0 e B1 exigem os pesos e o runtime locais do DINOv3. B1 extrai também os
-sidecars de `q_pose` e `q_visual`. C0 e C1 exigem o runtime isolado e o
-checkpoint do SAM 3. C1 calcula `q_pose` e `q_sam3` a partir das features de
-pose e dos HDF5 do SAM 3 durante treino e avaliação; o selftest de
+Na primeira execução CS, B0 e B1 exigem os pesos e o runtime locais do
+DINOv3; B1 extrai também os sidecars de `q_pose` e `q_visual`. C0 e C1
+exigem o runtime isolado e o checkpoint do SAM 3 para essa extração CS.
+CV exige apenas os HDF5 compartilhados já extraídos e alinhados. As
+estatísticas DINOv3 e SAM 3 de CV usam somente as janelas de treino CV;
+validação e teste não ajustam as fontes, o gate ou os hiperparâmetros.
+C1 calcula `q_pose` e `q_sam3` a partir das features de pose e dos HDF5
+do SAM 3 durante treino e avaliação; o selftest de
 `sam3.quality` verifica a fórmula. C0 avalia eventos após o relatório de
 classificação, com o protocolo de alarme congelado do braço A.
 

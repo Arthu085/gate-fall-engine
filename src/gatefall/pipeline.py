@@ -51,8 +51,6 @@ def build_pipeline(
         raise ValueError(f"dataset não suportado: {dataset!r}")
     if arm not in SUPPORTED_ARMS:
         raise ValueError(f"braço não suportado: {arm!r}")
-    if dataset == "le2i-cv" and arm != "A":
-        raise ValueError(f"braço {arm!r} não suporta --dataset {dataset!r}; use le2i")
 
     is_cv = dataset == "le2i-cv"
     run_dir = str(default_run_dir(dataset))
@@ -88,6 +86,11 @@ def build_pipeline(
         _module_step("Construir padronização", "gatefall.features.standardize", "build", "--dataset", dataset, supports_force=True),
         _module_step("Relatar padronização", "gatefall.features.standardize", "report", "--dataset", dataset),
     ]
+    if is_cv:
+        steps = [
+            step for step in steps
+            if step.command[2:4] != ("gatefall.pose.extract", "extract-all")
+        ]
     if arm == "A":
         steps.extend(
             [
@@ -115,7 +118,7 @@ def build_pipeline(
         if arm in ("B0", "B1"):
             steps.extend([
                 _module_step("Validar extração DINOv3", "gatefall.dinov3.extract", "selftest"),
-                _module_step("Extrair features DINOv3", "gatefall.dinov3.extract", "extract-all", "--dataset", dataset, supports_force=True),
+                *([] if is_cv else [_module_step("Extrair features DINOv3", "gatefall.dinov3.extract", "extract-all", "--dataset", dataset, supports_force=True)]),
                 _module_step("Relatar features DINOv3", "gatefall.dinov3.extract", "report", "--dataset", dataset),
                 _module_step("Validar padronização DINOv3", "gatefall.features.standardize_dinov3", "selftest"),
                 _module_step("Construir padronização DINOv3", "gatefall.features.standardize_dinov3", "build", "--dataset", dataset, supports_force=True),
@@ -124,13 +127,13 @@ def build_pipeline(
             if arm == "B1":
                 steps.extend([
                     _module_step("Validar features de qualidade", "gatefall.features.quality_extract", "selftest"),
-                    _module_step("Extrair features de qualidade", "gatefall.features.quality_extract", "extract-all", "--dataset", dataset, supports_force=True),
+                    *([] if is_cv else [_module_step("Extrair features de qualidade", "gatefall.features.quality_extract", "extract-all", "--dataset", dataset, supports_force=True)]),
                     _module_step("Relatar features de qualidade", "gatefall.features.quality_extract", "report", "--dataset", dataset),
                 ])
         else:
             steps.extend([
                 _module_step("Validar extração SAM 3", "gatefall.sam3.extract", "selftest"),
-                _module_step("Extrair features SAM 3", "gatefall.sam3.extract", "extract-all", "--dataset", dataset, supports_force=True),
+                *([] if is_cv else [_module_step("Extrair features SAM 3", "gatefall.sam3.extract", "extract-all", "--dataset", dataset, supports_force=True)]),
                 _module_step("Relatar features SAM 3", "gatefall.sam3.extract", "report", "--dataset", dataset),
                 _module_step("Validar padronização SAM 3", "gatefall.features.standardize_sam3", "selftest"),
                 _module_step("Construir padronização SAM 3", "gatefall.features.standardize_sam3", "build", "--dataset", dataset, supports_force=True),

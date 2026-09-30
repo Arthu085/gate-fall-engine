@@ -246,7 +246,7 @@ def check_isolation() -> bool:
         foreign_rejected and no_lock and comparisons
         and _raises(lambda: c0_events.run_evaluate(False, run_dir=Path("runs/reference/le2i/baseline_c0")))
         and _raises(lambda: c0_events.run_evaluate(False, run_dir=Path("runs/local/le2i_cv/baseline_c0")))
-        and _raises(lambda: c0_events.run_evaluate(False, dataset_name="le2i-cv")),
+        and default_run_dir_for_arm("le2i-cv", "C0") == Path("runs/local/le2i_cv/baseline_c0"),
     )
 
 

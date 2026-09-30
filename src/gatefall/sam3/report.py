@@ -64,6 +64,10 @@ def find_provenance_divergences(
 
 def run_sam3_report(adapter: DatasetAdapter) -> None:
     ensure_sam3_dataset_supported(adapter)
+    if adapter.identifier == "le2i-cv":
+        from gatefall.sam3.features import validate_shared_sam3_set
+
+        validate_shared_sam3_set(adapter)
 
     if not adapter.frames_path.exists():
         print(
@@ -74,6 +78,10 @@ def run_sam3_report(adapter: DatasetAdapter) -> None:
         sys.exit(1)
 
     frames = adapter.load_frames()
+    expected_split_counts = (
+        {str(split): int(count) for split, count in frames["split"].value_counts().items()}
+        if adapter.identifier == "le2i-cv" else EXPECTED_SPLIT_FRAME_COUNTS
+    )
     group_sizes = cast(pd.Series, frames.groupby("video_id").size())
     split_by_video = cast(
         pd.Series, frames.groupby("video_id")["split"].first()
@@ -148,7 +156,7 @@ def run_sam3_report(adapter: DatasetAdapter) -> None:
         )
 
     print("\nquadros por split:")
-    for split, expected in EXPECTED_SPLIT_FRAME_COUNTS.items():
+    for split, expected in expected_split_counts.items():
         actual = frames_by_split.get(split, 0)
         print(f"  {split}: {actual} (esperado {expected})")
     print(f"  total: {total_frames} (esperado {EXPECTED_TOTAL_FRAMES})")
@@ -169,7 +177,7 @@ def run_sam3_report(adapter: DatasetAdapter) -> None:
             not invalid_provenance_by_video,
         ),
     ]
-    for split, expected in EXPECTED_SPLIT_FRAME_COUNTS.items():
+    for split, expected in expected_split_counts.items():
         checks.append(
             _check(
                 f"quadros do split {split} == {expected}",

@@ -17,14 +17,16 @@ data/
 runs/
 ├── reference/le2i/{baseline_a,baseline_b0,baseline_b1,baseline_c0,baseline_c1}/
 ├── local/le2i/<arma>/           # reprodução local ignorada pelo Git
-└── local/le2i_cv/baseline_a/    # reprodução local do protocolo cv, ignorada pelo Git
+└── local/le2i_cv/<arma>/        # reprodução local do protocolo cv, ignorada pelo Git
 ```
 
 `data/labels/omnifall_cv/`, `data/processed/le2i_cv/` e
-`runs/local/le2i_cv/baseline_a/` são os artefatos isolados do protocolo Le2i
+`runs/local/le2i_cv/<arma>/` são os artefatos isolados do protocolo Le2i
 `cv` (cross-environment) e nunca compartilham arquivo com seus equivalentes
-`cs` acima. `data/features/le2i/dinov3/` existe apenas para o `cs` e não tem
-equivalente `cv`: os comandos DINOv3 recusam o adapter `le2i-cv`. Não existe
+`cs` acima. As features de pose, DINOv3, SAM 3 e qualidade em
+`data/features/le2i/` são compartilhadas entre os protocolos: somente os
+comandos de extração `le2i` podem gravá-las; os consumidores e relatórios
+`le2i-cv` podem lê-las. Não existe
 `runs/reference/le2i_cv/`: a promoção de um run a
 referência nunca é automática. Veja o [relatório de
 generalização](../analysis/le2i-cv-generalization.md) para o que o protocolo `cv`

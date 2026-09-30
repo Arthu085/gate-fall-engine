@@ -323,7 +323,7 @@ def check_isolation() -> bool:
                   and comparisons
                   and _raises(lambda: c1_events.run_evaluate(False, run_dir=Path("runs/reference/le2i/baseline_c1")))
                   and _raises(lambda: c1_events.run_evaluate(False, run_dir=Path("runs/local/le2i_cv/baseline_c1")))
-                  and _raises(lambda: c1_events.run_evaluate(False, dataset_name="le2i-cv")))
+                  and default_run_dir_for_arm("le2i-cv", "C1") == Path("runs/local/le2i_cv/baseline_c1"))
 
 
 def run_c1_events_selftest() -> bool:

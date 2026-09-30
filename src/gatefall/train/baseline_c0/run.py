@@ -5,7 +5,7 @@ from pathlib import Path
 
 from gatefall.train.baseline_c0.config import C0_FUSION_CONFIG, C0TrainConfig
 from gatefall.datasets import DatasetAdapter
-from gatefall.features.standardize_sam3 import SAM3_STATS_PATH
+from gatefall.features.standardize_sam3 import sam3_stats_path
 from gatefall.hashing import sha256_file
 from gatefall.train.shared.sam3_inputs import _ValidatedInputs
 from gatefall.train.shared.run_paths import comparison_run_dirs
@@ -42,8 +42,8 @@ def resolve_c0_config_for_inputs(
         seed,
         adapter.pose_stats_path,
         sha256_file(adapter.pose_stats_path),
-        SAM3_STATS_PATH,
-        sha256_file(SAM3_STATS_PATH),
+        sam3_stats_path(adapter.identifier),
+        sha256_file(sam3_stats_path(adapter.identifier)),
         adapter.sam3_root,
         inputs.sam3_features_sha256,
         inputs.sam3_provenance,

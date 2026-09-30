@@ -28,7 +28,8 @@ from gatefall.dinov3.backbone import (
 )
 from gatefall.dinov3.dataset_guard import (
     DINOV3_SUPPORTED_DATASET_IDENTIFIERS,
-    ensure_dinov3_dataset_supported,
+    DINOV3_EXTRACTION_DATASET_IDENTIFIERS,
+    ensure_dinov3_extraction_supported,
 )
 from gatefall.dinov3.features import Dinov3Backbone, compute_features
 from gatefall.dinov3.preprocessing import preprocess_frames
@@ -87,7 +88,7 @@ def run_dinov3_extract(
     weights_sha256: str | None = None,
     dinov3_repo_commit: str | None = None,
 ) -> Dinov3ExtractResult:
-    ensure_dinov3_dataset_supported(adapter)
+    ensure_dinov3_extraction_supported(adapter)
 
     from gatefall.dinov3.storage import (
         dinov3_path,
@@ -246,7 +247,7 @@ def run_dinov3_extract_all(
     batch_size: int = DEFAULT_BATCH_SIZE,
     force: bool = False,
 ) -> None:
-    ensure_dinov3_dataset_supported(adapter)
+    ensure_dinov3_extraction_supported(adapter)
 
     if not adapter.frames_path.exists():
         print(
@@ -330,7 +331,7 @@ def main() -> None:
     extract_parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     extract_parser.add_argument("--force", action="store_true")
     extract_parser.add_argument(
-        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
+        "--dataset", default="le2i", choices=DINOV3_EXTRACTION_DATASET_IDENTIFIERS
     )
 
     extract_all_parser = subparsers.add_parser(
@@ -344,7 +345,7 @@ def main() -> None:
     )
     extract_all_parser.add_argument("--force", action="store_true")
     extract_all_parser.add_argument(
-        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
+        "--dataset", default="le2i", choices=DINOV3_EXTRACTION_DATASET_IDENTIFIERS
     )
 
     report_parser = subparsers.add_parser(
@@ -372,7 +373,7 @@ def main() -> None:
         "--batch-size", type=int, default=DEFAULT_BATCH_SIZE
     )
     verify_determinism_parser.add_argument(
-        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
+        "--dataset", default="le2i", choices=DINOV3_EXTRACTION_DATASET_IDENTIFIERS
     )
     verify_determinism_parser.add_argument(
         "--output-dir",

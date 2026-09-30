@@ -14,6 +14,7 @@ import yaml
 from gatefall.config import EVAL_STRIDE
 from gatefall.data.gated_fusion_dataset import GatedFusionWindowDataset
 from gatefall.datasets import DatasetAdapter, get_dataset
+from gatefall.dinov3.consumer import validate_dinov3_feature_set
 from gatefall.dinov3.dataset_guard import (
     DINOV3_SUPPORTED_DATASET_IDENTIFIERS,
     ensure_dinov3_dataset_supported,
@@ -44,7 +45,7 @@ from gatefall.features.standardization import (
     load_stats as load_pose_stats,
     validate_stats_layout as validate_pose_stats_layout,
 )
-from gatefall.features.standardize_dinov3 import DINOV3_STATS_PATH
+from gatefall.features.standardize_dinov3 import dinov3_stats_path
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import build_pose_features
 from gatefall.runs import default_run_dir_for_arm, validate_local_run_dir
@@ -143,6 +144,9 @@ def _predict_with_identity(
 
 
 def _quality_set_sha256(adapter: DatasetAdapter) -> str:
+    from gatefall.features.quality_extract import validate_shared_quality_set
+
+    validate_shared_quality_set(adapter)
     frames = adapter.load_frames()
     video_ids = [str(video_id) for video_id in frames["video_id"].unique()]
     return quality_set_sha256(video_ids, quality_root=adapter.quality_root)
@@ -159,17 +163,18 @@ def _load_run_assets(
 ]:
     adapter = get_dataset(dataset_name)
     ensure_dinov3_dataset_supported(adapter)
+    validate_dinov3_feature_set(adapter)
     pose_stats = load_pose_stats(adapter.pose_stats_path)
     validate_pose_stats_layout(pose_stats)
-    visual_stats = load_visual_stats(DINOV3_STATS_PATH)
+    visual_stats = load_visual_stats(dinov3_stats_path(dataset_name))
     validate_visual_stats_layout(visual_stats, dataset_name=dataset_name)
     validate_visual_stats_freshness(visual_stats, adapter.frames_path)
     expected_config = resolve_b1_config(
         B1_ADAPTIVE_GATE_CONFIG.seed,
         adapter.pose_stats_path,
         sha256_file(adapter.pose_stats_path),
-        DINOV3_STATS_PATH,
-        sha256_file(DINOV3_STATS_PATH),
+        dinov3_stats_path(dataset_name),
+        sha256_file(dinov3_stats_path(dataset_name)),
         adapter.quality_root,
         _quality_set_sha256(adapter),
     )
@@ -273,8 +278,6 @@ def _guard_foreign_arm_run_dir(run_dir: Path) -> None:
 def run_evaluate(
     force: bool, dataset_name: str = "le2i", run_dir: Path | None = None
 ) -> None:
-    if dataset_name != "le2i":
-        raise ValueError("avaliação de eventos B1 suporta somente le2i (CS)")
     if run_dir is None:
         run_dir = default_run_dir_for_arm(dataset_name, "B1")
     guard_not_arm_a_run_dir(run_dir, dataset_name)

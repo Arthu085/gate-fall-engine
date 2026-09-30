@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from gatefall.config import EVAL_STRIDE, TRAIN_STRIDE
 from gatefall.data.fusion_dataset import FusionWindowDataset
 from gatefall.datasets import get_dataset
+from gatefall.dinov3.consumer import validate_dinov3_feature_set
 from gatefall.dinov3.dataset_guard import (
     DINOV3_SUPPORTED_DATASET_IDENTIFIERS,
     ensure_dinov3_dataset_supported,
@@ -28,7 +29,7 @@ from gatefall.features.standardization import load_stats as load_pose_stats
 from gatefall.features.standardization import (
     validate_stats_layout as validate_pose_stats_layout,
 )
-from gatefall.features.standardize_dinov3 import DINOV3_STATS_PATH
+from gatefall.features.standardize_dinov3 import dinov3_stats_path
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import build_pose_features
 from gatefall.runs import (
@@ -78,10 +79,11 @@ def run_train(
     validate_local_run_dir(run_dir, dataset_name)
     adapter = get_dataset(dataset_name)
     ensure_dinov3_dataset_supported(adapter)
+    validate_dinov3_feature_set(adapter)
 
     pose_stats = load_pose_stats(adapter.pose_stats_path)
     validate_pose_stats_layout(pose_stats)
-    visual_stats = load_visual_stats(DINOV3_STATS_PATH)
+    visual_stats = load_visual_stats(dinov3_stats_path(dataset_name))
     validate_visual_stats_layout(visual_stats, dataset_name=dataset_name)
     validate_visual_stats_freshness(visual_stats, adapter.frames_path)
 
@@ -89,8 +91,8 @@ def run_train(
         seed,
         adapter.pose_stats_path,
         sha256_file(adapter.pose_stats_path),
-        DINOV3_STATS_PATH,
-        sha256_file(DINOV3_STATS_PATH),
+        dinov3_stats_path(dataset_name),
+        sha256_file(dinov3_stats_path(dataset_name)),
     )
 
     frames = adapter.load_frames()
@@ -156,9 +158,10 @@ def run_report(
 
     adapter = get_dataset(dataset_name)
     ensure_dinov3_dataset_supported(adapter)
+    validate_dinov3_feature_set(adapter)
     pose_stats = load_pose_stats(adapter.pose_stats_path)
     validate_pose_stats_layout(pose_stats)
-    visual_stats = load_visual_stats(DINOV3_STATS_PATH)
+    visual_stats = load_visual_stats(dinov3_stats_path(dataset_name))
     validate_visual_stats_layout(visual_stats, dataset_name=dataset_name)
     validate_visual_stats_freshness(visual_stats, adapter.frames_path)
 
@@ -166,8 +169,8 @@ def run_report(
         B0_FUSION_CONFIG.seed,
         adapter.pose_stats_path,
         sha256_file(adapter.pose_stats_path),
-        DINOV3_STATS_PATH,
-        sha256_file(DINOV3_STATS_PATH),
+        dinov3_stats_path(dataset_name),
+        sha256_file(dinov3_stats_path(dataset_name)),
     )
     config = validate_b0_training_run(
         run_dir,

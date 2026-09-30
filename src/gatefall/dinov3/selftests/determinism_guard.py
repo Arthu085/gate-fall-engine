@@ -130,19 +130,12 @@ def _check_dinov3_entry_points_reject_le2i_cv() -> bool:
                     adapter=cv_adapter, repo_dir_value=None, weights_path_value=None
                 )
             ),
-            rejects(lambda: run_dinov3_report(cv_adapter)),
-            rejects(lambda: run_dinov3_audit(adapter=cv_adapter)),
             rejects(
                 lambda: run_dinov3_verify_determinism(
                     "env1/video1",
                     adapter=cv_adapter,
                     repo_dir_value=None,
                     weights_path_value=None,
-                )
-            ),
-            rejects(
-                lambda: run_dinov3_verify_frame_alignment(
-                    adapter=cv_adapter, repo_dir_value=None, weights_path_value=None
                 )
             ),
         ]
@@ -154,6 +147,7 @@ def _check_dinov3_entry_points_reject_le2i_cv() -> bool:
     accepts_cs = True
     try:
         ensure_dinov3_dataset_supported(Le2iDatasetAdapter())
+        ensure_dinov3_dataset_supported(Le2iDatasetAdapter(protocol="cv"))
         ensure_dinov3_dataset_supported(
             _SyntheticDatasetAdapter(
                 raw_dir=Path("raw"),
@@ -166,7 +160,7 @@ def _check_dinov3_entry_points_reject_le2i_cv() -> bool:
         accepts_cs = False
 
     return _check(
-        "guarda de protocolo: os seis pontos de entrada DINOv3 rejeitam o "
+        "guarda de protocolo: extração e determinismo DINOv3 rejeitam o "
         "adapter le2i-cv com ValueError sem criar nada sob "
         "adapter.dinov3_root, e a guarda continua aceitando qualquer adapter "
         "com identifier 'le2i' (checagem por identifier, não por isinstance)",

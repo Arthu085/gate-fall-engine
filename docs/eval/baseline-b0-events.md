@@ -16,8 +16,7 @@ uv run python -m gatefall.eval.baseline_b0 evaluate --dataset le2i \
 
 Avalia `val` e `test` de um run B0 completo usando pose e DINOv3 já
 extraídos, as duas estatísticas de padronização e o checkpoint treinado. Sem
-`--run-dir`, usa `runs/local/le2i/baseline_b0/`. A CLI aceita somente Le2i CS,
-rejeita o run do braço A e não oferece suporte a `le2i-cv`.
+`--run-dir`, usa `runs/local/le2i/baseline_b0/`. A CLI aceita CS e CV, usa o run local do protocolo escolhido e rejeita o run do braço A.
 
 A avaliação reutiliza `BASELINE_A_ALARM_PROTOCOL`, as mesmas métricas por
 evento e por janela e o mesmo lifecycle atômico com lock, journal, staging e

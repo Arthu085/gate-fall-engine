@@ -87,11 +87,12 @@ leem apenas features de pose, features DINOv3 e sidecars de qualidade já
 persistidos. Os únicos parâmetros treináveis são `E_P`, `E_V`, o gate, a TCN e a
 cabeça de classificação (`CLAUDE.md`, invariante 4).
 
-## Somente Le2i CS
+## Protocolos Le2i CS e CV
 
-Como B0, `gatefall.train.baseline_b1` aceita apenas `--dataset le2i`
-(`DINOV3_SUPPORTED_DATASET_IDENTIFIERS = ("le2i",)`). B1 não tem suporte a
-`le2i-cv` nesta entrega.
+`train` e `report` aceitam `--dataset le2i` e `--dataset le2i-cv`.
+O CV reutiliza os HDF5 compartilhados de DINOv3, valida cobertura e
+alinhamento e carrega estatísticas ajustadas somente no treino CV.
+O destino padrão CV é `runs/local/le2i_cv/baseline_b1/`.
 
 ## `run_dir` irmão de A e B0, nunca dentro deles
 
@@ -106,7 +107,7 @@ no `run_dir`:
   B0 — é essa guarda que impede operacionalmente que um `--force` do B1
   sobrescreva ou renomeie o run de comparação do B0;
 - `validate_local_run_dir(run_dir, dataset_name)` rejeita qualquer `--run-dir`
-  sob a árvore de runs local do `le2i-cv`.
+  sob a árvore de runs local do outro protocolo.
 
 Cada guarda cobre o que as outras não alcançam. Os run dirs padrão são
 resolvidos contra `REPOSITORY_ROOT`, não contra o diretório corrente, de modo

@@ -13,6 +13,7 @@ import torch
 from gatefall.config import EVAL_STRIDE
 from gatefall.data.fusion_dataset import FusionWindowDataset
 from gatefall.datasets import DatasetAdapter, get_dataset
+from gatefall.dinov3.consumer import validate_dinov3_feature_set
 from gatefall.dinov3.dataset_guard import ensure_dinov3_dataset_supported
 from gatefall.dinov3.storage import dinov3_path, read_features
 from gatefall.eval.shared.event_artifacts import EventEvaluationLock
@@ -35,7 +36,7 @@ from gatefall.features.standardization import (
     load_stats as load_pose_stats,
     validate_stats_layout as validate_pose_stats_layout,
 )
-from gatefall.features.standardize_dinov3 import DINOV3_STATS_PATH
+from gatefall.features.standardize_dinov3 import dinov3_stats_path
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import build_pose_features
 from gatefall.runs import default_run_dir_for_arm, validate_local_run_dir
@@ -129,17 +130,18 @@ def _load_run_assets(
 ]:
     adapter = get_dataset(dataset_name)
     ensure_dinov3_dataset_supported(adapter)
+    validate_dinov3_feature_set(adapter)
     pose_stats = load_pose_stats(adapter.pose_stats_path)
     validate_pose_stats_layout(pose_stats)
-    visual_stats = load_visual_stats(DINOV3_STATS_PATH)
+    visual_stats = load_visual_stats(dinov3_stats_path(dataset_name))
     validate_visual_stats_layout(visual_stats, dataset_name=dataset_name)
     validate_visual_stats_freshness(visual_stats, adapter.frames_path)
     expected_config = resolve_b0_config(
         B0_FUSION_CONFIG.seed,
         adapter.pose_stats_path,
         sha256_file(adapter.pose_stats_path),
-        DINOV3_STATS_PATH,
-        sha256_file(DINOV3_STATS_PATH),
+        dinov3_stats_path(dataset_name),
+        sha256_file(dinov3_stats_path(dataset_name)),
     )
     try:
         config = validate_b0_training_run(
@@ -214,8 +216,6 @@ def _run_evaluate_locked(
 def run_evaluate(
     force: bool, dataset_name: str = "le2i", run_dir: Path | None = None
 ) -> None:
-    if dataset_name != "le2i":
-        raise ValueError("avaliação de eventos B0 suporta somente le2i (CS)")
     if run_dir is None:
         run_dir = default_run_dir_for_arm(dataset_name, "B0")
     guard_not_arm_a_run_dir(run_dir, dataset_name)
@@ -239,7 +239,7 @@ def main() -> None:
         help="Avalia eventos da arma B0 e grava event_metrics.json",
     )
     evaluate_parser.add_argument("--force", action="store_true")
-    evaluate_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    evaluate_parser.add_argument("--dataset", default="le2i", choices=("le2i", "le2i-cv"))
     evaluate_parser.add_argument("--run-dir", type=Path, default=None)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas da avaliação B0")
     args = parser.parse_args()

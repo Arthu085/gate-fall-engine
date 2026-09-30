@@ -19,7 +19,9 @@ from gatefall.datasets import DatasetAdapter, get_dataset
 from gatefall.dinov3.backbone import RESIZE_SIZE
 from gatefall.dinov3.dataset_guard import (
     DINOV3_SUPPORTED_DATASET_IDENTIFIERS,
+    DINOV3_EXTRACTION_DATASET_IDENTIFIERS,
     ensure_dinov3_dataset_supported,
+    ensure_dinov3_extraction_supported,
 )
 from gatefall.features.quality_sequence import (
     DEFAULT_BATCH_SIZE,
@@ -33,6 +35,7 @@ from gatefall.features.quality_storage import (
     verify_written_file,
     write_quality_atomic,
 )
+from gatefall.features.shared_le2i import shared_source
 from gatefall.hashing import sha256_file
 from gatefall.pose.loading import pose_path
 
@@ -87,6 +90,38 @@ def current_provenance(*, pose_source_digest: str) -> dict[str, object]:
     }
 
 
+def validate_shared_quality_set(adapter: DatasetAdapter) -> None:
+    source = shared_source(adapter)
+    if adapter.identifier != "le2i-cv":
+        return
+    manifest = source.load_manifest().set_index("video_id")
+    frames = source.load_frames()
+    for video_id, group in frames.groupby("video_id"):
+        video_id = str(video_id)
+        path = quality_path(video_id, quality_root=adapter.quality_root)
+        if not path.exists():
+            raise FileNotFoundError(f"le2i-cv: sidecar de qualidade ausente: {path}")
+        row = manifest.loc[video_id]
+        attrs = {
+            "video_id": video_id,
+            "K": len(group),
+            "env": str(row["env"]),
+            "subject": int(row["subject"]),
+            "split": str(row["split"]),
+            "fps": float(row["fps"]),
+            **current_provenance(
+                pose_source_digest=pose_source_sha256(
+                    video_id, pose_root=adapter.pose_root
+                )
+            ),
+        }
+        reasons = validate_existing_file(
+            path, expected_k=len(group), expected_attrs=attrs
+        )
+        if reasons:
+            raise ValueError(f"le2i-cv: {path} inválido: {'; '.join(reasons)}")
+
+
 def existing_sidecar_action(
     reasons: list[str], *, force: bool
 ) -> Literal["skip", "fail", "reextract"]:
@@ -120,7 +155,7 @@ def run_quality_extract(
     batch_size: int = DEFAULT_BATCH_SIZE,
     force: bool = False,
 ) -> QualityExtractResult:
-    ensure_dinov3_dataset_supported(adapter)
+    ensure_dinov3_extraction_supported(adapter)
 
     output_path = quality_path(video_id, quality_root=adapter.quality_root)
     src_indices = select_src_indices(video_id, adapter=adapter)
@@ -200,7 +235,7 @@ def run_quality_extract_all(
     batch_size: int = DEFAULT_BATCH_SIZE,
     force: bool = False,
 ) -> None:
-    ensure_dinov3_dataset_supported(adapter)
+    ensure_dinov3_extraction_supported(adapter)
 
     if not adapter.frames_path.exists():
         print(
@@ -252,6 +287,7 @@ def run_quality_extract_all(
 
 def run_quality_report(*, adapter: DatasetAdapter) -> None:
     ensure_dinov3_dataset_supported(adapter)
+    validate_shared_quality_set(adapter)
     frames = adapter.load_frames()
     per_video = cast(
         pd.DataFrame,
@@ -339,7 +375,7 @@ def main() -> None:
     extract_parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     extract_parser.add_argument("--force", action="store_true")
     extract_parser.add_argument(
-        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
+        "--dataset", default="le2i", choices=DINOV3_EXTRACTION_DATASET_IDENTIFIERS
     )
 
     extract_all_parser = subparsers.add_parser(
@@ -351,7 +387,7 @@ def main() -> None:
     )
     extract_all_parser.add_argument("--force", action="store_true")
     extract_all_parser.add_argument(
-        "--dataset", default="le2i", choices=DINOV3_SUPPORTED_DATASET_IDENTIFIERS
+        "--dataset", default="le2i", choices=DINOV3_EXTRACTION_DATASET_IDENTIFIERS
     )
 
     report_parser = subparsers.add_parser(
