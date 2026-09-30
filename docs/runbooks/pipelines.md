@@ -65,6 +65,15 @@ Com `--dataset le2i`, o orquestrador também aceita `--arm B0`, `B1`, `C0` ou
 `C1`. Somente A aceita `--dataset le2i-cv`; uma combinação incompatível é
 recusada antes de qualquer subprocesso.
 
+Antes de executar B0 ou B1 em um clone novo, conclua a
+[preparação do DINOv3](../data/dinov3-features.md#preparacao-do-dinov3-a-partir-de-um-clone-limpo):
+acesso oficial aprovado, clone local, checkpoint ViT-B/16 LVD-1689M e
+selftest sintético. Para C0 ou C1, conclua a
+[preparação do SAM 3 base](../data/sam3-foundation.md#preparacao-do-checkpoint-sam-3-base):
+acesso oficial aprovado, checkpoint local, runtime isolado sincronizado e
+selftest sintético. A [instalação do Le2i](../data/le2i.md) também é necessária
+para os quatro braços.
+
 Cada braço executa os 22 primeiros passos de preparação, pose e padronização
 listados acima. Depois, executa o sufixo correspondente, sempre com seu
 próprio diretório em `runs/local/le2i/`:
