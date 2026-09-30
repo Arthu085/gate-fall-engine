@@ -168,7 +168,8 @@ uv run python -m gatefall.pipeline run --dataset le2i --arm C0
 uv run python -m gatefall.pipeline run --dataset le2i --arm C1
 ```
 
-Somente o braço A aceita `--dataset le2i-cv`. Consulte o [runbook](docs/runbooks/pipelines.md)
+Todos os braços aceitam `--dataset le2i-cv`; B0/B1/C0/C1 reutilizam as features
+já extraídas no Le2i CS. Consulte o [runbook](docs/runbooks/pipelines.md)
 e a [referência de comandos](docs/reference/commands.md) para pré-requisitos e detalhes.
 
 Antes de executar B0/B1 ou C0/C1, siga respectivamente a

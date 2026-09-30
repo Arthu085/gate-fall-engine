@@ -167,21 +167,14 @@ Nenhuma estatística de padronização (z-score) é calculada nesta etapa — ve
 [Padronização de features DINOv3](dinov3-standardization.md) para a etapa
 que calcula e aplica o z-score sobre este vetor de 1536 dimensões.
 
-### Somente o protocolo cs
+### Extração CS e leitura CV
 
-Todos os comandos de `gatefall.dinov3.extract` aceitam apenas `--dataset le2i`,
-isto é, o Le2i sob o protocolo `cs`. Um adapter `le2i-cv` passado
-programaticamente é rejeitado com `ValueError` pelos seis pontos de entrada
-(`extract`, `extract-all`, `report`, `audit`, `verify-determinism` e
-`verify-frame-alignment`), antes de qualquer efeito colateral.
-
-O motivo é que `dinov3_root` não é derivado do protocolo: os dois adapters
-apontam para o mesmo `data/features/le2i/dinov3/`. Uma extração sob `cv`
-sobrescreveria os `.h5` do `cs` gravando `env`, `split` e `subject` vindos do
-manifesto `cv`, e o `report` compararia as contagens de quadros do `cv` contra
-os totais por split do `cs`. A contaminação seria silenciosa. O braço DINOv3,
-portanto, não participa do [relatório de
-generalização](../analysis/le2i-cv-generalization.md).
+`extract`, `extract-all` e `verify-determinism` aceitam somente `--dataset le2i`.
+Os HDF5 em `data/features/le2i/dinov3/` são compartilhados e não são
+reextraídos para CV. `report` e os consumidores CV validam cobertura,
+identidade, proveniência e alinhamento do manifesto e da grade temporal antes
+de ler esses arquivos. O atributo `split` permanece o da extração CS; a
+padronização e o treino usam os splits do manifesto CV.
 
 ## Como executar
 

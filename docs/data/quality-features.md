@@ -103,7 +103,9 @@ sidecar passa pela mesma `validate_existing_file` da extração, então o relat�
 aponta também divergência de proveniência (canais, `target_fps`, resize ou
 `pose_source_sha256`), e não só de shape e dtype.
 
-## Somente Le2i CS
+## Extração CS e leitura CV
 
-Como as demais etapas que dependem da grade DINOv3, a CLI aceita apenas
-`--dataset le2i` (`DINOV3_SUPPORTED_DATASET_IDENTIFIERS`).
+`extract` e `extract-all` aceitam somente `--dataset le2i`. `report --dataset
+le2i-cv` lê os sidecars compartilhados após validar alinhamento, estrutura e
+proveniência, inclusive o hash da pose de origem. B1 reutiliza esses sidecars
+no CV sem reextração.

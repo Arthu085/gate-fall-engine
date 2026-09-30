@@ -89,6 +89,10 @@ def run_sam3_verify_frame_alignment(
     decode_video_frames: Callable[[Path, list[int]], list[np.ndarray]] | None = None,
 ) -> None:
     ensure_sam3_dataset_supported(adapter)
+    if adapter.identifier == "le2i-cv":
+        from gatefall.features.shared_le2i import shared_source
+
+        shared_source(adapter)
 
     decode_video_frames = decode_video_frames or decode_frames
     video_paths = adapter.video_paths()

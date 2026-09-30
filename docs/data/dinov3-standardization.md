@@ -27,13 +27,14 @@ a dimensão é tratada como constante: `std` vira `1.0` e `mean` vira `0.0`,
 gravados em `guarded_mask`/`guarded_count`, no mesmo esquema usado pela
 padronização de pose.
 
-## Somente Le2i CS
+## Protocolos Le2i CS e CV
 
-`standardize_dinov3 build/selftest/report` aceitam apenas
-`--dataset le2i` — o mesmo `DINOV3_SUPPORTED_DATASET_IDENTIFIERS = ("le2i",)`
-usado por `gatefall.dinov3.extract` (ver [Features
-DINOv3 — Somente o protocolo cs](dinov3-features.md#somente-o-protocolo-cs)),
-porque `le2i` e `le2i-cv` compartilham o mesmo `dinov3_root` físico.
+`build` e `report` aceitam `--dataset le2i` ou `--dataset le2i-cv`.
+Ambos leem os mesmos HDF5 por vídeo. Antes do uso em CV, a CLI confere que
+manifesto e grade temporal coincidem com CS, exceto pelo split, e valida
+identidade, estrutura e proveniência dos HDF5. A média e o desvio de CV usam
+somente as 4168 janelas de treino de CV; nunca reutilizam a estatística CS.
+A extração DINOv3 continua restrita a CS.
 
 ## Frescor contra `frames.csv`/`frames.parquet`
 
@@ -53,29 +54,28 @@ dimensão, a contagem e a máscara de dimensões guardadas, e `frames_hash`. A
 gravação é atômica (escreve em `.tmp` e usa `os.replace`) e relê o arquivo
 do disco após o `replace`, comparando byte a byte com o conteúdo em memória.
 
-`src/gatefall/features/stats/dinov3_le2i_cs.json` é commitado no Git, pelo
-mesmo motivo que `pose_le2i_cs.json` é: faz parte da receita congelada
-compartilhada e precisa ser reproduzível byte a byte entre máquinas sem
-depender de recomputar o dataset real.
+`dinov3_le2i_cs.json` e `dinov3_le2i_cv.json` são versionados separadamente.
+Cada arquivo registra o hash da grade do próprio protocolo e o ajuste apenas
+no respectivo split de treino.
 
 ## Como executar
 
 ```bash
-uv run python -m gatefall.features.standardize_dinov3 selftest [--dataset le2i]
+uv run python -m gatefall.features.standardize_dinov3 selftest [--dataset {le2i,le2i-cv}]
 ```
 
 Roda checagens sintéticas, sem tocar no dataset real.
 
 ```bash
-uv run python -m gatefall.features.standardize_dinov3 build [--dataset le2i] [--force]
+uv run python -m gatefall.features.standardize_dinov3 build [--dataset {le2i,le2i-cv}] [--force]
 ```
 
-Calcula as estatísticas sobre o `train` real do Le2i e grava em
-`src/gatefall/features/stats/dinov3_le2i_cs.json`. Idempotente: sem
+Calcula as estatísticas sobre o `train` do protocolo escolhido e grava em
+`src/gatefall/features/stats/dinov3_le2i_{cs,cv}.json`. Idempotente: sem
 `--force`, uma segunda execução não sobrescreve o arquivo existente.
 
 ```bash
-uv run python -m gatefall.features.standardize_dinov3 report [--dataset le2i]
+uv run python -m gatefall.features.standardize_dinov3 report [--dataset {le2i,le2i-cv}]
 ```
 
 Carrega o JSON persistido (falha se `build` nunca rodou), compara o layout

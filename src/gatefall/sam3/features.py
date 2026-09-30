@@ -2,7 +2,7 @@
 
 Só lê os `.h5` já gravados por `gatefall.sam3.extract`: nunca sobe o runtime
 isolado nem altera o schema persistido. Antes de qualquer janela ser montada,
-confere a identidade de cada arquivo (`video_id`, `K`, `split`), a estrutura
+confere a identidade de cada arquivo (`video_id`, `K`, `split` de origem), a estrutura
 (`storage.validate_existing_file`) e a proveniência homogênea do conjunto.
 """
 
@@ -21,6 +21,32 @@ from gatefall.sam3.extract import MODEL_NAME
 from gatefall.sam3.report import find_provenance_divergences
 from gatefall.sam3.runtime import TEXT_PROMPT
 from gatefall.sam3.storage import sam3_path
+from gatefall.datasets import DatasetAdapter
+from gatefall.features.shared_le2i import shared_source
+
+
+def validate_shared_sam3_set(adapter: DatasetAdapter) -> None:
+    source = shared_source(adapter)
+    if adapter.identifier != "le2i-cv":
+        return
+    manifest = source.load_manifest().set_index("video_id")
+    frames = source.load_frames()
+    for video_id, group in frames.groupby("video_id"):
+        video_id = str(video_id)
+        path = sam3_path(video_id, sam3_root=adapter.sam3_root)
+        if not path.exists():
+            raise FileNotFoundError(f"le2i-cv: feature SAM 3 ausente: {path}")
+        row = manifest.loc[video_id]
+        reasons = storage.validate_existing_file(
+            path, expected_k=len(group), v_t_dim=V_T_DIM,
+            expected_attrs={
+                "video_id": video_id, "K": len(group),
+                "env": str(row["env"]), "subject": int(row["subject"]),
+                "split": str(row["split"]), "fps": float(row["fps"]),
+            },
+        )
+        if reasons:
+            raise ValueError(f"le2i-cv: {path} inválido: {'; '.join(reasons)}")
 
 
 def _normalize_attr(value: object) -> str:
@@ -71,8 +97,8 @@ def collect_sam3_provenance(
 ) -> dict[str, str]:
     """Devolve a proveniência comum a todos os `.h5` do conjunto pedido.
 
-    Falha com `ValueError` quando algum arquivo diverge do split da tabela de
-    frames, traz proveniência obrigatória ausente/malformada, diverge da
+    Falha com `ValueError` quando algum arquivo diverge do split da grade de
+    origem, traz proveniência obrigatória ausente/malformada, diverge da
     proveniência dos demais ou foge do contrato congelado de extração
     (modelo, prompt `"person"`, `TARGET_FPS`).
     """

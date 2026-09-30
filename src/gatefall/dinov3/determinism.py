@@ -8,7 +8,7 @@ from typing import Callable
 
 from gatefall.datasets import DatasetAdapter
 from gatefall.datasets.le2i import Le2iDatasetAdapter
-from gatefall.dinov3.dataset_guard import ensure_dinov3_dataset_supported
+from gatefall.dinov3.dataset_guard import ensure_dinov3_extraction_supported
 from gatefall.dinov3.extract import DEFAULT_BATCH_SIZE, run_dinov3_extract
 from gatefall.dinov3.storage import dinov3_path, read_features
 from gatefall.hashing import sha256_array
@@ -88,7 +88,7 @@ def run_dinov3_verify_determinism(
     output_dir_value: str | None = None,
     run_verify: Callable[..., None] | None = None,
 ) -> None:
-    ensure_dinov3_dataset_supported(adapter)
+    ensure_dinov3_extraction_supported(adapter)
 
     run_verify_fn = run_verify or _run_verify
     output_root, mode = resolve_verify_determinism_output_root(

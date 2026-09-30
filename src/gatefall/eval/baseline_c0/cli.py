@@ -230,8 +230,6 @@ def _guard_foreign_arm_run_dir(run_dir: Path) -> None:
 def run_evaluate(
     force: bool, dataset_name: str = "le2i", run_dir: Path | None = None
 ) -> None:
-    if dataset_name != "le2i":
-        raise ValueError("avaliação de eventos C0 suporta somente le2i (CS)")
     if run_dir is None:
         run_dir = default_run_dir_for_arm(dataset_name, "C0")
     guard_not_comparison_run_dir(run_dir, dataset_name)
@@ -267,7 +265,7 @@ def main() -> None:
         help="Avalia eventos da arma C0 e grava event_metrics.json",
     )
     evaluate_parser.add_argument("--force", action="store_true")
-    evaluate_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    evaluate_parser.add_argument("--dataset", default="le2i", choices=("le2i", "le2i-cv"))
     evaluate_parser.add_argument("--run-dir", type=Path, default=None)
     subparsers.add_parser("selftest", help="Roda checagens sintéticas da avaliação C0")
     args = parser.parse_args()

@@ -81,14 +81,13 @@ estado atual.
    abaixo). O `EOFError` observado do lado do processo pai foi apenas
    consequência da saída do worker, não uma falha de protocolo.
 
-## Somente o protocolo cs
+## Extração CS e leitura CV
 
-Todas as operações de `gatefall.sam3` aceitam apenas `--dataset le2i` (Le2i
-sob o protocolo `cs`). Um adapter `le2i-cv` é rejeitado por
-`ensure_sam3_dataset_supported` em todo ponto de entrada, pelo mesmo motivo
-do braço DINOv3 (ver [Features DINOv3](dinov3-features.md#somente-o-protocolo-cs)):
-`sam3_root` não é derivado do protocolo, então uma extração sob `cv`
-sobrescreveria os `.h5` do `cs`.
+`extract` e `extract-all` aceitam somente `--dataset le2i`. Os HDF5 em
+`data/features/le2i/sam3/` são compartilhados. Consumidores CV validam
+cobertura, estrutura, proveniência e alinhamento temporal com CS antes de
+ler os arquivos. O atributo `split` armazenado permanece o da extração CS;
+o treino e a padronização usam o split CV.
 
 ## Modelo e prompt
 

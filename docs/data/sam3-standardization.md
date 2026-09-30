@@ -5,12 +5,13 @@ descritor `V_t ∈ R^10` do SAM 3 (ver [Fundação SAM 3](sam3-foundation.md#des
 com estatísticas ajustadas **apenas** no split de treino — o mesmo esquema da
 [padronização DINOv3](dinov3-standardization.md). A estatística pertence à
 fonte (`source = "sam3"`), não a um braço: qualquer braço que consuma `V_t`
-reusa o mesmo arquivo `src/gatefall/features/stats/sam3_le2i_cs.json`.
+reusa a estatística do mesmo protocolo: `sam3_le2i_cs.json` para CS e
+`sam3_le2i_cv.json` para CV.
 
 ## Ajuste e aplicação
 
-- Janelas de treino em `TRAIN_STRIDE = 4` (as mesmas 5219 janelas do Le2i
-  CS usadas pela pose e pelo DINOv3), acumulando soma e soma dos quadrados
+- Janelas de treino em `TRAIN_STRIDE = 4` (5219 em CS; 4168 em CV),
+  acumulando soma e soma dos quadrados
   por canal (`mean_std_from_accumulators`, variância populacional).
 - Canais com `std < 1e-6` são guardados: `mean = 0`, `std = 1`, então passam
   inalterados em vez de dividir por ~0.
@@ -43,17 +44,21 @@ janela, todos os `.h5` do Le2i são conferidos:
 - `load_v_t`: o atributo `video_id` do arquivo é o vídeo pedido, `v_t` tem
   shape `[K, 10]` `float32` com `K` igual ao atributo `K`, `sam_score` e
   `n_instances` existem com shape e dtype corretos, e os valores são finitos;
-- `collect_sam3_provenance`: o atributo `split` bate com `frames.parquet`, os
+- `collect_sam3_provenance`: o atributo `split` bate com a grade CS de origem
+  dos HDF5 compartilhados; em CV, manifesto e grade precisam coincidir com
+  CS exceto pelo split. Os
   atributos obrigatórios de proveniência não estão ausentes nem malformados,
   a proveniência é idêntica em todos os `.h5` (inclusive o
   `sam3_inference_autocast_dtype`, que não pode misturar FP16 e BF16) e o
   conjunto respeita o contrato congelado da extração: `model_name =
   facebook/sam3`, `text_prompt = "person"` e `target_fps = 10.0`.
 
-## Somente Le2i CS
+## Protocolos Le2i CS e CV
 
-Assim como as demais operações do SAM 3, `standardize_sam3` aceita apenas
-`--dataset le2i` (`ensure_sam3_dataset_supported`).
+`build` e `report` aceitam `--dataset le2i` ou `--dataset le2i-cv`.
+CV lê os HDF5 compartilhados, valida cobertura e alinhamento e ajusta suas
+estatísticas somente nas janelas do treino CV. A extração SAM 3 continua
+restrita a CS.
 
 ## Como executar
 
@@ -66,15 +71,15 @@ round-trip de persistência e frescor contra `frames.parquet` e o conjunto de
 `.h5`, sem tocar no dataset real.
 
 ```bash
-uv run python -m gatefall.features.standardize_sam3 build [--dataset le2i] [--force]
+uv run python -m gatefall.features.standardize_sam3 build [--dataset {le2i,le2i-cv}] [--force]
 ```
 
 Valida os `.h5` do SAM 3, calcula as estatísticas do treino e grava
-`src/gatefall/features/stats/sam3_le2i_cs.json`; preserva o arquivo existente
+`src/gatefall/features/stats/sam3_le2i_{cs,cv}.json`; preserva o arquivo existente
 sem `--force`.
 
 ```bash
-uv run python -m gatefall.features.standardize_sam3 report [--dataset le2i]
+uv run python -m gatefall.features.standardize_sam3 report [--dataset {le2i,le2i-cv}]
 ```
 
 Revalida as estatísticas persistidas contra o layout, `frames.parquet`, o

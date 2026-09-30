@@ -22,14 +22,20 @@ from gatefall.features.sam3_standardization import (
     validate_stats_layout,
 )
 from gatefall.features.standardize import EXPECTED_USABLE_WINDOWS_STRIDE4
+from gatefall.features.shared_le2i import shared_source
 from gatefall.hashing import sha256_file
 from gatefall.sam3.dataset_guard import (
     SAM3_SUPPORTED_DATASET_IDENTIFIERS,
     ensure_sam3_dataset_supported,
 )
-from gatefall.sam3.features import collect_sam3_provenance, load_v_t, sam3_set_sha256
+from gatefall.sam3.features import collect_sam3_provenance, load_v_t, sam3_set_sha256, validate_shared_sam3_set
 
 SAM3_STATS_PATH = Path("src/gatefall/features/stats/sam3_le2i_cs.json")
+SAM3_CV_STATS_PATH = Path("src/gatefall/features/stats/sam3_le2i_cv.json")
+
+
+def sam3_stats_path(dataset_name: str) -> Path:
+    return SAM3_CV_STATS_PATH if dataset_name == "le2i-cv" else SAM3_STATS_PATH
 
 EVAL_SPLITS = ["val", "test"]
 
@@ -47,7 +53,12 @@ def split_by_video(frames: pd.DataFrame) -> dict[str, str]:
 
 def validated_sam3_features_sha256(adapter: DatasetAdapter, frames: pd.DataFrame) -> str:
     """Valida identidade/proveniência de todos os `.h5` e devolve o digest do conjunto."""
-    splits = split_by_video(frames)
+    validate_shared_sam3_set(adapter)
+    source_frames = (
+        shared_source(adapter).load_frames()
+        if adapter.identifier == "le2i-cv" else frames
+    )
+    splits = split_by_video(source_frames)
     collect_sam3_provenance(splits, sam3_root=adapter.sam3_root)
     return sam3_set_sha256(list(splits), sam3_root=adapter.sam3_root)
 
@@ -73,22 +84,23 @@ def run_build(force: bool, dataset_name: str = "le2i") -> None:
         features_sha256,
         stride=TRAIN_STRIDE,
     )
-    save_stats(stats, SAM3_STATS_PATH, force=force)
+    save_stats(stats, sam3_stats_path(dataset_name), force=force)
 
 
 def run_report(dataset_name: str = "le2i") -> None:
     adapter = get_dataset(dataset_name)
     ensure_sam3_dataset_supported(adapter)
-    if not SAM3_STATS_PATH.exists():
-        print(f"{SAM3_STATS_PATH} não existe; rode `build` antes de `report`", file=sys.stderr)
+    stats_path = sam3_stats_path(dataset_name)
+    if not stats_path.exists():
+        print(f"{stats_path} não existe; rode `build` antes de `report`", file=sys.stderr)
         sys.exit(1)
 
     try:
-        stats = load_stats(SAM3_STATS_PATH)
+        stats = load_stats(stats_path)
         validate_stats_layout(stats, dataset_name=adapter.identifier)
     except (ValueError, TypeError, KeyError) as exc:
         print(
-            f"{SAM3_STATS_PATH}: estatísticas inválidas: {exc}; rode `build --force`",
+            f"{stats_path}: estatísticas inválidas: {exc}; rode `build --force`",
             file=sys.stderr,
         )
         sys.exit(1)

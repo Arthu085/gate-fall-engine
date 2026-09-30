@@ -437,9 +437,9 @@ def check_validation_cli_is_restricted_to_le2i_cs() -> bool:
         text=True,
     )
     output = result.stdout + result.stderr
-    ok = result.returncode == 0 and "--dataset {le2i}" in output
+    ok = result.returncode == 0 and "--dataset {le2i,le2i-cv}" in output
     return _check(
-        "CLI validate: escolha de dataset fica restrita ao protocolo Le2i CS",
+        "CLI validate: aceita os protocolos Le2i CS e CV",
         ok,
     )
 

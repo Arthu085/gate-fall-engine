@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from gatefall.datasets import DatasetAdapter
-from gatefall.features.standardize_sam3 import SAM3_STATS_PATH
+from gatefall.features.standardize_sam3 import sam3_stats_path
 from gatefall.hashing import sha256_file
 from gatefall.pose.loading import pose_path
 from gatefall.train.shared.sam3_inputs import _ValidatedInputs
@@ -84,8 +84,8 @@ def resolve_c1_config_for_inputs(seed: int, adapter: DatasetAdapter, inputs: _Va
         seed,
         adapter.pose_stats_path,
         sha256_file(adapter.pose_stats_path),
-        SAM3_STATS_PATH,
-        sha256_file(SAM3_STATS_PATH),
+        sam3_stats_path(adapter.identifier),
+        sha256_file(sam3_stats_path(adapter.identifier)),
         pose_sha256,
         adapter.sam3_root,
         inputs.sam3_features_sha256,

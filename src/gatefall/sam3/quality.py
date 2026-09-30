@@ -32,6 +32,7 @@ from gatefall.sam3.dataset_guard import (
 )
 from gatefall.sam3.descriptors import compute_descriptor
 from gatefall.sam3.features import collect_sam3_provenance
+from gatefall.features.shared_le2i import shared_source
 from gatefall.sam3.runtime import (
     TEXT_PROMPT,
     Sam3Instance,
@@ -439,9 +440,14 @@ def run_quality_validation(
             f"splits desconhecidos em frames: {sorted(unexpected_splits)}"
         )
     eligible = cast(pd.DataFrame, frames[frames["split"].isin(("train", "val"))])
-    split_by_video = {
+    source_frames = shared_source(adapter).load_frames()
+    source_splits = {
         str(video_id): str(split)
-        for video_id, split in eligible.groupby("video_id")["split"].first().items()
+        for video_id, split in source_frames.groupby("video_id")["split"].first().items()
+    }
+    split_by_video = {
+        str(video_id): source_splits[str(video_id)]
+        for video_id in eligible["video_id"].unique()
     }
     provenance = collect_sam3_provenance(split_by_video, sam3_root=adapter.sam3_root)
     selected = select_validation_samples(frames, events_per_class=events_per_class)

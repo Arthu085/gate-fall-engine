@@ -73,11 +73,12 @@ persistidos. Os únicos parâmetros treináveis são `E_P`, `E_V`, a TCN e a
 cabeça (`CLAUDE.md`, invariante 4). O schema persistido do SAM 3 e o
 contrato quadro a quadro de extração/seleção de `"person"` não mudam.
 
-## Somente Le2i CS
+## Protocolos Le2i CS e CV
 
-`gatefall.train.baseline_c0` aceita apenas `--dataset le2i`
-(`SAM3_SUPPORTED_DATASET_IDENTIFIERS`), pelo mesmo motivo das demais
-operações do SAM 3.
+`train` e `report` aceitam `--dataset le2i` e `--dataset le2i-cv`.
+O CV reutiliza os HDF5 compartilhados de SAM 3, valida cobertura e
+alinhamento e carrega estatísticas ajustadas somente no treino CV.
+O destino padrão CV é `runs/local/le2i_cv/baseline_c0/`.
 
 ## `run_dir` isolado
 
@@ -86,7 +87,7 @@ O destino padrão é `runs/local/le2i/baseline_c0/`. Antes de tocar no
 ou descendente dos runs canônicos de A (`baseline_a`), B0 (`baseline_b0`) e B1
 (`baseline_b1`), ancorados na raiz do repositório — um `--force` do C0
 nunca pode substituir um run de comparação. `validate_local_run_dir` recusa
-ainda `runs/reference/` e a árvore local do `le2i-cv`. O `--output` do
+ainda `runs/reference/` e a árvore local do outro protocolo. O `--output` do
 `report` não pode apontar para artefatos protegidos (`config.yaml`,
 `metrics.json`, `checkpoint.pt`, `alarm_protocol.yaml`,
 `event_metrics.json`) do run pedido, do run canônico do C0 nem dos runs de A,

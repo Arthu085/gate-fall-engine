@@ -8,15 +8,31 @@ path/sha256 de padronização.
 
 import sys
 import tempfile
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
+import h5py
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import patch
 
 import gatefall.data.le2i.annotations as annotations_module
 from gatefall.data.le2i.annotations import load_annotation_splits
-from gatefall.datasets import get_dataset
+from gatefall.datasets import DatasetAdapter, get_dataset
 from gatefall.datasets.le2i import Le2iDatasetAdapter
+from gatefall.features import shared_le2i
+from gatefall.features.standardize_dinov3 import dinov3_stats_path, _dinov3_feature_loader
+from gatefall.features.standardize_sam3 import sam3_stats_path
+from gatefall.features.dinov3_standardization import load_stats as load_dinov3_stats
+from gatefall.features.sam3_standardization import load_stats as load_sam3_stats
+from gatefall.features.quality_storage import quality_path, read_quality
+from gatefall.sam3.features import load_v_t
+from gatefall.dinov3.storage import dinov3_path
+from gatefall.sam3.storage import sam3_path
+from gatefall.runs import default_run_dir_for_arm
 from gatefall.eval.analysis import (
     alarm_protocol_sensitivity,
     grouped_bootstrap,
@@ -73,6 +89,90 @@ def check_cv_adapter_paths_isolated_from_cs_artifacts() -> bool:
         "artefatos CS (data/processed/le2i, data/labels/omnifall, "
         "runs/local/le2i)",
         not violated and adapter.identifier == "le2i-cv",
+    )
+
+
+def check_shared_features_and_separate_statistics() -> bool:
+    cs = get_dataset("le2i")
+    cv = Le2iDatasetAdapter(protocol="cv")
+    video_id = "room/video_1"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cv = replace(
+            cv, dinov3_root=root / "dinov3", sam3_root=root / "sam3",
+            quality_root=root / "quality",
+        )
+        for path, key, value in (
+            (dinov3_path(video_id, dinov3_root=cv.dinov3_root), "features", np.ones((2, 1536), dtype=np.float16)),
+            (sam3_path(video_id, sam3_root=cv.sam3_root), "v_t", np.ones((2, 10), dtype=np.float32)),
+            (quality_path(video_id, quality_root=cv.quality_root), "quality", np.ones((2, 2), dtype=np.float32)),
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with h5py.File(path, "w") as file:
+                file.create_dataset(key, data=value)
+                if key == "v_t":
+                    file.attrs["video_id"] = video_id
+                    file.attrs["K"] = 2
+                    file.create_dataset("sam_score", data=np.ones(2, dtype=np.float32))
+                    file.create_dataset("n_instances", data=np.ones(2, dtype=np.int16))
+        readable = (
+            _dinov3_feature_loader(cv, video_id).shape == (2, 1536)
+            and load_v_t(video_id, sam3_root=cv.sam3_root).shape == (2, 10)
+            and read_quality(quality_path(video_id, quality_root=cv.quality_root)).shape == (2, 2)
+        )
+    paths = (
+        cs.dinov3_root == get_dataset("le2i-cv").dinov3_root
+        and cs.sam3_root == get_dataset("le2i-cv").sam3_root
+        and cs.quality_root == get_dataset("le2i-cv").quality_root
+        and dinov3_stats_path("le2i") != dinov3_stats_path("le2i-cv")
+        and sam3_stats_path("le2i") != sam3_stats_path("le2i-cv")
+    )
+    stats = (
+        load_dinov3_stats(dinov3_stats_path("le2i")).dataset == "le2i"
+        and load_dinov3_stats(dinov3_stats_path("le2i-cv")).dataset == "le2i-cv"
+        and load_sam3_stats(sam3_stats_path("le2i")).dataset == "le2i"
+        and load_sam3_stats(sam3_stats_path("le2i-cv")).dataset == "le2i-cv"
+    )
+    runs = all(
+        default_run_dir_for_arm("le2i", arm) != default_run_dir_for_arm("le2i-cv", arm)
+        for arm in ("B0", "B1", "C0", "C1")
+    )
+    return _check("B/C leem raízes compartilhadas, mas estatísticas e runs CV são isolados", readable and paths and stats and runs)
+
+
+def check_cv_timegrid_mismatch_rejected() -> bool:
+    source_frames = pd.DataFrame({"video_id": ["room/video_1"], "frame_index": [0], "src_index": [10], "split": ["train"]})
+    cv_frames = source_frames.copy()
+    cv_frames.loc[0, "src_index"] = 11
+    manifest = pd.DataFrame({"video_id": ["room/video_1"], "split": ["train"]})
+    source = SimpleNamespace(load_manifest=lambda: manifest, load_frames=lambda: source_frames)
+    cv = SimpleNamespace(identifier="le2i-cv", load_manifest=lambda: manifest, load_frames=lambda: cv_frames)
+    with patch.object(shared_le2i, "get_dataset", return_value=source):
+        try:
+            shared_le2i.shared_source(cast(DatasetAdapter, cv))
+        except ValueError as exc:
+            rejected = "não cobre ou não alinha" in str(exc)
+        else:
+            rejected = False
+    return _check("CV recusa grade temporal divergente dos arquivos compartilhados", rejected)
+
+
+def check_cv_extraction_commands_rejected() -> bool:
+    commands = (
+        "gatefall.dinov3.extract",
+        "gatefall.sam3.extract",
+        "gatefall.features.quality_extract",
+    )
+    results = [
+        subprocess.run(
+            [sys.executable, "-m", module, "extract-all", "--dataset", "le2i-cv"],
+            capture_output=True, text=True, check=False,
+        )
+        for module in commands
+    ]
+    return _check(
+        "CLIs de extração DINOv3, SAM 3 e qualidade recusam CV antes de gravar",
+        all(result.returncode == 2 and "invalid choice" in result.stderr for result in results),
     )
 
 
@@ -276,16 +376,6 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
             run_dir=Path("runs/local/le2i_cv/baseline_b0"),
         )
     )
-    b0_cv_scope_rejected = False
-    try:
-        b0_events.run_evaluate(
-            force=False,
-            dataset_name="le2i-cv",
-            run_dir=Path("runs/local/le2i_cv/baseline_b0"),
-        )
-    except ValueError:
-        b0_cv_scope_rejected = True
-
     b1_events_rejected = _raises_cross_protocol_guard(
         lambda: b1_events.run_evaluate(
             force=False,
@@ -293,16 +383,6 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
             run_dir=Path("runs/local/le2i_cv/baseline_b1"),
         )
     )
-    b1_cv_scope_rejected = False
-    try:
-        b1_events.run_evaluate(
-            force=False,
-            dataset_name="le2i-cv",
-            run_dir=Path("runs/local/le2i_cv/baseline_b1"),
-        )
-    except ValueError:
-        b1_cv_scope_rejected = True
-
     c0_events_rejected = _raises_cross_protocol_guard(
         lambda: c0_events.run_evaluate(
             force=False,
@@ -310,16 +390,6 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
             run_dir=Path("runs/local/le2i_cv/baseline_c0"),
         )
     )
-    c0_cv_scope_rejected = False
-    try:
-        c0_events.run_evaluate(
-            force=False,
-            dataset_name="le2i-cv",
-            run_dir=Path("runs/local/le2i_cv/baseline_c0"),
-        )
-    except ValueError:
-        c0_cv_scope_rejected = True
-
     c1_events_rejected = _raises_cross_protocol_guard(
         lambda: c1_events.run_evaluate(
             force=False,
@@ -327,16 +397,6 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
             run_dir=Path("runs/local/le2i_cv/baseline_c1"),
         )
     )
-    c1_cv_scope_rejected = False
-    try:
-        c1_events.run_evaluate(
-            force=False,
-            dataset_name="le2i-cv",
-            run_dir=Path("runs/local/le2i_cv/baseline_c1"),
-        )
-    except ValueError:
-        c1_cv_scope_rejected = True
-
     return _check(
         "entry points CS-only (alarm_protocol_sensitivity/grouped_bootstrap/"
         "qualitative/multiseed_summary/baseline_b0.run_train/baseline_b0.run_report/"
@@ -345,8 +405,7 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         "c0_events.run_evaluate/"
         "baseline_c1.run_train/baseline_c1.run_report/c1_events.run_evaluate) "
         "recusam --run-dir sob runs/local/le2i_cv/ mesmo com --dataset le2i, "
-        "através da própria função de produção; B0, B1, C0 e C1 events também "
-        "recusam --dataset le2i-cv fora do escopo atual",
+        "através da própria função de produção",
         sensitivity_rejected
         and bootstrap_rejected
         and qualitative_rejected
@@ -354,15 +413,11 @@ def check_cs_only_analysis_entry_points_reject_cv_run_dir() -> bool:
         and b0_train_rejected
         and b0_report_rejected
         and b0_events_rejected
-        and b0_cv_scope_rejected
         and b1_train_rejected
         and b1_report_rejected
         and b1_events_rejected
-        and b1_cv_scope_rejected
         and c0_events_rejected
-        and c0_cv_scope_rejected
         and c1_events_rejected
-        and c1_cv_scope_rejected
         and c0_train_rejected
         and c0_report_rejected
         and c1_train_rejected
@@ -545,6 +600,9 @@ def check_alarm_protocol_unaffected_by_dataset_selection() -> bool:
 def run_selftest() -> None:
     checks = [
         check_cv_adapter_paths_isolated_from_cs_artifacts(),
+        check_shared_features_and_separate_statistics(),
+        check_cv_timegrid_mismatch_rejected(),
+        check_cv_extraction_commands_rejected(),
         check_load_annotation_splits_respects_protocol(),
         check_frozen_train_config_identical_except_standardization(),
         check_default_run_dir_is_dataset_aware(),

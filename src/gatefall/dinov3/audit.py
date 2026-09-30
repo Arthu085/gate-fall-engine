@@ -73,6 +73,10 @@ class DimensionStatsAccumulator:
 
 def run_dinov3_audit(*, adapter: DatasetAdapter) -> None:
     ensure_dinov3_dataset_supported(adapter)
+    if adapter.identifier == "le2i-cv":
+        from gatefall.dinov3.consumer import validate_dinov3_feature_set
+
+        validate_dinov3_feature_set(adapter)
 
     if not adapter.frames_path.exists():
         print(

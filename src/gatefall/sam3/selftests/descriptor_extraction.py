@@ -236,14 +236,6 @@ def _check_dataset_guard_rejects_le2i_cv() -> bool:
                     checkpoint_path_value=None,
                 )
             ),
-            rejects(lambda: run_sam3_report(cv_adapter)),
-            rejects(
-                lambda: run_sam3_verify_frame_alignment(
-                    adapter=cv_adapter,
-                    runtime_project_dir_value=None,
-                    checkpoint_path_value=None,
-                )
-            ),
         ]
 
         nothing_written_ok = not cv_sam3_root.exists() and not any(
@@ -253,6 +245,7 @@ def _check_dataset_guard_rejects_le2i_cv() -> bool:
     accepts_cs = True
     try:
         ensure_sam3_dataset_supported(Le2iDatasetAdapter())
+        ensure_sam3_dataset_supported(Le2iDatasetAdapter(protocol="cv"))
         ensure_sam3_dataset_supported(
             _SyntheticDatasetAdapter(
                 raw_dir=Path("raw"),
@@ -265,7 +258,7 @@ def _check_dataset_guard_rejects_le2i_cv() -> bool:
         accepts_cs = False
 
     return _check(
-        "guarda de protocolo: os quatro pontos de entrada SAM 3 rejeitam o "
+        "guarda de protocolo: os dois comandos de extração SAM 3 rejeitam o "
         "adapter le2i-cv com ValueError sem criar nada sob "
         "adapter.sam3_root, e a guarda continua aceitando qualquer adapter "
         "com identifier 'le2i' (checagem por identifier, não por isinstance)",

@@ -13,6 +13,7 @@ from gatefall.dinov3.dataset_guard import (
     DINOV3_SUPPORTED_DATASET_IDENTIFIERS,
     ensure_dinov3_dataset_supported,
 )
+from gatefall.dinov3.consumer import validate_dinov3_feature_set
 from gatefall.dinov3.storage import read_features
 from gatefall.features.dinov3_standardization import (
     FEATURE_DIM,
@@ -28,6 +29,11 @@ from gatefall.features.standardize import EXPECTED_USABLE_WINDOWS_STRIDE4
 from gatefall.hashing import sha256_file
 
 DINOV3_STATS_PATH = Path("src/gatefall/features/stats/dinov3_le2i_cs.json")
+DINOV3_CV_STATS_PATH = Path("src/gatefall/features/stats/dinov3_le2i_cv.json")
+
+
+def dinov3_stats_path(dataset_name: str) -> Path:
+    return DINOV3_CV_STATS_PATH if dataset_name == "le2i-cv" else DINOV3_STATS_PATH
 
 EVAL_SPLITS = ["val", "test"]
 
@@ -48,6 +54,7 @@ def _dinov3_feature_loader(adapter: DatasetAdapter, video_id: str) -> np.ndarray
 def run_build(force: bool, dataset_name: str = "le2i") -> None:
     adapter = get_dataset(dataset_name)
     ensure_dinov3_dataset_supported(adapter)
+    validate_dinov3_feature_set(adapter)
     source = PoseWindowDataset(
         adapter.load_frames(),
         TRAIN_SPLIT,
@@ -57,25 +64,27 @@ def run_build(force: bool, dataset_name: str = "le2i") -> None:
     stats = compute_train_stats(
         source, adapter.frames_path, adapter.identifier, stride=TRAIN_STRIDE
     )
-    save_stats(stats, DINOV3_STATS_PATH, force=force)
+    save_stats(stats, dinov3_stats_path(dataset_name), force=force)
 
 
 def run_report(dataset_name: str = "le2i") -> None:
     adapter = get_dataset(dataset_name)
     ensure_dinov3_dataset_supported(adapter)
-    if not DINOV3_STATS_PATH.exists():
+    validate_dinov3_feature_set(adapter)
+    stats_path = dinov3_stats_path(dataset_name)
+    if not stats_path.exists():
         print(
-            f"{DINOV3_STATS_PATH} não existe; rode `build` antes de `report`",
+            f"{stats_path} não existe; rode `build` antes de `report`",
             file=sys.stderr,
         )
         sys.exit(1)
 
     try:
-        stats = load_stats(DINOV3_STATS_PATH)
+        stats = load_stats(stats_path)
         validate_stats_layout(stats, dataset_name=adapter.identifier)
     except (ValueError, TypeError, KeyError) as exc:
         print(
-            f"{DINOV3_STATS_PATH}: estatísticas inválidas: {exc}; rode `build --force`",
+            f"{stats_path}: estatísticas inválidas: {exc}; rode `build --force`",
             file=sys.stderr,
         )
         sys.exit(1)

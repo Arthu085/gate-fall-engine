@@ -241,7 +241,7 @@ def check_force_only_on_supported_producers() -> bool:
         "C0": {("gatefall.sam3.extract", "extract-all"), ("gatefall.features.standardize_sam3", "build"), ("gatefall.train.baseline_c0", "train"), ("gatefall.train.baseline_c0", "report"), ("gatefall.eval.baseline_c0", "evaluate")},
         "C1": {("gatefall.sam3.extract", "extract-all"), ("gatefall.features.standardize_sam3", "build"), ("gatefall.train.baseline_c1", "train"), ("gatefall.train.baseline_c1", "report"), ("gatefall.eval.baseline_c1", "evaluate")},
     }
-    cases = [("le2i", arm) for arm in expected_by_arm] + [("le2i-cv", "A")]
+    cases = [(dataset, arm) for dataset in ("le2i", "le2i-cv") for arm in expected_by_arm]
     for dataset, arm in cases:
         arm_forced = expected_by_arm[arm]
         normal_steps = build_pipeline(dataset, arm)
@@ -272,15 +272,14 @@ def check_output_is_always_local() -> bool:
 
 def check_invalid_dataset_and_arm_rejected_before_child() -> bool:
     rejected = 0
-    invalid = (("desconhecido", "A"), ("le2i", "D"), *(("le2i-cv", arm) for arm in ("B0", "B1", "C0", "C1")))
+    invalid = (("desconhecido", "A"), ("le2i", "D"), ("le2i-cv", "D"))
     for dataset, arm in invalid:
         try:
             build_pipeline(dataset=dataset, arm=arm)
         except ValueError as exc:
-            if dataset != "le2i-cv" or "não suporta --dataset 'le2i-cv'" in str(exc):
-                rejected += 1
+            rejected += 1
     return _check(
-        "validação: dataset, braço e combinações incompatíveis são recusados",
+        "validação: datasets e braços desconhecidos são recusados",
         rejected == len(invalid),
     )
 
@@ -302,7 +301,6 @@ def check_cv_step_list() -> bool:
         ("gatefall.data.windows", "report"),
         ("gatefall.data.frames_io", "selftest"),
         ("gatefall.data.frames_io", "report"),
-        ("gatefall.pose.extract", "extract-all"),
         ("gatefall.pose.extract", "report"),
         ("gatefall.pose.kinematics", "selftest"),
         ("gatefall.pose.kinematics", "report"),
@@ -341,6 +339,7 @@ def check_cv_step_list() -> bool:
                     for part in step.command
                 )
             )
+    expected_commands = [command for command in expected_commands if command[2:4] != ("gatefall.pose.extract", "extract-all")]
     expected_commands.append(
         (
             sys.executable, "-m", "gatefall.eval.analysis.generalization_report", "report",
@@ -349,7 +348,7 @@ def check_cv_step_list() -> bool:
         )
     )
     return _check(
-        "plano CV: 27 comandos completos preservam o protocolo e o run_dir isolado",
+        "plano CV: 26 comandos completos preservam o protocolo e o run_dir isolado",
         actual == expected
         and [step.command for step in steps] == expected_commands
         and run_dir_present
@@ -373,6 +372,36 @@ def check_standardize_cli_dataset_contract() -> bool:
     )
 
 
+def check_cv_b_c_plans_reuse_features() -> bool:
+    forbidden = {
+        ("gatefall.pose.extract", "extract-all"),
+        ("gatefall.dinov3.extract", "extract-all"),
+        ("gatefall.sam3.extract", "extract-all"),
+        ("gatefall.features.quality_extract", "extract-all"),
+    }
+    for arm, source in (
+        ("B0", "gatefall.features.standardize_dinov3"),
+        ("B1", "gatefall.features.standardize_dinov3"),
+        ("C0", "gatefall.features.standardize_sam3"),
+        ("C1", "gatefall.features.standardize_sam3"),
+    ):
+        steps = build_pipeline("le2i-cv", arm)
+        signatures = [_command_signature(step) for step in steps]
+        run_dir = str(default_run_dir_for_arm("le2i-cv", arm))
+        if any(signature in forbidden for signature in signatures):
+            return _check("planos B/C CV reutilizam features e isolam runs", False)
+        for command in ("build", "report"):
+            if not any(
+                step.command[2:4] == (source, command)
+                and step.command[4:6] == ("--dataset", "le2i-cv")
+                for step in steps
+            ):
+                return _check("planos B/C CV reutilizam features e isolam runs", False)
+        if sum(run_dir in step.command for step in steps) != 3:
+            return _check("planos B/C CV reutilizam features e isolam runs", False)
+    return _check("planos B/C CV reutilizam features e isolam runs", True)
+
+
 def run_pipeline_selftest() -> None:
     checks = [
         check_exact_command_order(),
@@ -384,6 +413,7 @@ def run_pipeline_selftest() -> None:
         check_output_is_always_local(),
         check_invalid_dataset_and_arm_rejected_before_child(),
         check_cv_step_list(),
+        check_cv_b_c_plans_reuse_features(),
         check_standardize_cli_dataset_contract(),
     ]
     if not all(checks):

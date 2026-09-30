@@ -15,7 +15,8 @@ from gatefall.datasets import DatasetAdapter, get_dataset
 from gatefall.hashing import sha256_file
 from gatefall.sam3.dataset_guard import (
     SAM3_SUPPORTED_DATASET_IDENTIFIERS,
-    ensure_sam3_dataset_supported,
+    ensure_sam3_extraction_supported,
+    SAM3_EXTRACTION_DATASET_IDENTIFIERS,
 )
 from gatefall.sam3.descriptors import V_T_DIM, compute_descriptor
 from gatefall.sam3.runtime import (
@@ -148,7 +149,7 @@ def run_sam3_extract(
     runtime_lock_sha256: str | None = None,
     inference_autocast_dtype: str | None = None,
 ) -> Sam3ExtractResult:
-    ensure_sam3_dataset_supported(adapter)
+    ensure_sam3_extraction_supported(adapter)
 
     from gatefall.sam3.storage import (
         sam3_path,
@@ -356,7 +357,7 @@ def run_sam3_extract_all(
     checkpoint_path_value: str | None,
     force: bool = False,
 ) -> None:
-    ensure_sam3_dataset_supported(adapter)
+    ensure_sam3_extraction_supported(adapter)
 
     if not adapter.frames_path.exists():
         print(
@@ -455,7 +456,7 @@ def main() -> None:
     extract_parser.add_argument("--checkpoint", default=None)
     extract_parser.add_argument("--force", action="store_true")
     extract_parser.add_argument(
-        "--dataset", default="le2i", choices=SAM3_SUPPORTED_DATASET_IDENTIFIERS
+        "--dataset", default="le2i", choices=SAM3_EXTRACTION_DATASET_IDENTIFIERS
     )
 
     extract_all_parser = subparsers.add_parser(
@@ -466,7 +467,7 @@ def main() -> None:
     extract_all_parser.add_argument("--checkpoint", default=None)
     extract_all_parser.add_argument("--force", action="store_true")
     extract_all_parser.add_argument(
-        "--dataset", default="le2i", choices=SAM3_SUPPORTED_DATASET_IDENTIFIERS
+        "--dataset", default="le2i", choices=SAM3_EXTRACTION_DATASET_IDENTIFIERS
     )
 
     report_parser = subparsers.add_parser(
