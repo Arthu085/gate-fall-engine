@@ -107,6 +107,45 @@ sobrescreveria os `.h5` do `cs`.
 - Um checkpoint **SAM 3.1** não é validado quanto a compatibilidade por este
   repositório — o operador deve fornecer um checkpoint SAM 3 base.
 
+### Preparação do checkpoint SAM 3 base
+
+1. Na página oficial do modelo [facebook/sam3](https://huggingface.co/facebook/sam3),
+   solicite acesso ao checkpoint **SAM 3 base** e aguarde a aprovação. Leia os
+   termos antes do download. O SAM 3.1 não substitui esse checkpoint: o
+   GateFall usa o SAM 3 base com a revisão do código oficial já fixada em
+   `sam3_runtime/pyproject.toml`.
+2. Instale a [CLI oficial do Hugging Face](https://huggingface.co/docs/huggingface_hub/guides/cli)
+   se `hf` ainda não estiver disponível. Depois da aprovação, autentique-se
+   no seu próprio terminal e obtenha `sam3.pt` do repositório oficial:
+
+   ```bash
+   hf auth login
+   hf auth whoami
+   hf download facebook/sam3 sam3.pt --local-dir data/scratch/weights/sam3
+   ```
+
+3. Na raiz do GateFall, coloque o checkpoint no caminho padrão e confira os
+   arquivos necessários:
+
+   ```bash
+   mv data/scratch/weights/sam3/sam3.pt data/scratch/weights/sam3/sam3_checkpoint.pt
+   test -s data/scratch/weights/sam3/sam3_checkpoint.pt
+   test -f sam3_runtime/uv.lock
+   uv sync --project sam3_runtime --locked
+   uv run python -m gatefall.sam3.extract selftest
+   ```
+
+   Se mantiver `sam3.pt` em outro local, passe seu caminho real com
+   `--checkpoint PATH` nos comandos `extract` ou `extract-all` abaixo. Para o
+   [pipeline C0/C1](../runbooks/pipelines.md#bracos-b0-b1-c0-e-c1), que não
+   expõe essa flag, defina `GATEFALL_SAM3_CHECKPOINT_PATH` para o caminho
+   absoluto do arquivo antes de executá-lo. O `selftest` é sintético e não
+   verifica o conteúdo do checkpoint.
+
+O GateFall não baixa checkpoints automaticamente e não os commita, espelha ou
+redistribui. A sincronização acima instala apenas o runtime isolado com a
+revisão já fixada; não altera a revisão nem fornece pesos.
+
 ## Descritor `V_t`
 
 Cada quadro produz um vetor `V_t ∈ R^10`, calculado só a partir da máscara

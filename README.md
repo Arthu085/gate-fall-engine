@@ -171,6 +171,12 @@ uv run python -m gatefall.pipeline run --dataset le2i --arm C1
 Somente o braço A aceita `--dataset le2i-cv`. Consulte o [runbook](docs/runbooks/pipelines.md)
 e a [referência de comandos](docs/reference/commands.md) para pré-requisitos e detalhes.
 
+Antes de executar B0/B1 ou C0/C1, siga respectivamente a
+[preparação do DINOv3](docs/data/dinov3-features.md#preparação-do-dinov3-a-partir-de-um-clone-limpo)
+ou a [preparação do SAM 3 base](docs/data/sam3-foundation.md#preparação-do-checkpoint-sam-3-base).
+Ambos exigem acesso aprovado aos pesos oficiais e arquivos locais; C0/C1
+também exigem a instalação do runtime isolado.
+
 ### Braço A — YOLO-Pose + TCN
 
 O braço A utiliza features cinemáticas derivadas das poses estimadas pelo YOLO-Pose e um classificador temporal TCN.

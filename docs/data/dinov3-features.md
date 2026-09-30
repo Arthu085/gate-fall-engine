@@ -35,6 +35,49 @@ Caminhos padrão:
 Ambos ficam em `data/scratch/`, que é git-ignored — o repositório do DINOv3 é
 clonado localmente para uso, nunca vendorizado no GateFall.
 
+### Preparação do DINOv3 a partir de um clone limpo
+
+1. Leia a [licença e as instruções oficiais do
+   DINOv3](https://github.com/facebookresearch/dinov3#pretrained-models).
+   Solicite acesso aos pesos pelo formulário oficial indicado nessa página e
+   aguarde a aprovação. A Meta envia os endereços de download ao solicitante;
+   eles não fazem parte do GateFall.
+2. Na raiz do clone do GateFall, clone o [repositório oficial do
+   DINOv3](https://github.com/facebookresearch/dinov3) no caminho padrão:
+
+   ```bash
+   mkdir -p data/scratch
+   git clone https://github.com/facebookresearch/dinov3.git data/scratch/dinov3_repo
+   ```
+
+3. Entre os pesos disponibilizados após a aprovação, obtenha **ViT-B/16
+   LVD-1689M** (`dinov3_vitb16`), arquivo
+   `dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth`. Substitua o marcador
+   abaixo pelo endereço desse modelo recebido da Meta. Use `wget`, como
+   recomenda o repositório oficial, e grave o arquivo no caminho padrão:
+
+   ```bash
+   mkdir -p data/scratch/weights/dinov3
+   wget -c '<URL_OFICIAL_DO_VITB16_LVD1689M_RECEBIDA_DA_META>' -O data/scratch/weights/dinov3/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
+   ```
+
+   Instale `wget` se o comando não estiver disponível. Não use pesos de outra
+   arquitetura ou do conjunto SAT-493M.
+4. Confira os artefatos locais antes da extração:
+
+   ```bash
+   git -C data/scratch/dinov3_repo rev-parse HEAD
+   test -f data/scratch/dinov3_repo/hubconf.py
+   test -s data/scratch/weights/dinov3/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
+   uv run python -m gatefall.dinov3.extract selftest
+   ```
+
+Execute esses comandos na raiz do GateFall. `test -s` confirma apenas que o
+arquivo existe e não está vazio; confira o nome e a origem do checkpoint antes
+de executar `extract-all` ou o [pipeline B0/B1](../runbooks/pipelines.md#bracos-b0-b1-c0-e-c1).
+O `selftest` é sintético e não carrega o checkpoint. O GateFall não baixa pesos
+automaticamente e não os commita, espelha ou redistribui.
+
 Os caminhos podem ser sobrescritos, em ordem de precedência, pelas flags de
 CLI `--repo-dir`/`--weights` ou pelas variáveis de ambiente
 `GATEFALL_DINOV3_REPO_DIR`/`GATEFALL_DINOV3_WEIGHTS_PATH`.
