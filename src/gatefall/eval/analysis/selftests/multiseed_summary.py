@@ -14,7 +14,11 @@ from gatefall.eval.analysis.selftests.guards import (
     _selftest_missing_diagnostics_raises,
     _selftest_non_seed_config_divergence_raises,
 )
-from gatefall.eval.analysis.selftests.multi_arm import _selftest_all_arms
+from gatefall.eval.analysis.selftests.multi_arm import (
+    _selftest_all_arms,
+    _selftest_cv_arms_and_protocol_isolation,
+    _selftest_cv_stats_resolution,
+)
 from gatefall.eval.analysis.selftests.outputs import (
     _selftest_arm_a_output_compatibility,
     _selftest_csv_row_inventory_matches_schema,
@@ -36,6 +40,8 @@ def run_multiseed_summary_selftest() -> bool:
         _selftest_fewer_than_min_seeds_raises(),
         _selftest_writer_honors_force(),
         _selftest_all_arms(),
+        _selftest_cv_arms_and_protocol_isolation(),
+        _selftest_cv_stats_resolution(),
         _selftest_arm_and_config_guards(),
         _selftest_arm_a_output_compatibility(),
     ]

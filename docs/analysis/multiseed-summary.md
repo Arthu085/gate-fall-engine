@@ -1,8 +1,9 @@
 # Análise — Sumário multi-seed
 
 `src/gatefall/eval/analysis/multiseed_summary.py` agrega treinos independentes de um
-braço selecionado entre A, B0, B1, C0 e C1 no protocolo `le2i`, produzindo
-estatísticas descritivas (n/mean/desvio-padrão amostral/min/max). Todas as
+braço selecionado entre A, B0, B1, C0 e C1 nos protocolos `le2i` e
+`le2i-cv`, produzindo estatísticas descritivas
+(n/mean/desvio-padrão amostral/min/max). Todas as
 armas agregam classificação e evento. É somente leitura:
 nenhum artefato dos runs de entrada é modificado.
 
@@ -37,14 +38,14 @@ A ferramenta calcula um fingerprint sha256 da configuração de cada run com
 `trainable_param_count`, campo de auditoria já permitido pelos respectivos
 validadores. Todos os demais campos devem ser idênticos. Também rejeita menos
 de duas seeds, `--run-dir` duplicado (mesmo path resolvido), seeds duplicadas
-entre runs distintos e mistura de braços. `le2i-cv` permanece fora do escopo
-para os braços de fusão.
+entre runs distintos, mistura de braços e `run_dir` de outro protocolo. As
+estatísticas de pose e DINOv3 são específicas do protocolo selecionado.
 
 ## Como executar
 
 ```bash
 uv run python -m gatefall.eval.analysis.multiseed_summary selftest
-uv run python -m gatefall.eval.analysis.multiseed_summary summarize [--dataset le2i] [--arm {A,B0,B1,C0,C1}] \
+uv run python -m gatefall.eval.analysis.multiseed_summary summarize [--dataset {le2i,le2i-cv}] [--arm {A,B0,B1,C0,C1}] \
   --run-dir PATH [--run-dir PATH ...] --output-dir PATH [--force]
 ```
 
@@ -52,6 +53,9 @@ uv run python -m gatefall.eval.analysis.multiseed_summary summarize [--dataset l
 checagens sintéticas, sem dataset real nem GPU. `summarize` exige
 pelo menos dois `--run-dir` (a flag é repetível), valida cada run
 integralmente e escreve `multiseed_summary.json`/`.csv` em `--output-dir`.
+O suporte a `le2i-cv` não representa um resultado multi-seed: os novos runs
+B0/B1/C0/C1 de CV têm somente a seed 42 até agora.
+
 Sem `--force`, se algum dos dois arquivos já existir, o comando é pulado e a
 mensagem de skip nomeia exatamente o(s) arquivo(s) encontrado(s).
 

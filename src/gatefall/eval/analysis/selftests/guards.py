@@ -4,7 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from gatefall.datasets import get_dataset
-from gatefall.eval.analysis.multiseed_summary import ARMS, MIN_SEEDS, _resolve_shared_expected, _summarize
+from gatefall.eval.analysis.multiseed_summary import MIN_SEEDS, _summarize
 from gatefall.eval.analysis.selftests.fixtures import (
     _build_event_split,
     _check,
@@ -224,13 +224,6 @@ def _selftest_fewer_than_min_seeds_raises() -> bool:
 
 def _selftest_arm_and_config_guards() -> bool:
     adapter = get_dataset("le2i")
-    cv_rejected = True
-    for arm in ARMS[1:]:
-        try:
-            _resolve_shared_expected("le2i-cv", arm)
-        except ValueError:
-            continue
-        cv_rejected = False
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         runs, expected = _synthetic_pair(root / "b0", "B0")
@@ -263,5 +256,5 @@ def _selftest_arm_and_config_guards() -> bool:
             mixed = str(c0_runs[0]) in str(exc)
         return _check(
             "paths/seeds duplicados, arma mista e configuração científica divergente rejeitados; campo de auditoria permitido",
-            duplicate_path and duplicate_seed and mismatch and mixed and audit_allowed and cv_rejected,
+            duplicate_path and duplicate_seed and mismatch and mixed and audit_allowed,
         )

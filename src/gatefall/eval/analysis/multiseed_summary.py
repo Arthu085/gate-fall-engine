@@ -49,7 +49,7 @@ from gatefall.features.dinov3_standardization import (
 from gatefall.features.quality_storage import quality_set_sha256
 from gatefall.features.standardization import load_stats as load_pose_stats
 from gatefall.features.standardization import validate_stats_layout as validate_pose_stats_layout
-from gatefall.features.standardize_dinov3 import DINOV3_STATS_PATH
+from gatefall.features.standardize_dinov3 import dinov3_stats_path
 from gatefall.hashing import sha256_file
 from gatefall.runs import validate_local_run_dir
 from gatefall.sam3.dataset_guard import ensure_sam3_dataset_supported
@@ -307,8 +307,6 @@ def _csv_rows_from_aggregate(aggregate: dict, adapter: DatasetAdapter) -> list[d
 def _resolve_shared_expected(dataset_name: str, arm: str = "A") -> RunConfig:
     if arm not in ARMS:
         raise ValueError(f"arma não suportada: {arm!r}")
-    if arm != "A" and dataset_name != "le2i":
-        raise ValueError(f"arma {arm} suporta somente le2i")
     adapter = get_dataset(dataset_name)
     stats_path = adapter.pose_stats_path
     if arm == "A":
@@ -319,16 +317,17 @@ def _resolve_shared_expected(dataset_name: str, arm: str = "A") -> RunConfig:
         )
     if arm in {"B0", "B1"}:
         ensure_dinov3_dataset_supported(adapter)
+        visual_stats_path = dinov3_stats_path(dataset_name)
         pose_stats = load_pose_stats(stats_path)
         validate_pose_stats_layout(pose_stats)
-        visual_stats = load_visual_stats(DINOV3_STATS_PATH)
+        visual_stats = load_visual_stats(visual_stats_path)
         validate_visual_stats_layout(visual_stats, dataset_name=dataset_name)
         validate_visual_stats_freshness(visual_stats, adapter.frames_path)
         common = (
             stats_path,
             sha256_file(stats_path),
-            DINOV3_STATS_PATH,
-            sha256_file(DINOV3_STATS_PATH),
+            visual_stats_path,
+            sha256_file(visual_stats_path),
         )
         if arm == "B0":
             return resolve_b0_config(B0_FUSION_CONFIG.seed, *common)
@@ -555,7 +554,7 @@ def main() -> None:
             "runs da mesma arma com seeds distintas"
         ),
     )
-    summarize_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
+    summarize_parser.add_argument("--dataset", default="le2i", choices=("le2i", "le2i-cv"))
     summarize_parser.add_argument("--arm", default="A", choices=ARMS)
     summarize_parser.add_argument(
         "--run-dir",
