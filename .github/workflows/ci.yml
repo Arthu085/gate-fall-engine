@@ -57,6 +57,7 @@ jobs:
           uv run python -m gatefall.eval.baseline_c1 selftest
           uv run python -m gatefall.eval.analysis.qualitative selftest
           uv run python -m gatefall.eval.analysis.alarm_protocol_sensitivity selftest
+          uv run python -m gatefall.eval.analysis.gate_degradation selftest
           uv run python -m gatefall.eval.analysis.grouped_bootstrap selftest
           uv run python -m gatefall.eval.analysis.multiseed_summary selftest
           uv run python -m gatefall.eval.analysis.generalization_report selftest
