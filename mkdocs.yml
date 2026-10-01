@@ -68,6 +68,7 @@ nav:
       - Braço C0 (protocolo de alarme): eval/baseline-c0-events.md
       - Braço C1 (protocolo de alarme): eval/baseline-c1-events.md
   - Análises:
+      - Degradação do gate B1/C1: analysis/gate-degradation.md
       - Generalização entre ambientes (Le2i-CV): analysis/le2i-cv-generalization.md
       - Diagnóstico qualitativo (render): analysis/qualitative-render.md
       - Sensibilidade do protocolo de alarme: analysis/alarm-protocol-sensitivity.md

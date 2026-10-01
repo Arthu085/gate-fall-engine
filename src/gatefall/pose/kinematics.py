@@ -19,6 +19,7 @@ from gatefall.pose.loading import (
     bbox_descriptors,
     first_observed_index,
     impute_missing,
+    PoseArrays,
     load_person_found,
     load_pose,
     normalize_keypoints,
@@ -241,9 +242,13 @@ def _assemble_matrix(
 def build_pose_features(
     video_id: str, *, pose_root: Path
 ) -> tuple[np.ndarray, list[str]]:
-    dt = 1.0 / TARGET_FPS
+    return build_pose_features_from_arrays(load_pose(video_id, pose_root=pose_root))
 
-    pose = load_pose(video_id, pose_root=pose_root)
+
+def build_pose_features_from_arrays(
+    pose: PoseArrays,
+) -> tuple[np.ndarray, list[str]]:
+    dt = 1.0 / TARGET_FPS
     xy, conf = normalize_keypoints(pose.keypoints, pose.bbox, pose.person_found)
     bbox_desc = bbox_descriptors(pose.bbox, pose.person_found, pose.width, pose.height)
     xy, conf, bbox_desc = impute_missing(xy, conf, bbox_desc, pose.person_found)
