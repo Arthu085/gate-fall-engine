@@ -7,6 +7,8 @@ import json
 import os
 import sys
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -20,6 +22,7 @@ from gatefall.config import EVAL_STRIDE, IGNORE_LABEL
 from gatefall.data.gated_fusion_dataset import GatedFusionWindowDataset
 from gatefall.data.video_io import decode_frames
 from gatefall.data.windowing import build_window_index
+from gatefall.datasets import get_dataset
 from gatefall.datasets.base import DatasetAdapter
 from gatefall.dinov3.backbone import (
     configure_deterministic_inference,
@@ -83,6 +86,17 @@ from gatefall.train.shared.gated_model import GatedFusionClassifier
 from gatefall.train.shared.metrics import restricted_macro_f1
 
 POSE_SEVERITIES = (0, 4, 8, 12, 16)
+SPLITS = ("val", "test")
+DEGRADATIONS = {"clean": "none", "pose": "keypoint_dropout", "visual": "blur"}
+SHARD_ARTIFACT = "gate_degradation_shard"
+SHARD_SCHEMA_VERSION = 1
+CONDITION_FIELDS = frozenset({
+    "arm", "dataset", "split", "modality", "degradation", "severity",
+    "checkpoint_sha256", "gate_parameters", "n_windows", "n_labeled_windows",
+    "n_frames", "gate_statistics_unit", "statistics", "macro_f1_restricted",
+    "event_sensitivity", "false_alarms", "false_alarms_per_hour",
+    "event_latency_seconds", "n_fall_events",
+})
 TRACE_FIELDS = (
     "arm", "dataset", "split", "modality", "degradation", "severity",
     "checkpoint_sha256", "video_id", "frame_index", "q_pose", "q_visual",
@@ -91,11 +105,58 @@ TRACE_FIELDS = (
 )
 
 
+ConditionKey = tuple[str, str, int]
+
+
 @dataclass(frozen=True)
 class VideoInputs:
     pose: np.ndarray
     visual: np.ndarray
     quality: np.ndarray
+
+
+@dataclass(frozen=True)
+class Shard:
+    path: Path
+    report: dict[str, object]
+    conditions: dict[ConditionKey, dict[str, object]]
+    traces: dict[ConditionKey, list[dict[str, str]]]
+
+
+def visual_severities(arm: str) -> tuple[int, ...]:
+    if arm not in ("B1", "C1"):
+        raise ValueError(f"arma inválida: {arm}")
+    return tuple(int(value) for value in (DINOV3_SWEEPS if arm == "B1" else SAM3_SWEEPS)["blur"])
+
+
+def canonical_conditions(arm: str) -> list[ConditionKey]:
+    keys: list[ConditionKey] = []
+    for split in SPLITS:
+        keys.append((split, "clean", 0))
+        keys.extend((split, "pose", severity) for severity in POSE_SEVERITIES)
+        keys.extend((split, "visual", severity) for severity in visual_severities(arm))
+    return keys
+
+
+def condition_id(key: ConditionKey) -> str:
+    return ":".join(str(part) for part in key)
+
+
+def select_conditions(arm: str, patterns: list[str]) -> list[ConditionKey]:
+    canonical = canonical_conditions(arm)
+    selected: set[ConditionKey] = set()
+    for pattern in patterns:
+        parts = pattern.split(":")
+        if len(parts) != 3:
+            raise ValueError(f"condição deve ter o formato split:modalidade:severidade: {pattern}")
+        matches = {
+            key for key in canonical
+            if all(part in ("*", str(value)) for part, value in zip(parts, key))
+        }
+        if not matches:
+            raise ValueError(f"condição fora da grade canônica de {arm}: {pattern}")
+        selected |= matches
+    return [key for key in canonical if key in selected]
 
 
 def drop_keypoints(pose: PoseArrays, video_id: str, severity: int) -> PoseArrays:
@@ -423,6 +484,49 @@ def _check_output_dir(output_dir: Path, protected: list[Path]) -> None:
             raise ValueError(f"output-dir coincide com fonte canônica: {source}")
 
 
+def _protected_paths(run_dir: Path, adapter: DatasetAdapter) -> list[Path]:
+    return [
+        run_dir, REPOSITORY_ROOT / "runs", REPOSITORY_ROOT / "data/raw",
+        REPOSITORY_ROOT / "data/features", REPOSITORY_ROOT / "data/processed",
+        adapter.raw_dir, adapter.frames_path.parent, adapter.pose_root,
+        adapter.dinov3_root, adapter.sam3_root, adapter.quality_root,
+        adapter.pose_stats_path.parent,
+    ]
+
+
+def _canonical_paths(output_dir: Path, arm: str) -> tuple[Path, Path]:
+    stem = f"{arm.lower()}_gate_degradation"
+    return output_dir / f"{stem}.json", output_dir / f"{stem}.csv"
+
+
+def _shard_paths(output_dir: Path, arm: str, selected: list[ConditionKey]) -> tuple[Path, Path]:
+    digest = hashlib.sha256(",".join(condition_id(key) for key in selected).encode()).hexdigest()[:12]
+    stem = f"{arm.lower()}_gate_degradation.shard-{digest}.partial"
+    return output_dir / f"{stem}.json", output_dir / f"{stem}.csv"
+
+
+@contextmanager
+def _staged_outputs(json_path: Path, csv_path: Path, force: bool) -> Iterator[tuple[Path, Path]]:
+    if not force and (json_path.exists() or csv_path.exists()):
+        raise FileExistsError(f"análise já existe em {json_path.parent}; use --force")
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    token = uuid.uuid4().hex
+    csv_tmp = csv_path.parent / f".{csv_path.name}.{token}.tmp"
+    json_tmp = json_path.parent / f".{json_path.name}.{token}.tmp"
+    try:
+        yield json_tmp, csv_tmp
+        os.replace(csv_tmp, csv_path)
+        os.replace(json_tmp, json_path)
+    finally:
+        csv_tmp.unlink(missing_ok=True)
+        json_tmp.unlink(missing_ok=True)
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    with path.open("w", encoding="utf-8") as stream:
+        json.dump(payload, stream, indent=2, ensure_ascii=False, allow_nan=False)
+
+
 def run_analysis(
     arm: str,
     dataset_name: str,
@@ -430,6 +534,7 @@ def run_analysis(
     output_dir: Path,
     *,
     force: bool = False,
+    conditions: list[str] | None = None,
     repo_dir: str | None = None,
     weights: str | None = None,
     runtime_dir: str | None = None,
@@ -445,65 +550,63 @@ def run_analysis(
         sam3_provenance = config.sam3_provenance
     else:
         raise ValueError(f"arma inválida: {arm}")
-    _check_output_dir(output_dir, [
-        run_dir, REPOSITORY_ROOT / "runs", REPOSITORY_ROOT / "data/raw",
-        REPOSITORY_ROOT / "data/features", REPOSITORY_ROOT / "data/processed",
-        adapter.raw_dir, adapter.frames_path.parent, adapter.pose_root,
-        adapter.dinov3_root, adapter.sam3_root, adapter.quality_root,
-        adapter.pose_stats_path.parent,
-    ])
-    json_path = output_dir / f"{arm.lower()}_gate_degradation.json"
-    csv_path = output_dir / f"{arm.lower()}_gate_degradation.csv"
-    if not force and (json_path.exists() or csv_path.exists()):
-        raise FileExistsError(f"análise já existe em {output_dir}; use --force")
+    _check_output_dir(output_dir, _protected_paths(run_dir, adapter))
+    selected = canonical_conditions(arm) if conditions is None else select_conditions(arm, conditions)
+    json_path, csv_path = (
+        _canonical_paths(output_dir, arm) if conditions is None
+        else _shard_paths(output_dir, arm, selected)
+    )
     alarm_path = run_dir / "alarm_protocol.yaml"
     if alarm_path.exists() and load_alarm_protocol(alarm_path) != BASELINE_A_ALARM_PROTOCOL:
         raise ValueError(f"protocolo de alarme divergente: {alarm_path}")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device).eval()
     checkpoint_sha256 = sha256_file(run_dir / "checkpoint.pt")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    token = uuid.uuid4().hex
-    csv_tmp = output_dir / f".{csv_path.name}.{token}.tmp"
-    json_tmp = output_dir / f".{json_path.name}.{token}.tmp"
-    conditions: list[dict[str, object]] = []
+    reports: list[dict[str, object]] = []
     backbone_provenance: dict[str, object] = {}
-    try:
+    with _staged_outputs(json_path, csv_path, force) as (json_tmp, csv_tmp):
         with csv_tmp.open("w", newline="", encoding="utf-8") as stream:
             writer = csv.DictWriter(stream, fieldnames=TRACE_FIELDS)
             writer.writeheader()
-            for split in ("val", "test"):
+            for split in SPLITS:
+                wanted = [key for key in selected if key[0] == split]
+                if not wanted:
+                    continue
                 split_frames = cast(pd.DataFrame, frames[frames["split"] == split])
                 video_ids = sorted(str(value) for value in split_frames["video_id"].unique())
                 clean = {video_id: _clean_inputs(adapter, arm, video_id) for video_id in video_ids}
 
-                def evaluate(modality: str, degradation: str, severity: int, inputs: dict[str, VideoInputs]) -> None:
-                    conditions.append(_condition_report(
+                def evaluate(modality: str, severity: int, inputs: dict[str, VideoInputs]) -> None:
+                    reports.append(_condition_report(
                         arm=arm, adapter=adapter, frames=frames, split=split,
-                        modality=modality, degradation=degradation, severity=severity,
+                        modality=modality, degradation=DEGRADATIONS[modality], severity=severity,
                         inputs=inputs, model=model, pose_stats=pose_stats,
                         visual_stats=visual_stats, device=device,
                         batch_size=config.batch_size, checkpoint_sha256=checkpoint_sha256,
                         writer=writer,
                     ))
 
-                evaluate("clean", "none", 0, clean)
+                if (split, "clean", 0) in wanted:
+                    evaluate("clean", 0, clean)
                 for severity in POSE_SEVERITIES:
-                    evaluate("pose", "keypoint_dropout", severity, _pose_condition(adapter, clean, severity))
+                    if (split, "pose", severity) in wanted:
+                        evaluate("pose", severity, _pose_condition(adapter, clean, severity))
+                blur = [severity for _split, modality, severity in wanted if modality == "visual"]
                 if arm == "B1":
                     repo_path = resolve_repo_dir(repo_dir)
                     weights_path = resolve_weights_path(weights)
                     backbone_provenance = dict(
                         _check_dinov3_backbone(adapter, frames, repo_path, weights_path)
                     )
-                    configure_deterministic_inference()
-                    backbone = cast(Dinov3Backbone, load_backbone(repo_path, weights_path, device))
-                    for severity in DINOV3_SWEEPS["blur"]:
-                        inputs = _b1_visual_condition(
-                            adapter, split_frames, clean, int(severity), backbone, device, config.batch_size
-                        )
-                        evaluate("visual", "blur", int(severity), inputs)
-                    del backbone
+                    if blur:
+                        configure_deterministic_inference()
+                        backbone = cast(Dinov3Backbone, load_backbone(repo_path, weights_path, device))
+                        for severity in blur:
+                            inputs = _b1_visual_condition(
+                                adapter, split_frames, clean, severity, backbone, device, config.batch_size
+                            )
+                            evaluate("visual", severity, inputs)
+                        del backbone
                 else:
                     checkpoint = resolve_checkpoint_path(sam3_checkpoint)
                     runtime = resolve_runtime_project_dir(runtime_dir)
@@ -528,11 +631,10 @@ def run_analysis(
                             "sam3_inference_autocast_dtype": dtype,
                             "sam3_source_revision": revision,
                         }
-                        for severity in SAM3_SWEEPS["blur"]:
-                            inputs = _c1_visual_condition(adapter, split_frames, clean, int(severity), segmenter)
-                            evaluate("visual", "blur", int(severity), inputs)
-        _add_deltas(conditions)
-        report = {
+                        for severity in blur:
+                            inputs = _c1_visual_condition(adapter, split_frames, clean, severity, segmenter)
+                            evaluate("visual", severity, inputs)
+        report: dict[str, object] = {
             "schema_version": 1,
             "arm": arm,
             "dataset": dataset_name,
@@ -553,18 +655,143 @@ def run_analysis(
             "pose_severities": list(POSE_SEVERITIES),
             "pose_dropout_selection": "sha256(video_id:frame_index)[:8] big-endian seed; numpy.default_rng permutation of 17 keypoints",
             "numpy_version": np.__version__,
-            "visual_blur_severities": list(DINOV3_SWEEPS["blur"] if arm == "B1" else SAM3_SWEEPS["blur"]),
+            "visual_blur_severities": list(visual_severities(arm)),
             "backbone_provenance": backbone_provenance,
-            "conditions": conditions,
         }
-        with json_tmp.open("w", encoding="utf-8") as stream:
-            json.dump(report, stream, indent=2, ensure_ascii=False, allow_nan=False)
-        os.replace(csv_tmp, csv_path)
-        os.replace(json_tmp, json_path)
-    finally:
-        csv_tmp.unlink(missing_ok=True)
-        json_tmp.unlink(missing_ok=True)
+        if conditions is None:
+            _add_deltas(reports)
+            _write_json(json_tmp, {**report, "conditions": reports})
+        else:
+            _write_json(json_tmp, {
+                "artifact": SHARD_ARTIFACT,
+                "shard_schema_version": SHARD_SCHEMA_VERSION,
+                "canonical": False,
+                "partial": True,
+                "shard_conditions": [condition_id(key) for key in selected],
+                "trace_file": csv_path.name,
+                "trace_sha256": sha256_file(csv_tmp),
+                "report": report,
+                "conditions": reports,
+            })
     return json_path, csv_path
+
+
+def _parse_condition_id(value: object, arm: str) -> ConditionKey:
+    parts = str(value).split(":")
+    if len(parts) != 3 or not parts[2].isdigit():
+        raise ValueError(f"condição inválida: {value}")
+    key = (parts[0], parts[1], int(parts[2]))
+    if key not in canonical_conditions(arm):
+        raise ValueError(f"condição fora da grade canônica de {arm}: {value}")
+    return key
+
+
+def read_shard(path: Path) -> Shard:
+    with path.open(encoding="utf-8") as stream:
+        payload = json.load(stream)
+    if (
+        payload.get("artifact") != SHARD_ARTIFACT
+        or payload.get("shard_schema_version") != SHARD_SCHEMA_VERSION
+        or payload.get("canonical") is not False
+        or payload.get("partial") is not True
+    ):
+        raise ValueError(f"{path}: não é um shard de degradação do gate")
+    report = cast(dict[str, object], payload["report"])
+    arm = str(report["arm"])
+    declared = [_parse_condition_id(value, arm) for value in payload["shard_conditions"]]
+    if not declared or len(set(declared)) != len(declared):
+        raise ValueError(f"{path}: lista de condições vazia ou repetida")
+    reports = cast(list[dict[str, object]], payload["conditions"])
+    keys = [(str(row.get("split")), str(row.get("modality")), int(cast(int, row.get("severity", -1))))
+            for row in reports]
+    if keys != declared:
+        raise ValueError(f"{path}: condições incompletas ou fora de ordem")
+    for key, row in zip(keys, reports):
+        if set(row) != CONDITION_FIELDS:
+            raise ValueError(f"{path}: condição parcial {condition_id(key)}")
+        if (
+            row["arm"] != arm or row["dataset"] != report["dataset"]
+            or row["checkpoint_sha256"] != report["checkpoint_sha256"]
+            or row["degradation"] != DEGRADATIONS[key[1]]
+        ):
+            raise ValueError(f"{path}: identidade divergente em {condition_id(key)}")
+    trace_name = str(payload["trace_file"])
+    trace_path = path.parent / trace_name
+    if Path(trace_name).name != trace_name or not trace_path.is_file():
+        raise ValueError(f"{path}: trace ausente")
+    if sha256_file(trace_path) != payload["trace_sha256"]:
+        raise ValueError(f"{trace_path}: hash do trace diverge do shard")
+    traces: dict[ConditionKey, list[dict[str, str]]] = {key: [] for key in declared}
+    with trace_path.open(newline="", encoding="utf-8") as stream:
+        reader = csv.DictReader(stream)
+        if tuple(reader.fieldnames or ()) != TRACE_FIELDS:
+            raise ValueError(f"{trace_path}: cabeçalho do trace divergente")
+        for row in reader:
+            key = (row["split"], row["modality"], int(row["severity"]))
+            if key not in traces or row["arm"] != arm or row["checkpoint_sha256"] != report["checkpoint_sha256"]:
+                raise ValueError(f"{trace_path}: linha fora das condições do shard")
+            traces[key].append(row)
+    conditions = dict(zip(keys, reports))
+    for key, rows in traces.items():
+        if len(rows) != conditions[key]["n_frames"]:
+            raise ValueError(f"{trace_path}: trace parcial em {condition_id(key)}")
+    return Shard(path, report, conditions, traces)
+
+
+def merge_shards(shard_paths: list[Path], output_dir: Path, *, force: bool = False) -> tuple[Path, Path]:
+    shards = [read_shard(path) for path in shard_paths]
+    if not shards:
+        raise ValueError("nenhum shard informado")
+    report = shards[0].report
+    for shard in shards[1:]:
+        differing = sorted(
+            name for name in set(report) | set(shard.report)
+            if report.get(name) != shard.report.get(name)
+        )
+        if differing:
+            raise ValueError(f"{shard.path}: proveniência divergente em {', '.join(differing)}")
+    arm = str(report["arm"])
+    if (
+        report["pose_severities"] != list(POSE_SEVERITIES)
+        or report["visual_blur_severities"] != list(visual_severities(arm))
+        or not report["backbone_provenance"]
+    ):
+        raise ValueError("grade ou proveniência do backbone fora do contrato canônico")
+    conditions: dict[ConditionKey, dict[str, object]] = {}
+    traces: dict[ConditionKey, list[dict[str, str]]] = {}
+    for shard in shards:
+        for key, row in shard.conditions.items():
+            if key in conditions and (conditions[key] != row or traces[key] != shard.traces[key]):
+                raise ValueError(f"{shard.path}: condição duplicada conflitante {condition_id(key)}")
+            conditions[key] = row
+            traces[key] = shard.traces[key]
+    canonical = canonical_conditions(arm)
+    missing = [condition_id(key) for key in canonical if key not in conditions]
+    if missing:
+        raise ValueError(f"condições ausentes: {', '.join(missing)}")
+    run_dir = Path(str(report["run_dir"]))
+    _check_output_dir(output_dir, _protected_paths(run_dir, get_dataset(str(report["dataset"]))))
+    reports = [dict(conditions[key]) for key in canonical]
+    _add_deltas(reports)
+    json_path, csv_path = _canonical_paths(output_dir, arm)
+    with _staged_outputs(json_path, csv_path, force) as (json_tmp, csv_tmp):
+        with csv_tmp.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(TRACE_FIELDS)
+            for key in canonical:
+                writer.writerows([row[name] for name in TRACE_FIELDS] for row in traces[key])
+        _write_json(json_tmp, {**report, "conditions": reports})
+    return json_path, csv_path
+
+
+def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--dataset", choices=("le2i", "le2i-cv"), default="le2i")
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--repo-dir")
+    parser.add_argument("--weights")
+    parser.add_argument("--runtime-dir")
+    parser.add_argument("--sam3-checkpoint")
+    parser.add_argument("--force", action="store_true")
 
 
 def main() -> None:
@@ -572,15 +799,18 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
     analyze = subparsers.add_parser("analyze", help="Executa varreduras B1/C1 congeladas")
     analyze.add_argument("--arm", choices=("B1", "C1", "both"), default="both")
-    analyze.add_argument("--dataset", choices=("le2i", "le2i-cv"), default="le2i")
-    analyze.add_argument("--output-dir", type=Path, required=True)
     analyze.add_argument("--b1-run-dir", type=Path)
     analyze.add_argument("--c1-run-dir", type=Path)
-    analyze.add_argument("--repo-dir")
-    analyze.add_argument("--weights")
-    analyze.add_argument("--runtime-dir")
-    analyze.add_argument("--sam3-checkpoint")
-    analyze.add_argument("--force", action="store_true")
+    _add_run_arguments(analyze)
+    shard = subparsers.add_parser("shard", help="Executa um subconjunto não canônico de condições")
+    shard.add_argument("--arm", choices=("B1", "C1"), required=True)
+    shard.add_argument("--run-dir", type=Path)
+    shard.add_argument("--conditions", nargs="+", required=True, metavar="SPLIT:MODALIDADE:SEVERIDADE")
+    _add_run_arguments(shard)
+    merge = subparsers.add_parser("merge", help="Une shards completos nas saídas canônicas")
+    merge.add_argument("--shards", type=Path, nargs="+", required=True)
+    merge.add_argument("--output-dir", type=Path, required=True)
+    merge.add_argument("--force", action="store_true")
     subparsers.add_parser("selftest", help="Verifica a análise com dados sintéticos")
     args = parser.parse_args()
     if args.command == "selftest":
@@ -589,16 +819,24 @@ def main() -> None:
         if not run_selftest():
             raise SystemExit(1)
         return
-    arms = ("B1", "C1") if args.arm == "both" else (args.arm,)
     try:
-        for arm in arms:
-            run_dir = args.b1_run_dir if arm == "B1" else args.c1_run_dir
+        if args.command == "merge":
+            paths = merge_shards(args.shards, args.output_dir, force=args.force)
+            print(f"merge: {paths[0]} {paths[1]}")
+            return
+        if args.command == "shard":
+            jobs = [(args.arm, args.run_dir, args.conditions)]
+        else:
+            arms = ("B1", "C1") if args.arm == "both" else (args.arm,)
+            jobs = [(arm, args.b1_run_dir if arm == "B1" else args.c1_run_dir, None) for arm in arms]
+        for arm, run_dir, conditions in jobs:
             if run_dir is None:
                 run_dir = default_run_dir_for_arm(args.dataset, arm)
             paths = run_analysis(
                 arm, args.dataset, run_dir, args.output_dir,
-                force=args.force, repo_dir=args.repo_dir, weights=args.weights,
-                runtime_dir=args.runtime_dir, sam3_checkpoint=args.sam3_checkpoint,
+                force=args.force, conditions=conditions, repo_dir=args.repo_dir,
+                weights=args.weights, runtime_dir=args.runtime_dir,
+                sam3_checkpoint=args.sam3_checkpoint,
             )
             print(f"{arm}: {paths[0]} {paths[1]}")
     except (OSError, RuntimeError, ValueError, KeyError) as exc:

@@ -33,6 +33,58 @@ execução. `--force` substitui somente os JSON/CSV dedicados dessa análise.
 O comando não escreve em `checkpoint.pt`, `classification_report.json`,
 `event_metrics.json`, `alarm_protocol.yaml`, HDF5 nem arquivos de referência.
 
+## Execução em shards
+
+A varredura completa de C1 pode exceder o limite de uma sessão de GPU, pois
+cada severidade de blur não nula reinfere o SAM 3 em todos os quadros de
+`val` e `test`. O subcomando `shard` avalia apenas as condições escolhidas de
+uma arma e grava um artefato parcial; `merge` reúne shards completos nas
+mesmas saídas canônicas de `analyze`.
+
+Cada condição é identificada por `split:modalidade:severidade`, com
+`modalidade` em `clean`, `pose` ou `visual`. `*` seleciona todos os splits,
+modalidades ou severidades da grade canônica, e uma condição fora dela
+interrompe a execução. Para dividir as quatro severidades caras de C1 entre
+as duas T4 do Kaggle, use um processo por GPU:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 uv run python -m gatefall.eval.analysis.gate_degradation shard \
+  --arm C1 --dataset le2i --output-dir /kaggle/working/shards/gpu0 \
+  --conditions '*:clean:0' '*:pose:*' '*:visual:0' '*:visual:2' '*:visual:3'
+CUDA_VISIBLE_DEVICES=1 uv run python -m gatefall.eval.analysis.gate_degradation shard \
+  --arm C1 --dataset le2i --output-dir /kaggle/working/shards/gpu1 \
+  --conditions '*:visual:6' '*:visual:12'
+uv run python -m gatefall.eval.analysis.gate_degradation merge \
+  --shards /kaggle/working/shards/gpu*/c1_gate_degradation.shard-*.partial.json \
+  --output-dir data/analysis/gate-degradation
+```
+
+`shard` aceita `--run-dir` e os mesmos argumentos de backbone, dataset e
+`--force` de `analyze`. Cada condição selecionada é avaliada uma única vez e
+nenhuma condição fora da seleção reinfere o SAM 3. O runtime do SAM 3 ainda
+é aberto em cada split do shard para conferir a proveniência congelada, mesmo
+sem severidade não nula. O shard é a unidade atômica: ele só é gravado ao
+fim da sua seleção, e uma interrupção não deixa artefato aceito. Para limitar
+o trabalho perdido em uma interrupção, use shards menores, como uma
+severidade por processo (`'*:visual:2'`) ou um split por severidade
+(`'val:visual:2'`), executados em sequência na mesma GPU.
+
+Os arquivos de shard se chamam
+`{arma}_gate_degradation.shard-{hash}.partial.json`/`.csv`, em que o hash
+identifica a seleção. O JSON marca `canonical: false` e `partial: true`,
+registra as condições declaradas, o nome e o SHA-256 do trace e não contém
+`delta_from_clean`. O `merge` exige proveniência idêntica entre shards
+(dataset, run, checkpoint, configuração, grade, estatísticas, gate,
+protocolo, versões e proveniência do backbone/SAM 3) e cobertura completa das
+condições limpas, de pose e visuais de `val` e `test`. Ele rejeita shards
+com condição declarada ausente, campo de métrica faltando, trace truncado ou
+com hash divergente, e duplicatas conflitantes; duplicatas idênticas são
+aceitas uma vez. Em seguida, restaura a ordem canônica de condições e linhas
+do trace e só então calcula os deltas contra a condição limpa. O resultado é
+idêntico ao de uma execução `analyze` sem interrupção. As regras de
+`--force`, a escrita atômica e a proteção contra diretórios de fontes
+canônicas valem para `shard` e `merge`.
+
 ## Condições congeladas
 
 Cada split tem uma condição limpa, cinco condições de pose e cinco condições
@@ -74,6 +126,6 @@ gate, proveniência do backbone, protocolo de alarme e grades fixas. O
 protocolo e a implementação das métricas são os mesmos da avaliação
 congelada B1/C1.
 
-Esta análise exige muitas reinferências do backbone e pode demorar; os
-selftests usam somente dados sintéticos. Os resultados reais dependem dos
+Esta análise exige muitas reinferências do backbone e pode demorar; para C1,
+prefira a execução em shards. Os selftests usam somente dados sintéticos. Os resultados reais dependem dos
 artefatos locais e não são produzidos pelo comando `selftest`.
