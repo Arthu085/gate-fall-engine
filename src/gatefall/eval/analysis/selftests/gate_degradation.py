@@ -55,7 +55,7 @@ from gatefall.train.baseline_c1.model import C1AdaptiveGateClassifier
 
 MODULE = "gatefall.eval.analysis.gate_degradation"
 SYNTHETIC_FRAMES = WINDOW_FRAMES + 6
-SYNTHETIC_VIDEOS = {"val": "room/val_video", "test": "room/test_video"}
+SYNTHETIC_VIDEOS = {"val": ("room/val_a", "room/val_b"), "test": ("room/test_a", "room/test_b")}
 SAM3_PROVENANCE_FIELDS = ("sam3_inference_autocast_dtype", "sam3_source_revision")
 
 
@@ -160,19 +160,20 @@ class _SyntheticSam3:
 
 def _synthetic_frames() -> pd.DataFrame:
     rows = []
-    for split, video_id in SYNTHETIC_VIDEOS.items():
-        for frame_index in range(SYNTHETIC_FRAMES):
-            fall = 10 <= frame_index < 16
-            rows.append({
-                "video_id": video_id, "split": split, "env": "room", "subject": 1,
-                "frame_index": frame_index, "src_index": frame_index,
-                "label": BASELINE_A_ALARM_PROTOCOL.fall_label if fall else 0,
-            })
+    for split, video_ids in SYNTHETIC_VIDEOS.items():
+        for video_id in video_ids:
+            for frame_index in range(SYNTHETIC_FRAMES):
+                fall = 10 <= frame_index < 16
+                rows.append({
+                    "video_id": video_id, "split": split, "env": "room", "subject": 1,
+                    "frame_index": frame_index, "src_index": frame_index,
+                    "label": BASELINE_A_ALARM_PROTOCOL.fall_label if fall else 0,
+                })
     return pd.DataFrame(rows)
 
 
 def _synthetic_clean(_adapter: DatasetAdapter, _arm: str, video_id: str) -> VideoInputs:
-    rng = np.random.default_rng(len(video_id))
+    rng = np.random.default_rng(sum(video_id.encode()))
     pose = build_pose_features_from_arrays(_pose(SYNTHETIC_FRAMES))[0].astype(np.float32)
     visual = rng.uniform(0, 1, (SYNTHETIC_FRAMES, V_T_DIM)).astype(np.float32)
     quality = rng.uniform(0.2, 0.9, (SYNTHETIC_FRAMES, 2)).astype(np.float32)
@@ -199,7 +200,10 @@ def _synthetic_environment(root: Path, stack: ExitStack) -> Path:
         identifier="le2i", raw_dir=root / "raw", frames_path=root / "processed/frames.parquet",
         pose_root=root / "pose", dinov3_root=root / "dinov3", sam3_root=root / "sam3",
         quality_root=root / "quality", pose_stats_path=root / "stats/pose.json",
-        video_paths=lambda: {video_id: root / "raw/video.avi" for video_id in SYNTHETIC_VIDEOS.values()},
+        video_paths=lambda: {
+            video_id: root / "raw/video.avi"
+            for video_ids in SYNTHETIC_VIDEOS.values() for video_id in video_ids
+        },
     )
     config = SimpleNamespace(batch_size=8, sam3_provenance={
         "sam3_checkpoint_sha256": sha256_file(root / "sam3.pt"),
@@ -243,7 +247,7 @@ def _copy_shard(
     source: Path,
     target_dir: Path,
     edit_report: Callable[[dict], None] | None = None,
-    edit_trace: Callable[[list[str]], list[str]] | None = None,
+    edit_trace: Callable[[list[dict[str, str]]], list[dict[str, str]]] | None = None,
     rehash: bool = True,
 ) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -251,8 +255,12 @@ def _copy_shard(
     trace = target_dir / payload["trace_file"]
     shutil.copyfile(source.parent / payload["trace_file"], trace)
     if edit_trace is not None:
-        lines = trace.read_bytes().decode("utf-8").split("\r\n")
-        trace.write_bytes("\r\n".join(edit_trace(lines)).encode("utf-8"))
+        with trace.open(newline="", encoding="utf-8") as stream:
+            rows = edit_trace(list(csv.DictReader(stream)))
+        with trace.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(TRACE_FIELDS)
+            writer.writerows([row[name] for name in TRACE_FIELDS] for row in rows)
         if rehash:
             payload["trace_sha256"] = sha256_file(trace)
     if edit_report is not None:
@@ -262,11 +270,11 @@ def _copy_shard(
     return target
 
 
-def _rejects(action: Callable[[], object]) -> bool:
+def _rejects(action: Callable[[], object], reason: str) -> bool:
     try:
         action()
-    except ValueError:
-        return True
+    except ValueError as exc:
+        return reason in str(exc)
     return False
 
 
@@ -289,25 +297,34 @@ def _shard_merge_checks() -> dict[str, bool]:
             value for row in json.loads(full_json.read_text(encoding="utf-8"))["conditions"]
             for value in row["delta_from_clean"].values()
         ]
+        n_videos = sum(len(video_ids) for video_ids in SYNTHETIC_VIDEOS.values())
         equivalence = (
             any(value not in (None, 0) for value in deltas)
             and merged_json.name == full_json.name and merged_csv.name == full_csv.name
             and merged_json.read_bytes() == full_json.read_bytes()
             and merged_csv.read_bytes() == full_csv.read_bytes()
-            and full_calls == shard_calls == 8 * SYNTHETIC_FRAMES
+            and full_calls == shard_calls == 4 * n_videos * SYNTHETIC_FRAMES
         )
         partial_marker = (
             ".partial." in shard_a.name
             and shard_payload["canonical"] is False and shard_payload["partial"] is True
             and "delta_from_clean" not in shard_payload["conditions"][0]
-            and _rejects(lambda: merge_shards([full_json], root / "rejected"))
+            and _rejects(lambda: merge_shards([full_json], root / "rejected"), "não é um shard")
         )
         selection = (
             select_conditions("C1", ["*:visual:2"]) == [("val", "visual", 2), ("test", "visual", 2)]
             and select_conditions("C1", ["*:*:*"]) == canonical_conditions("C1")
-            and _rejects(lambda: select_conditions("C1", ["val:visual:5"]))
-            and _rejects(lambda: select_conditions("C1", ["val:visual"]))
+            and _rejects(lambda: select_conditions("C1", ["val:visual:5"]), "fora da grade")
+            and _rejects(lambda: select_conditions("C1", ["val:visual"]), "formato")
         )
+
+        def merge_b(name: str, edit_report=None, edit_trace=None, rehash: bool = True) -> Callable[[], object]:
+            copy = _copy_shard(shard_b, root / name, edit_report, edit_trace, rehash)
+            return lambda: merge_shards([shard_a, copy], root / "x")
+
+        def merge_both(name: str, edit_report: Callable[[dict], None]) -> Callable[[], object]:
+            copies = [_copy_shard(shard, root / name / shard.parent.name, edit_report) for shard in (shard_a, shard_b)]
+            return lambda: merge_shards(copies, root / "x")
 
         def drop_last_condition(payload: dict) -> None:
             payload["conditions"].pop()
@@ -315,8 +332,11 @@ def _shard_merge_checks() -> dict[str, bool]:
         def drop_metric(payload: dict) -> None:
             del payload["conditions"][-1]["macro_f1_restricted"]
 
-        def drop_last_row(lines: list[str]) -> list[str]:
-            return lines[:-2] + lines[-1:]
+        def drop_statistic(payload: dict) -> None:
+            del payload["conditions"][-1]["statistics"]["g_pose"]["p95"]
+
+        def drop_last_row(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+            return rows[:-1]
 
         def alter_metric(payload: dict) -> None:
             payload["conditions"][0]["macro_f1_restricted"] += 0.125
@@ -331,6 +351,46 @@ def _shard_merge_checks() -> dict[str, bool]:
             payload["partial"] = False
             payload["canonical"] = True
 
+        def extra_envelope_field(payload: dict) -> None:
+            payload["resumed"] = True
+
+        def future_schema(payload: dict) -> None:
+            payload["shard_schema_version"] = 2
+
+        def report_without(field: str) -> Callable[[dict], None]:
+            return lambda payload: payload["report"].pop(field)
+
+        def provenance_without_revision(payload: dict) -> None:
+            del payload["report"]["backbone_provenance"]["sam3_source_revision"]
+
+        def other_alarm_protocol(payload: dict) -> None:
+            payload["report"]["alarm_protocol"]["trigger_consecutive"] += 1
+
+        frames_per_video = SYNTHETIC_FRAMES
+
+        def swap_frames(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+            return [rows[1], rows[0], *rows[2:]]
+
+        def swap_videos(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+            block = 2 * frames_per_video
+            return [*rows[frames_per_video:block], *rows[:frames_per_video], *rows[block:]]
+
+        def duplicate_and_missing(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+            last = frames_per_video - 1
+            return [*rows[:last], dict(rows[last - 1]), *rows[last + 1:]]
+
+        def rename_video(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+            return [
+                dict(row, video_id="room/val_c")
+                if row["video_id"] == "room/val_b" and row["modality"] == "visual" and row["severity"] == "3"
+                else row
+                for row in rows
+            ]
+
+        def alter_row(field: str, value: str) -> Callable[[list[dict[str, str]]], list[dict[str, str]]]:
+            return lambda rows: [*rows[:5], dict(rows[5], **{field: value}), *rows[6:]]
+
+        gate_bias = float(shard_payload["report"]["gate_parameters"]["gate_bias"])
         _SyntheticSam3.fail_after = SYNTHETIC_FRAMES + 3
         _SyntheticSam3.calls = 0
         interrupted = _rejects_runtime(
@@ -345,27 +405,54 @@ def _shard_merge_checks() -> dict[str, bool]:
             "shard merge equals unsharded output": equivalence,
             "shard artifacts are marked partial": partial_marker,
             "shard condition selection": selection,
-            "merge rejects missing conditions": _rejects(lambda: merge_shards([shard_a], root / "missing")),
+            "merge rejects missing conditions": _rejects(
+                lambda: merge_shards([shard_a], root / "missing"), "condições ausentes"
+            ),
             "merge rejects partial conditions": all((
                 interrupted,
-                _rejects(lambda: merge_shards([shard_a, _copy_shard(shard_b, root / "p1", drop_last_condition)], root / "x")),
-                _rejects(lambda: merge_shards([shard_a, _copy_shard(shard_b, root / "p2", drop_metric)], root / "x")),
-                _rejects(lambda: merge_shards([shard_a, _copy_shard(shard_b, root / "p3", edit_trace=drop_last_row)], root / "x")),
-                _rejects(lambda: merge_shards([shard_a, _copy_shard(shard_b, root / "p4", edit_trace=drop_last_row, rehash=False)], root / "x")),
-                _rejects(lambda: merge_shards([shard_a, _copy_shard(shard_b, root / "p5", unfinished)], root / "x")),
+                _rejects(merge_b("p1", drop_last_condition), "condições incompletas"),
+                _rejects(merge_b("p2", drop_metric), "condição parcial"),
+                _rejects(merge_b("p3", drop_statistic), "estatísticas parciais"),
+                _rejects(merge_b("p4", edit_trace=drop_last_row), "trace parcial"),
+                _rejects(merge_b("p5", edit_trace=drop_last_row, rehash=False), "hash do trace"),
+                _rejects(merge_b("p6", unfinished), "não é um shard"),
+            )),
+            "merge enforces shard envelope fields": all((
+                _rejects(merge_b("e1", extra_envelope_field), "campos do shard"),
+                _rejects(merge_b("e2", future_schema), "versão de shard incompatível"),
+            )),
+            "merge rejects report-field omission in every shard": all((
+                _rejects(merge_both("r1", report_without("frames_sha256")), "campos do relatório"),
+                _rejects(merge_both("r2", report_without("numpy_version")), "campos do relatório"),
+                _rejects(merge_both("r3", report_without("backbone_provenance")), "campos do relatório"),
+                _rejects(merge_both("r4", provenance_without_revision), "backbone_provenance"),
+                _rejects(merge_both("r5", other_alarm_protocol), "alarm_protocol"),
+            )),
+            "merge enforces canonical trace rows": all((
+                _rejects(merge_b("t1", edit_trace=swap_frames), "ordem canônica"),
+                _rejects(merge_b("t2", edit_trace=swap_videos), "ordem canônica"),
+                _rejects(merge_b("t3", edit_trace=duplicate_and_missing), "duplicados, ausentes"),
+                _rejects(merge_b("t4", edit_trace=rename_video), "divergem da condição limpa"),
+            )),
+            "merge rejects trace identity mismatch": all((
+                _rejects(merge_b("i1", edit_trace=alter_row("dataset", "le2i-cv")), "identidade de linha"),
+                _rejects(merge_b("i2", edit_trace=alter_row("degradation", "none")), "identidade de linha"),
+                _rejects(merge_b("i3", edit_trace=alter_row("gate_bias", str(gate_bias + 1))), "identidade de linha"),
+                _rejects(merge_b("i4", edit_trace=alter_row("checkpoint_sha256", "0" * 64)), "identidade de linha"),
+                _rejects(merge_b("i5", edit_trace=alter_row("severity", "3.0")), "identidade de linha"),
             )),
             "merge deduplicates identical and rejects conflicting conditions": (
                 identical_json.read_bytes() == full_json.read_bytes()
                 and _rejects(lambda: merge_shards(
                     [shard_a, shard_b, _copy_shard(shard_b, root / "c1", alter_metric)], root / "x"
-                ))
+                ), "duplicada conflitante")
             ),
             "merge rejects provenance mismatch": all((
-                _rejects(lambda: merge_shards([shard_a, _copy_shard(shard_b, root / "m1", alter_frames)], root / "x")),
-                _rejects(lambda: merge_shards([shard_a, _copy_shard(shard_b, root / "m2", alter_sam3)], root / "x")),
+                _rejects(merge_b("m1", alter_frames), "proveniência divergente em frames_sha256"),
+                _rejects(merge_b("m2", alter_sam3), "proveniência divergente em backbone_provenance"),
             )),
             "merge keeps canonical sources protected": (
-                _rejects(lambda: merge_shards([shard_a, shard_b], run_dir))
+                _rejects(lambda: merge_shards([shard_a, shard_b], run_dir), "fonte canônica")
                 and not (root / "x").exists()
             ),
         }

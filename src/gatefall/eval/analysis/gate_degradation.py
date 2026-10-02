@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import uuid
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -90,13 +91,49 @@ SPLITS = ("val", "test")
 DEGRADATIONS = {"clean": "none", "pose": "keypoint_dropout", "visual": "blur"}
 SHARD_ARTIFACT = "gate_degradation_shard"
 SHARD_SCHEMA_VERSION = 1
-CONDITION_FIELDS = frozenset({
+SHARD_FIELDS = frozenset({
+    "artifact", "shard_schema_version", "canonical", "partial", "shard_conditions",
+    "trace_file", "trace_sha256", "report", "conditions",
+})
+REPORT_FIELDS = (
+    "schema_version", "arm", "dataset", "run_dir", "checkpoint_path",
+    "checkpoint_sha256", "config_sha256", "frames_sha256", "pose_stats_sha256",
+    "visual_stats_sha256", "gate_parameters", "visual_quality_name",
+    "alarm_protocol", "test_split_is_descriptive_only", "selection_performed",
+    "pose_severities", "pose_dropout_selection", "numpy_version",
+    "visual_blur_severities", "backbone_provenance",
+)
+REPORT_SHA256_FIELDS = (
+    "checkpoint_sha256", "config_sha256", "frames_sha256", "pose_stats_sha256",
+    "visual_stats_sha256",
+)
+BACKBONE_PROVENANCE_FIELDS = {
+    "B1": frozenset({"weights_sha256", "dinov3_repo_commit"}),
+    "C1": frozenset({
+        "sam3_checkpoint_sha256", "sam3_runtime_lock_sha256",
+        "sam3_inference_autocast_dtype", "sam3_source_revision",
+    }),
+}
+GATE_PARAMETER_FIELDS = ("gate_weight_pose", "gate_weight_visual", "gate_bias")
+POSE_DROPOUT_SELECTION = (
+    "sha256(video_id:frame_index)[:8] big-endian seed; "
+    "numpy.default_rng permutation of 17 keypoints"
+)
+CONDITION_FIELDS = (
     "arm", "dataset", "split", "modality", "degradation", "severity",
     "checkpoint_sha256", "gate_parameters", "n_windows", "n_labeled_windows",
     "n_frames", "gate_statistics_unit", "statistics", "macro_f1_restricted",
     "event_sensitivity", "false_alarms", "false_alarms_per_hour",
     "event_latency_seconds", "n_fall_events",
-})
+)
+STATISTIC_NAMES = (
+    "q_pose", "q_visual", "g_pose", "g_visual", "pose_effective_norm", "visual_effective_norm",
+)
+SUMMARY_FIELDS = ("mean", "median", "p05", "p95")
+TRACE_IDENTITY_FIELDS = (
+    "arm", "dataset", "split", "modality", "degradation", "severity",
+    "checkpoint_sha256", "gate_weight_pose", "gate_weight_visual", "gate_bias",
+)
 TRACE_FIELDS = (
     "arm", "dataset", "split", "modality", "degradation", "severity",
     "checkpoint_sha256", "video_id", "frame_index", "q_pose", "q_visual",
@@ -414,9 +451,7 @@ def _condition_report(
     mask = true != IGNORE_LABEL
     macro_f1 = restricted_macro_f1(true[mask], pred[mask])[0]
     coefficients = gate_coefficients(model)
-    statistics: dict[str, list[np.ndarray]] = {
-        name: [] for name in ("q_pose", "q_visual", "g_pose", "g_visual", "pose_effective_norm", "visual_effective_norm")
-    }
+    statistics: dict[str, list[np.ndarray]] = {name: [] for name in STATISTIC_NAMES}
     for video_id, video in inputs.items():
         pose = standardize_pose(video.pose, pose_stats)
         visual = _standardize_visual(arm, video.visual, visual_stats)
@@ -653,7 +688,7 @@ def run_analysis(
             "test_split_is_descriptive_only": True,
             "selection_performed": False,
             "pose_severities": list(POSE_SEVERITIES),
-            "pose_dropout_selection": "sha256(video_id:frame_index)[:8] big-endian seed; numpy.default_rng permutation of 17 keypoints",
+            "pose_dropout_selection": POSE_DROPOUT_SELECTION,
             "numpy_version": np.__version__,
             "visual_blur_severities": list(visual_severities(arm)),
             "backbone_provenance": backbone_provenance,
@@ -686,17 +721,105 @@ def _parse_condition_id(value: object, arm: str) -> ConditionKey:
     return key
 
 
+def _is_sha256(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+
+def _validate_report(path: Path, report: object) -> dict[str, object]:
+    if not isinstance(report, dict) or tuple(report) != REPORT_FIELDS:
+        raise ValueError(f"{path}: campos do relatório divergem do contrato canônico")
+    report = cast(dict[str, object], report)
+    arm = report["arm"]
+    if arm not in BACKBONE_PROVENANCE_FIELDS:
+        raise ValueError(f"{path}: arma inválida no relatório: {arm}")
+    arm = cast(str, arm)
+    fixed: dict[str, object] = {
+        "schema_version": 1,
+        "visual_quality_name": "q_visual" if arm == "B1" else "q_sam3",
+        "alarm_protocol": json.loads(json.dumps(BASELINE_A_ALARM_PROTOCOL.to_dict())),
+        "test_split_is_descriptive_only": True,
+        "selection_performed": False,
+        "pose_severities": list(POSE_SEVERITIES),
+        "pose_dropout_selection": POSE_DROPOUT_SELECTION,
+        "visual_blur_severities": list(visual_severities(arm)),
+    }
+    differing = [name for name, value in fixed.items() if report[name] != value]
+    differing += [name for name in REPORT_SHA256_FIELDS if not _is_sha256(report[name])]
+    differing += [
+        name for name in ("dataset", "run_dir", "checkpoint_path", "numpy_version")
+        if not isinstance(report[name], str) or not report[name]
+    ]
+    gate = report["gate_parameters"]
+    if not isinstance(gate, dict) or tuple(gate) != GATE_PARAMETER_FIELDS or not all(
+        isinstance(value, float) for value in gate.values()
+    ):
+        differing.append("gate_parameters")
+    provenance = report["backbone_provenance"]
+    if not isinstance(provenance, dict) or set(provenance) != BACKBONE_PROVENANCE_FIELDS[arm] or not all(
+        isinstance(value, str) and value for value in provenance.values()
+    ):
+        differing.append("backbone_provenance")
+    if differing:
+        raise ValueError(f"{path}: relatório fora do contrato canônico em {', '.join(differing)}")
+    return report
+
+
+def _validate_condition(path: Path, key: ConditionKey, row: object, report: dict[str, object]) -> None:
+    if not isinstance(row, dict) or tuple(row) != CONDITION_FIELDS:
+        raise ValueError(f"{path}: condição parcial {condition_id(key)}")
+    statistics = row["statistics"]
+    if not isinstance(statistics, dict) or tuple(statistics) != STATISTIC_NAMES or any(
+        not isinstance(summary, dict) or tuple(summary) != SUMMARY_FIELDS
+        for summary in statistics.values()
+    ):
+        raise ValueError(f"{path}: estatísticas parciais em {condition_id(key)}")
+    if (
+        row["arm"] != report["arm"] or row["dataset"] != report["dataset"]
+        or row["checkpoint_sha256"] != report["checkpoint_sha256"]
+        or row["gate_parameters"] != report["gate_parameters"]
+        or row["degradation"] != DEGRADATIONS[key[1]]
+        or not isinstance(row["n_frames"], int) or row["n_frames"] <= 0
+    ):
+        raise ValueError(f"{path}: identidade divergente em {condition_id(key)}")
+
+
+def _trace_identity(key: ConditionKey, report: dict[str, object]) -> tuple[str, ...]:
+    gate = cast(dict[str, float], report["gate_parameters"])
+    return (
+        str(report["arm"]), str(report["dataset"]), key[0], key[1], DEGRADATIONS[key[1]],
+        str(key[2]), str(report["checkpoint_sha256"]),
+        *(str(gate[name]) for name in GATE_PARAMETER_FIELDS),
+    )
+
+
+def _frame_sequence(rows: list[dict[str, str]]) -> list[tuple[str, str]]:
+    return [(row["video_id"], row["frame_index"]) for row in rows]
+
+
+def _is_canonical_frame_order(sequence: list[tuple[str, str]]) -> bool:
+    counts = Counter(video_id for video_id, _frame in sequence)
+    videos = list(dict.fromkeys(video_id for video_id, _frame in sequence))
+    if videos != sorted(videos):
+        return False
+    expected = [(video_id, str(index)) for video_id in videos for index in range(counts[video_id])]
+    return sequence == expected
+
+
 def read_shard(path: Path) -> Shard:
     with path.open(encoding="utf-8") as stream:
         payload = json.load(stream)
     if (
-        payload.get("artifact") != SHARD_ARTIFACT
-        or payload.get("shard_schema_version") != SHARD_SCHEMA_VERSION
+        not isinstance(payload, dict)
+        or payload.get("artifact") != SHARD_ARTIFACT
         or payload.get("canonical") is not False
         or payload.get("partial") is not True
     ):
         raise ValueError(f"{path}: não é um shard de degradação do gate")
-    report = cast(dict[str, object], payload["report"])
+    if payload.get("shard_schema_version") != SHARD_SCHEMA_VERSION:
+        raise ValueError(f"{path}: versão de shard incompatível: {payload.get('shard_schema_version')}")
+    if set(payload) != SHARD_FIELDS:
+        raise ValueError(f"{path}: campos do shard divergem do contrato")
+    report = _validate_report(path, payload["report"])
     arm = str(report["arm"])
     declared = [_parse_condition_id(value, arm) for value in payload["shard_conditions"]]
     if not declared or len(set(declared)) != len(declared):
@@ -707,34 +830,32 @@ def read_shard(path: Path) -> Shard:
     if keys != declared:
         raise ValueError(f"{path}: condições incompletas ou fora de ordem")
     for key, row in zip(keys, reports):
-        if set(row) != CONDITION_FIELDS:
-            raise ValueError(f"{path}: condição parcial {condition_id(key)}")
-        if (
-            row["arm"] != arm or row["dataset"] != report["dataset"]
-            or row["checkpoint_sha256"] != report["checkpoint_sha256"]
-            or row["degradation"] != DEGRADATIONS[key[1]]
-        ):
-            raise ValueError(f"{path}: identidade divergente em {condition_id(key)}")
+        _validate_condition(path, key, row, report)
     trace_name = str(payload["trace_file"])
     trace_path = path.parent / trace_name
     if Path(trace_name).name != trace_name or not trace_path.is_file():
         raise ValueError(f"{path}: trace ausente")
     if sha256_file(trace_path) != payload["trace_sha256"]:
         raise ValueError(f"{trace_path}: hash do trace diverge do shard")
+    identities = {_trace_identity(key, report): key for key in declared}
     traces: dict[ConditionKey, list[dict[str, str]]] = {key: [] for key in declared}
     with trace_path.open(newline="", encoding="utf-8") as stream:
         reader = csv.DictReader(stream)
         if tuple(reader.fieldnames or ()) != TRACE_FIELDS:
             raise ValueError(f"{trace_path}: cabeçalho do trace divergente")
         for row in reader:
-            key = (row["split"], row["modality"], int(row["severity"]))
-            if key not in traces or row["arm"] != arm or row["checkpoint_sha256"] != report["checkpoint_sha256"]:
-                raise ValueError(f"{trace_path}: linha fora das condições do shard")
+            key = identities.get(tuple(row[name] for name in TRACE_IDENTITY_FIELDS))
+            if key is None:
+                raise ValueError(f"{trace_path}: identidade de linha fora das condições do shard")
             traces[key].append(row)
     conditions = dict(zip(keys, reports))
     for key, rows in traces.items():
         if len(rows) != conditions[key]["n_frames"]:
             raise ValueError(f"{trace_path}: trace parcial em {condition_id(key)}")
+        if not _is_canonical_frame_order(_frame_sequence(rows)):
+            raise ValueError(
+                f"{trace_path}: quadros duplicados, ausentes ou fora da ordem canônica em {condition_id(key)}"
+            )
     return Shard(path, report, conditions, traces)
 
 
@@ -751,12 +872,6 @@ def merge_shards(shard_paths: list[Path], output_dir: Path, *, force: bool = Fal
         if differing:
             raise ValueError(f"{shard.path}: proveniência divergente em {', '.join(differing)}")
     arm = str(report["arm"])
-    if (
-        report["pose_severities"] != list(POSE_SEVERITIES)
-        or report["visual_blur_severities"] != list(visual_severities(arm))
-        or not report["backbone_provenance"]
-    ):
-        raise ValueError("grade ou proveniência do backbone fora do contrato canônico")
     conditions: dict[ConditionKey, dict[str, object]] = {}
     traces: dict[ConditionKey, list[dict[str, str]]] = {}
     for shard in shards:
@@ -769,6 +884,9 @@ def merge_shards(shard_paths: list[Path], output_dir: Path, *, force: bool = Fal
     missing = [condition_id(key) for key in canonical if key not in conditions]
     if missing:
         raise ValueError(f"condições ausentes: {', '.join(missing)}")
+    for key in canonical:
+        if _frame_sequence(traces[key]) != _frame_sequence(traces[(key[0], "clean", 0)]):
+            raise ValueError(f"quadros de {condition_id(key)} divergem da condição limpa do split")
     run_dir = Path(str(report["run_dir"]))
     _check_output_dir(output_dir, _protected_paths(run_dir, get_dataset(str(report["dataset"]))))
     reports = [dict(conditions[key]) for key in canonical]
