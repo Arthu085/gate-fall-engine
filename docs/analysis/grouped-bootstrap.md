@@ -66,6 +66,14 @@ exemplo `paired_bootstrap_b1_minus_b0.json`) em `--output-dir`, obrigatório.
 Os run_dirs padrão são os runs locais de cada braço. Sem `--force`, saída
 existente é preservada e o comando é pulado antes da inferência.
 
+Os runs locais históricos de B0/B1/C0/C1 no Le2i-CS ficam em diretórios
+nomeados pelo `run_name` (`runs/local/le2i/b0_fusion`,
+`runs/local/le2i/b1_adaptive_gate`, `runs/local/le2i/c0_fusion`,
+`runs/local/le2i/c1_adaptive_gate`), não nos nomes padrão
+`runs/local/le2i/baseline_*`. Eles são aceitos normalmente quando passados
+explicitamente em `--run-dir`/`--adaptive-run-dir`/`--baseline-run-dir`;
+não é preciso renomeá-los nem copiá-los.
+
 ### Preparação compartilhada por braço
 
 A preparação de cada braço é a do próprio avaliador de eventos
@@ -381,9 +389,50 @@ falha de validação nunca deixa saída parcial.
 
 ## Resultado da execução real
 
-Só o braço A foi executado sobre dados reais. As análises de run único de
-B0/B1/C0/C1 e as comparações pareadas B1 − B0 e C1 − C0 ainda não foram
-executadas; esta página não registra resultados para elas.
+Todas as execuções abaixo usam o protocolo Le2i-CS (`--dataset le2i`), os
+runs de treino com seed 42 e os parâmetros padrão (`n_replicates=10000`,
+`confidence_level=0.95`, `seed=42`): `analyze` para A, B0, B1, C0 e C1 e
+`compare` para B1 − B0 e C1 − C0. Toda métrica de todo braço, split e
+comparação teve `10000/10000` réplicas válidas e zero réplicas indefinidas.
+As colunas de test são estritamente descritivas e **não foram usadas para
+nenhum ajuste ou seleção**.
+
+### Aviso de resolução inferencial
+
+**Leia antes de interpretar qualquer tabela desta seção.** O split val do
+Le2i real tem apenas **1 sujeito** e o split test real tem apenas **2
+sujeitos**. Isso não é um detalhe secundário: é a limitação mais
+importante destas execuções.
+
+- **Val (n=1 sujeito):** o bootstrap sempre resorteia o mesmo (e único)
+  cluster, então o intervalo colapsa no próprio ponto de estimativa em toda
+  métrica — comportamento esperado do método, não um defeito. **Isso não
+  significa incerteza zero.** Significa que a variabilidade entre sujeitos é
+  matematicamente inestimável a partir de um único cluster; o intervalo
+  colapsado é a ausência de informação sobre essa variabilidade, não a
+  ausência da própria variabilidade. O mesmo vale para os deltas pareados
+  de val.
+- **Test (n=2 sujeitos):** com apenas dois clusters distintos, o bootstrap
+  tem resolução inferencial severamente limitada — só existem poucas
+  combinações possíveis de reamostragem com reposição de 2 elementos. Os
+  intervalos do split test **devem ser lidos como descritivos**, não como um
+  intervalo de confiança de 95% bem calibrado em nível populacional. Eles
+  ilustram a variação por reamostragem observável já com estes dois sujeitos
+  específicos, não uma inferência confiável sobre a população geral de
+  sujeitos com quedas.
+
+Concretamente, cada réplica de test é uma de três composições: só o sujeito
+2 (sorteado duas vezes), um de cada, ou só o sujeito 7, com probabilidades
+1/4, 1/2 e 1/4. Todas as métricas desta página são razões, taxas ou
+médias/medianas que não mudam quando um sujeito é duplicado, então os
+limites percentil 2,5/97,5 coincidem com o menor e o maior valor entre a
+métrica só do sujeito 2, a métrica conjunta (o ponto) e a métrica só do
+sujeito 7. Para os deltas pareados, isso significa que um intervalo de
+test que não contém zero indica apenas que os dois sujeitos de teste, cada
+um isoladamente, e o conjunto têm delta do mesmo sinal; não é teste de
+hipótese nem evidência de superioridade.
+
+### Braço A
 
 Execução sobre `runs/local/le2i/baseline_a` com os parâmetros padrão
 (`n_replicates=10000`, `confidence_level=0.95`, `seed=42`). Esse run local é o
@@ -396,29 +445,7 @@ de estimativa abaixo são os valores canônicos da referência. Val e test vêm
 de uma única passada de inferência por split; `checkpoint.pt`,
 `config.yaml`, `metrics.json`, `event_metrics.json` e `alarm_protocol.yaml`
 canônicos foram confirmados byte a byte idênticos antes e depois da
-execução (hash SHA-256). A coluna de test é estritamente descritiva e
-**não foi usada para nenhum ajuste ou seleção**.
-
-**Aviso de resolução inferencial — leia antes de interpretar a tabela abaixo.**
-O split val do Le2i real tem apenas **1 sujeito** e o split test real tem
-apenas **2 sujeitos**. Isso não é um detalhe secundário: é a limitação mais
-importante desta execução.
-
-- **Val (n=1 sujeito):** o bootstrap sempre resorteia o mesmo (e único)
-  cluster, então o intervalo colapsa no próprio ponto de estimativa em toda
-  métrica — comportamento esperado do método, não um defeito. **Isso não
-  significa incerteza zero.** Significa que a variabilidade entre sujeitos é
-  matematicamente inestimável a partir de um único cluster; o intervalo
-  colapsado é a ausência de informação sobre essa variabilidade, não a
-  ausência da própria variabilidade.
-- **Test (n=2 sujeitos):** com apenas dois clusters distintos, o bootstrap
-  tem resolução inferencial severamente limitada — só existem poucas
-  combinações possíveis de reamostragem com reposição de 2 elementos. Os
-  intervalos do split test **devem ser lidos como descritivos**, não como um
-  intervalo de confiança de 95% bem calibrado em nível populacional. Eles
-  ilustram a variação por reamostragem observável já com estes dois sujeitos
-  específicos, não uma inferência confiável sobre a população geral de
-  sujeitos com quedas.
+execução (hash SHA-256).
 
 | Split | Métrica | Ponto | IC 95% | Válidas/Total |
 | --- | --- | --- | --- | --- |
@@ -470,3 +497,168 @@ com `n_replicates=10000`, `confidence_level=0.95` e `seed=42`. Essa
 reexecução reproduziu os valores de métrica já documentados, incluindo o
 F1 binário, e toda métrica em ambos os splits val e test teve
 `10000/10000` réplicas válidas e zero réplicas indefinidas.
+
+### Braços B0, B1, C0 e C1 (run único)
+
+`analyze` rodou sobre os runs locais históricos, passados explicitamente em
+`--run-dir`:
+
+```bash
+uv run python -m gatefall.eval.analysis.grouped_bootstrap analyze \
+  --arm B0 --dataset le2i --run-dir runs/local/le2i/b0_fusion \
+  --n-replicates 10000 --confidence-level 0.95 --seed 42
+# idem: --arm B1 --run-dir runs/local/le2i/b1_adaptive_gate
+#       --arm C0 --run-dir runs/local/le2i/c0_fusion
+#       --arm C1 --run-dir runs/local/le2i/c1_adaptive_gate
+```
+
+Cada saída `grouped_bootstrap.json`/`.csv` foi gravada no próprio run. Os
+quatro runs locais correspondem às referências congeladas
+`runs/reference/le2i/baseline_{b0,b1,c0,c1}/`: `config.yaml`, `metrics.json`
+e `alarm_protocol.yaml` são byte a byte idênticos, `event_metrics.json`
+difere apenas em `checkpoint_path` e `alarm_protocol_path`, e o
+`checkpoint_sha256` registrado coincide com o da referência (B0
+`da002ab2…`, B1 `74e66a5c…`, C0 `6cebe373…`, C1 `e4a6584d…`). Os pontos de
+estimativa reproduzem os valores canônicos de `metrics.json` e
+`event_metrics.json` de cada referência.
+
+Val (n=1 sujeito): todo intervalo colapsa no ponto, que é o único valor
+reportado abaixo.
+
+| Métrica | B0 | B1 | C0 | C1 |
+| --- | --- | --- | --- | --- |
+| macro_f1_restricted | 0.703 | 0.705 | 0.650 | 0.676 |
+| precision | 0.966 | 0.945 | 0.907 | 0.933 |
+| recall | 0.905 | 0.931 | 0.961 | 0.955 |
+| specificity | 0.991 | 0.985 | 0.972 | 0.980 |
+| f1 | 0.934 | 0.938 | 0.933 | 0.944 |
+| accuracy | 0.972 | 0.973 | 0.969 | 0.975 |
+| sensitivity (evento) | 1.000 | 1.000 | 1.000 | 1.000 |
+| fall_sensitivity | 1.000 | 1.000 | 1.000 | 1.000 |
+| fall_or_fallen_sensitivity | 1.000 | 1.000 | 1.000 | 1.000 |
+| detected_events_alarm_within_fall_rate | 1.000 | 1.000 | 1.000 | 1.000 |
+| false_alarms_per_hour | 0.0 | 0.0 | 0.0 | 0.0 |
+| false_alarms_per_hour_labeled_time | 0.0 | 0.0 | 0.0 | 0.0 |
+| window_binary_sensitivity | 0.905 | 0.931 | 0.961 | 0.955 |
+| window_binary_specificity | 0.991 | 0.985 | 0.972 | 0.980 |
+| latency_mean_s | 0.4 | 0.3 | 0.3 | 0.4 |
+| latency_median_s | 0.3 | 0.3 | 0.2 | 0.3 |
+
+Test (n=2 sujeitos), ponto [IC 95%]:
+
+| Métrica | B0 | B1 | C0 | C1 |
+| --- | --- | --- | --- | --- |
+| macro_f1_restricted | 0.655 [0.535, 0.657] | 0.671 [0.507, 0.680] | 0.642 [0.564, 0.642] | 0.612 [0.503, 0.615] |
+| precision | 0.830 [0.769, 0.868] | 0.824 [0.743, 0.876] | 0.869 [0.859, 0.892] | 0.873 [0.843, 0.942] |
+| recall | 0.919 [0.892, 0.970] | 0.926 [0.905, 0.967] | 0.942 [0.918, 0.954] | 0.916 [0.859, 0.946] |
+| specificity | 0.964 [0.834, 0.981] | 0.962 [0.809, 0.982] | 0.973 [0.936, 0.978] | 0.975 [0.970, 0.975] |
+| f1 | 0.872 [0.858, 0.880] | 0.872 [0.840, 0.890] | 0.904 [0.904, 0.905] | 0.894 [0.892, 0.899] |
+| accuracy | 0.957 [0.883, 0.970] | 0.957 [0.867, 0.972] | 0.968 [0.930, 0.975] | 0.965 [0.930, 0.972] |
+| sensitivity (evento) | 0.955 [0.857, 1.000] | 0.955 [0.857, 1.000] | 1.000 [1.000, 1.000] | 0.909 [0.867, 1.000] |
+| fall_sensitivity | 0.955 [0.857, 1.000] | 0.955 [0.857, 1.000] | 1.000 [1.000, 1.000] | 0.909 [0.867, 1.000] |
+| fall_or_fallen_sensitivity | 0.955 [0.857, 1.000] | 0.955 [0.857, 1.000] | 1.000 [1.000, 1.000] | 0.909 [0.867, 1.000] |
+| detected_events_alarm_within_fall_rate | 1.000 [1.000, 1.000] | 1.000 [1.000, 1.000] | 1.000 [1.000, 1.000] | 1.000 [1.000, 1.000] |
+| false_alarms_per_hour | 52.5 [33.8, 171.2] | 52.5 [33.8, 171.2] | 23.3 [20.3, 42.8] | 46.7 [40.5, 85.6] |
+| false_alarms_per_hour_labeled_time | 57.7 [37.7, 171.4] | 51.3 [30.2, 171.4] | 25.6 [22.6, 42.9] | 51.3 [45.2, 85.7] |
+| window_binary_sensitivity | 0.919 [0.892, 0.970] | 0.926 [0.905, 0.967] | 0.942 [0.918, 0.954] | 0.916 [0.859, 0.946] |
+| window_binary_specificity | 0.964 [0.834, 0.981] | 0.962 [0.809, 0.982] | 0.973 [0.936, 0.978] | 0.975 [0.970, 0.975] |
+| latency_mean_s | 0.4 [0.4, 0.4] | 0.3 [0.3, 0.4] | 0.4 [0.3, 0.6] | 0.5 [0.3, 0.9] |
+| latency_median_s | 0.3 [0.3, 0.4] | 0.3 [0.3, 0.3] | 0.3 [0.3, 0.6] | 0.3 [0.3, 0.7] |
+
+### Comparações pareadas B1 − B0 e C1 − C0
+
+`compare` rodou sobre os mesmos runs, com saída em um diretório separado que
+não pertence a nenhum run de entrada:
+
+```bash
+uv run python -m gatefall.eval.analysis.grouped_bootstrap compare \
+  --adaptive-arm B1 --baseline-arm B0 --dataset le2i \
+  --adaptive-run-dir runs/local/le2i/b1_adaptive_gate \
+  --baseline-run-dir runs/local/le2i/b0_fusion \
+  --output-dir runs/local/le2i/grouped_bootstrap_comparisons \
+  --n-replicates 10000 --confidence-level 0.95 --seed 42
+# idem: --adaptive-arm C1 --baseline-arm C0
+#       --adaptive-run-dir runs/local/le2i/c1_adaptive_gate
+#       --baseline-run-dir runs/local/le2i/c0_fusion
+```
+
+As saídas são `paired_bootstrap_b1_minus_b0.json`/`.csv` e
+`paired_bootstrap_c1_minus_c0.json`/`.csv` em
+`runs/local/le2i/grouped_bootstrap_comparisons/`. As duas comparações
+passaram por todas as validações de compatibilidade: mesma seed de treino
+(42), contrato compartilhado idêntico, protocolo de alarme congelado e
+`event_metrics.json` íntegro nos dois lados. O suporte é o mesmo nas duas
+comparações: val com 1 sujeito, 19 vídeos e 2080 janelas (2079 rotuladas);
+test com 2 sujeitos (2 e 7), 38 vídeos e 6168 janelas (5616 rotuladas),
+com `support_sha256` idêntico entre os braços de cada par. Os pontos de
+cada braço coincidem com os da execução de run único, e os hashes de
+checkpoint registrados coincidem com os da tabela acima.
+
+Δ = adaptativa − baseline. A coluna "Δ val" é o delta de val (n=1 sujeito),
+cujo intervalo colapsa no ponto. Delta positivo significa valor maior no
+braço adaptativo: favorável em sensibilidade, F1 e especificidade,
+desfavorável em `false_alarms_per_hour` e latências.
+
+B1 − B0:
+
+| Métrica | Δ val | B0 test | B1 test | Δ test | IC 95% de Δ test |
+| --- | --- | --- | --- | --- | --- |
+| macro_f1_restricted | +0.0013 | 0.655 | 0.671 | +0.0162 | [-0.0280, +0.0230] |
+| precision | -0.0202 | 0.830 | 0.824 | -0.0062 | [-0.0258, +0.0074] |
+| recall | +0.0259 | 0.919 | 0.926 | +0.0078 | [-0.0033, +0.0135] |
+| specificity | -0.0062 | 0.964 | 0.962 | -0.0019 | [-0.0243, +0.0010] |
+| f1 | +0.0037 | 0.872 | 0.872 | +0.00003 | [-0.0175, +0.0104] |
+| accuracy | +0.0010 | 0.957 | 0.957 | -0.0004 | [-0.0167, +0.0025] |
+| sensitivity (evento) | 0.0000 | 0.955 | 0.955 | 0.0000 | [0.0000, 0.0000] |
+| fall_sensitivity | 0.0000 | 0.955 | 0.955 | 0.0000 | [0.0000, 0.0000] |
+| fall_or_fallen_sensitivity | 0.0000 | 0.955 | 0.955 | 0.0000 | [0.0000, 0.0000] |
+| detected_events_alarm_within_fall_rate | 0.0000 | 1.000 | 1.000 | 0.0000 | [0.0000, 0.0000] |
+| false_alarms_per_hour | 0.0 | 52.5 | 52.5 | 0.0 | [0.0, 0.0] |
+| false_alarms_per_hour_labeled_time | 0.0 | 57.7 | 51.3 | -6.4 | [-7.5, 0.0] |
+| window_binary_sensitivity | +0.0259 | 0.919 | 0.926 | +0.0078 | [-0.0033, +0.0135] |
+| window_binary_specificity | -0.0062 | 0.964 | 0.962 | -0.0019 | [-0.0243, +0.0010] |
+| latency_mean_s | -0.1 | 0.4 | 0.3 | -0.1 | [-0.1, 0.0] |
+| latency_median_s | 0.0 | 0.3 | 0.3 | 0.0 | [-0.1, 0.0] |
+
+C1 − C0:
+
+| Métrica | Δ val | C0 test | C1 test | Δ test | IC 95% de Δ test |
+| --- | --- | --- | --- | --- | --- |
+| macro_f1_restricted | +0.0250 | 0.642 | 0.612 | -0.0307 | [-0.0609, -0.0147] |
+| precision | +0.0261 | 0.869 | 0.873 | +0.0033 | [-0.0153, +0.0507] |
+| recall | -0.0065 | 0.942 | 0.916 | -0.0256 | [-0.0590, -0.0084] |
+| specificity | +0.0087 | 0.973 | 0.975 | +0.0015 | [-0.0026, +0.0336] |
+| f1 | +0.0105 | 0.904 | 0.894 | -0.0103 | [-0.0123, -0.0059] |
+| accuracy | +0.0053 | 0.968 | 0.965 | -0.0028 | [-0.0034, 0.0000] |
+| sensitivity (evento) | 0.0000 | 1.000 | 0.909 | -0.0909 | [-0.1333, 0.0000] |
+| fall_sensitivity | 0.0000 | 1.000 | 0.909 | -0.0909 | [-0.1333, 0.0000] |
+| fall_or_fallen_sensitivity | 0.0000 | 1.000 | 0.909 | -0.0909 | [-0.1333, 0.0000] |
+| detected_events_alarm_within_fall_rate | 0.0000 | 1.000 | 1.000 | 0.0000 | [0.0000, 0.0000] |
+| false_alarms_per_hour | 0.0 | 23.3 | 46.7 | +23.3 | [+20.3, +42.8] |
+| false_alarms_per_hour_labeled_time | 0.0 | 25.6 | 51.3 | +25.6 | [+22.6, +42.9] |
+| window_binary_sensitivity | -0.0065 | 0.942 | 0.916 | -0.0256 | [-0.0590, -0.0084] |
+| window_binary_specificity | +0.0087 | 0.973 | 0.975 | +0.0015 | [-0.0026, +0.0336] |
+| latency_mean_s | +0.1 | 0.4 | 0.5 | +0.1 | [0.0, +0.3] |
+| latency_median_s | +0.1 | 0.3 | 0.3 | 0.0 | [0.0, +0.1] |
+
+Leitura descritiva, sujeita ao aviso de resolução acima:
+
+- **B1 − B0:** em test, todo intervalo de delta contém zero. As
+  sensibilidades de evento, `detected_events_alarm_within_fall_rate` e
+  `false_alarms_per_hour` têm delta exatamente zero em todas as réplicas;
+  `false_alarms_per_hour_labeled_time` e as latências têm intervalo de um
+  valor negativo até zero.
+- **C1 − C0:** em test, os intervalos de `macro_f1_restricted`, `recall`/
+  `window_binary_sensitivity` e `f1` ficam inteiramente abaixo de zero e os
+  de `false_alarms_per_hour`/`false_alarms_per_hour_labeled_time` ficam
+  inteiramente acima. Pela estrutura de três composições, isso significa
+  apenas que o sujeito 2, o sujeito 7 e o conjunto têm delta do mesmo sinal
+  nessas métricas. Os sinais de val nas mesmas métricas de classificação
+  são opostos aos de test em `macro_f1_restricted` e `f1`.
+
+Estes intervalos descrevem apenas a incerteza devida à composição de
+sujeitos de um único par de checkpoints com seed 42. A variação entre seeds
+de treino é tratada separadamente no [Sumário multi-seed](multiseed-summary.md)
+e não foi combinada com estes intervalos. Nenhuma observação aqui constitui
+teste de hipótese, p-valor, rótulo de superioridade, seleção, ranking ou
+promoção de modelo ou protocolo.
