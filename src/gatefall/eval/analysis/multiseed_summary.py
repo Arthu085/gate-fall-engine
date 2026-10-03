@@ -391,6 +391,38 @@ def _require_classification_diagnostics(final_split: dict, run_dir: Path, split:
         )
 
 
+def validate_run_event_artifacts(run_dir: Path, config: RunConfig) -> dict:
+    alarm_protocol_path = run_dir / "alarm_protocol.yaml"
+    if not alarm_protocol_path.is_file():
+        raise RuntimeError(f"alarm_protocol.yaml ausente em {run_dir}")
+    protocol = load_alarm_protocol(alarm_protocol_path)
+    if protocol != BASELINE_A_ALARM_PROTOCOL:
+        raise RuntimeError(
+            f"alarm_protocol.yaml em {run_dir} incompatível com o "
+            f"protocolo congelado da arma {config.arm}"
+        )
+
+    event_metrics_path = run_dir / "event_metrics.json"
+    if not event_metrics_path.is_file():
+        raise RuntimeError(f"event_metrics.json ausente em {run_dir}")
+    with event_metrics_path.open(encoding="utf-8") as stream:
+        event_metrics = json.load(stream)
+    try:
+        validate_event_metrics(
+            event_metrics,
+            config,
+            run_dir / "checkpoint.pt",
+            alarm_protocol_path,
+            training_metrics_path=run_dir / "metrics.json",
+            require_hashes=True,
+        )
+    except (ValueError, OSError, TypeError, KeyError) as exc:
+        raise RuntimeError(
+            f"event_metrics.json inválido em {run_dir}: {exc}"
+        ) from exc
+    return event_metrics
+
+
 def _summarize(
     run_dirs: list[Path], shared_expected: RunConfig, adapter: DatasetAdapter
 ) -> tuple[dict, list[dict]]:
@@ -450,34 +482,7 @@ def _summarize(
             "binary_fall_fallen": binary_fall_fallen,
         }
         if config.arm in EVENT_ARMS:
-            alarm_protocol_path = run_dir / "alarm_protocol.yaml"
-            if not alarm_protocol_path.is_file():
-                raise RuntimeError(f"alarm_protocol.yaml ausente em {run_dir}")
-            protocol = load_alarm_protocol(alarm_protocol_path)
-            if protocol != BASELINE_A_ALARM_PROTOCOL:
-                raise RuntimeError(
-                    f"alarm_protocol.yaml em {run_dir} incompatível com o "
-                    f"protocolo congelado da arma {config.arm}"
-                )
-
-            event_metrics_path = run_dir / "event_metrics.json"
-            if not event_metrics_path.is_file():
-                raise RuntimeError(f"event_metrics.json ausente em {run_dir}")
-            with event_metrics_path.open(encoding="utf-8") as stream:
-                event_metrics = json.load(stream)
-            try:
-                validate_event_metrics(
-                    event_metrics,
-                    config,
-                    checkpoint_path,
-                    alarm_protocol_path,
-                    training_metrics_path=metrics_path,
-                    require_hashes=True,
-                )
-            except (ValueError, OSError, TypeError, KeyError) as exc:
-                raise RuntimeError(
-                    f"event_metrics.json inválido em {run_dir}: {exc}"
-                ) from exc
+            event_metrics = validate_run_event_artifacts(run_dir, config)
             seed_report["events"] = {
                 split: event_metrics["splits"][split] for split in EVENT_SPLITS
             }

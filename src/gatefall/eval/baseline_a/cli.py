@@ -90,60 +90,67 @@ def _predict_with_identity(
     return video_ids, k_ends, true_labels, pred_labels
 
 
+def load_event_evaluation(
+    dataset_name: str,
+    run_dir: Path,
+    fields_allowed_to_differ: frozenset[str] = frozenset({"seed"}),
+) -> EventEvaluation:
+    adapter = get_dataset(dataset_name)
+    expected_config = replace(
+        BASELINE_A_CONFIG,
+        standardization_stats_path=str(adapter.pose_stats_path),
+        standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
+    )
+    try:
+        config = validate_training_run(
+            run_dir,
+            expected_config=expected_config,
+            fields_allowed_to_differ=fields_allowed_to_differ,
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(f"run de treino inválido em {run_dir}: {exc}") from exc
+    if config.eval_stride != EVAL_STRIDE:
+        raise ValueError(
+            f"config.eval_stride ({config.eval_stride}) diverge de "
+            f"EVAL_STRIDE ({EVAL_STRIDE})"
+        )
+
+    def prepare() -> tuple[pd.DataFrame, SplitEvaluator]:
+        stats = load_stats(adapter.pose_stats_path)
+        validate_stats_layout(stats)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = _load_model(config, run_dir / "checkpoint.pt", device)
+        frames = adapter.load_frames()
+
+        def evaluate_split(split: str) -> tuple[int, Predictions]:
+            source = PoseWindowDataset(
+                frames,
+                split,
+                EVAL_STRIDE,
+                lambda video_id: build_pose_features(
+                    video_id, pose_root=adapter.pose_root
+                )[0],
+                drop_ignored=False,
+            )
+            predictions = _predict_with_identity(
+                model, source, stats, device, batch_size=config.batch_size
+            )
+            return len(source), predictions
+
+        return frames, evaluate_split
+
+    return EventEvaluation(config, prepare)
+
+
 def _run_evaluate_locked(
     force: bool,
     dataset_name: str,
     run_dir: Path,
     lock: EventEvaluationLock,
 ) -> None:
-    def load_run() -> EventEvaluation:
-        adapter = get_dataset(dataset_name)
-        expected_config = replace(
-            BASELINE_A_CONFIG,
-            standardization_stats_path=str(adapter.pose_stats_path),
-            standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
-        )
-        try:
-            config = validate_training_run(
-                run_dir,
-                expected_config=expected_config,
-                fields_allowed_to_differ=frozenset({"seed"}),
-            )
-        except RuntimeError as exc:
-            raise RuntimeError(f"run de treino inválido em {run_dir}: {exc}") from exc
-        if config.eval_stride != EVAL_STRIDE:
-            raise ValueError(
-                f"config.eval_stride ({config.eval_stride}) diverge de "
-                f"EVAL_STRIDE ({EVAL_STRIDE})"
-            )
-
-        def prepare() -> tuple[pd.DataFrame, SplitEvaluator]:
-            stats = load_stats(adapter.pose_stats_path)
-            validate_stats_layout(stats)
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            model = _load_model(config, run_dir / "checkpoint.pt", device)
-            frames = adapter.load_frames()
-
-            def evaluate_split(split: str) -> tuple[int, Predictions]:
-                source = PoseWindowDataset(
-                    frames,
-                    split,
-                    EVAL_STRIDE,
-                    lambda video_id: build_pose_features(
-                        video_id, pose_root=adapter.pose_root
-                    )[0],
-                    drop_ignored=False,
-                )
-                predictions = _predict_with_identity(
-                    model, source, stats, device, batch_size=config.batch_size
-                )
-                return len(source), predictions
-
-            return frames, evaluate_split
-
-        return EventEvaluation(config, prepare)
-
-    run_event_evaluation(force, "A", run_dir, lock, load_run)
+    run_event_evaluation(
+        force, "A", run_dir, lock, lambda: load_event_evaluation(dataset_name, run_dir)
+    )
 
 
 def run_evaluate(

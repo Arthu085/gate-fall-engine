@@ -162,55 +162,58 @@ def _load_run_assets(
     return adapter, config, pose_stats, visual_stats, model
 
 
+def load_event_evaluation(dataset_name: str, run_dir: Path) -> EventEvaluation:
+    adapter, config, pose_stats, visual_stats, model = _load_run_assets(
+        dataset_name, run_dir
+    )
+
+    def prepare() -> tuple[pd.DataFrame, SplitEvaluator]:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        evaluation_model = model.to(device)
+        evaluation_model.eval()
+        frames = adapter.load_frames()
+        pose_loader: Callable[[str], np.ndarray] = (
+            lambda video_id: build_pose_features(
+                video_id, pose_root=adapter.pose_root
+            )[0]
+        )
+        visual_loader: Callable[[str], np.ndarray] = lambda video_id: read_features(
+            dinov3_path(video_id, dinov3_root=adapter.dinov3_root)
+        ).astype("float32")
+
+        def evaluate_split(split: str) -> tuple[int, Predictions]:
+            source = FusionWindowDataset(
+                frames,
+                split,
+                EVAL_STRIDE,
+                pose_loader,
+                visual_loader,
+                drop_ignored=False,
+            )
+            predictions = _predict_with_identity(
+                evaluation_model,
+                source,
+                pose_stats,
+                visual_stats,
+                device,
+                batch_size=config.batch_size,
+            )
+            return len(source), predictions
+
+        return frames, evaluate_split
+
+    return EventEvaluation(config, prepare)
+
+
 def _run_evaluate_locked(
     force: bool,
     dataset_name: str,
     run_dir: Path,
     lock: EventEvaluationLock,
 ) -> None:
-    def load_run() -> EventEvaluation:
-        adapter, config, pose_stats, visual_stats, model = _load_run_assets(
-            dataset_name, run_dir
-        )
-
-        def prepare() -> tuple[pd.DataFrame, SplitEvaluator]:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            evaluation_model = model.to(device)
-            evaluation_model.eval()
-            frames = adapter.load_frames()
-            pose_loader: Callable[[str], np.ndarray] = (
-                lambda video_id: build_pose_features(
-                    video_id, pose_root=adapter.pose_root
-                )[0]
-            )
-            visual_loader: Callable[[str], np.ndarray] = lambda video_id: read_features(
-                dinov3_path(video_id, dinov3_root=adapter.dinov3_root)
-            ).astype("float32")
-
-            def evaluate_split(split: str) -> tuple[int, Predictions]:
-                source = FusionWindowDataset(
-                    frames,
-                    split,
-                    EVAL_STRIDE,
-                    pose_loader,
-                    visual_loader,
-                    drop_ignored=False,
-                )
-                predictions = _predict_with_identity(
-                    evaluation_model,
-                    source,
-                    pose_stats,
-                    visual_stats,
-                    device,
-                    batch_size=config.batch_size,
-                )
-                return len(source), predictions
-
-            return frames, evaluate_split
-
-        return EventEvaluation(config, prepare)
-
-    run_event_evaluation(force, "B0", run_dir, lock, load_run)
+    run_event_evaluation(
+        force, "B0", run_dir, lock, lambda: load_event_evaluation(dataset_name, run_dir)
+    )
 
 
 def run_evaluate(
