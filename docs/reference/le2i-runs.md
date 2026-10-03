@@ -35,14 +35,19 @@ matrizes de confusão, métricas por classe, projeção binária e verificação
 contra `metrics.json`. `event_metrics.json` registra os SHA-256 do checkpoint,
 das métricas de treino e do protocolo. Esses hashes continuam sendo os da
 execução original: a promoção não altera valores de métricas nem proveniência.
+As referências B1 e C1 também contêm `gate_degradation.json`, relatório da
+[análise pós-hoc dos gates](../analysis/gate-degradation.md#resultados-reais-no-le2i).
+Essa promoção altera apenas os caminhos de execução `run_dir` e
+`checkpoint_path`.
 
-Os arquivos são copiados dos respectivos `runs/local/le2i/<arma>/`. Apenas
+Os artefatos de treino e eventos são copiados dos respectivos
+`runs/local/le2i/<arma>/`. Apenas
 `run_dir` no relatório e `checkpoint_path`/`alarm_protocol_path` nas métricas
 de eventos apontam para `runs/reference/le2i/<arma>/`, seguindo a promoção
 histórica de A. O caminho do checkpoint na referência é uma indicação de
 proveniência; `checkpoint.pt` não é versionado nem está presente ali. A
 referência também não contém features, pesos dos backbones, dados brutos,
-locks, saídas intermediárias ou diagnósticos locais adicionais.
+locks, saídas intermediárias ou outros diagnósticos locais.
 
 ## Conferência e reprodução
 
