@@ -172,6 +172,35 @@ gate, proveniência do backbone, protocolo de alarme e grades fixas. O
 protocolo e a implementação das métricas são os mesmos da avaliação
 congelada B1/C1.
 
-Esta análise exige muitas reinferências do backbone e pode demorar; para C1,
-prefira a execução em shards. Os selftests usam somente dados sintéticos. Os resultados reais dependem dos
-artefatos locais e não são produzidos pelo comando `selftest`.
+## Resultados reais no Le2i
+
+Os relatórios promovidos estão em
+`runs/reference/le2i/baseline_b1/gate_degradation.json` e
+`runs/reference/le2i/baseline_c1/gate_degradation.json`. A tabela mostra a média
+de `g_pose` na condição limpa e na maior severidade de cada modalidade; um
+valor maior atribui mais peso à pose.
+
+| Braço | Split | Limpo | Pose: 16 pontos removidos | Visual: blur 12 |
+| --- | --- | ---: | ---: | ---: |
+| B1 | `val` | 0,4998 | 0,5073 | 0,5104 |
+| B1 | `test` | 0,5007 | 0,5074 | 0,5114 |
+| C1 | `val` | 0,7551 | 0,6269 | 0,7461 |
+| C1 | `test` | 0,7389 | 0,6258 | 0,7316 |
+
+Em B1, a degradação da pose aumenta `g_pose`, na direção contrária à esperada.
+A degradação visual também aumenta `g_pose`, na direção esperada, mas pouco.
+Em C1, a degradação da pose reduz `g_pose`, na direção esperada; a degradação
+do SAM 3 também o reduz, na direção contrária à esperada. A evidência pós-hoc
+não sustenta uma interpretação genérica de confiabilidade bidirecional dos
+gates escalares aprendidos. Sozinha, ela não demonstra que um gate vetorial
+seja necessário. O split `test` permanece apenas descritivo.
+
+Os SHA-256 dos JSONs de origem, antes da normalização dos caminhos de execução,
+são `ee89d96be9b41df8c9374be441a96287930ff74ad577144f4aba6bf8b787cdcb`
+para B1 e `3152a57d89012a35f5ed0997e0241c920810c12df7beec7e0f89b7fa8fdfd135`
+para C1. Os traces CSV não versionados têm SHA-256
+`6336674650261aa7b55b99aab80442263d42a6d387c5ed1276236f541475630d`
+(B1) e `f89f49b5aaceaea8e1959a35bb01113c040fff6e3ab1a75491b959d897d8788f`
+(C1). Esta análise exige muitas reinferências do backbone; para C1, prefira
+shards. Os selftests usam somente dados sintéticos e não produzem resultados
+reais.
