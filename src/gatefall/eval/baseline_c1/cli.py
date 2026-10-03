@@ -171,60 +171,63 @@ def _quality_for_video(video_id: str, adapter: DatasetAdapter) -> np.ndarray:
     return np.column_stack((q_pose, q_sam3)).astype(np.float32)
 
 
+def load_event_evaluation(dataset_name: str, run_dir: Path) -> EventEvaluation:
+    adapter, config, pose_stats, visual_stats, model, frames = _load_run_assets(
+        dataset_name, run_dir
+    )
+
+    def prepare() -> tuple[pd.DataFrame, SplitEvaluator]:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        evaluation_model = model.to(device)
+        evaluation_model.eval()
+
+        pose_loader: Callable[[str], np.ndarray] = (
+            lambda video_id: build_pose_features(
+                video_id, pose_root=adapter.pose_root
+            )[0]
+        )
+        visual_loader: Callable[[str], np.ndarray] = lambda video_id: load_v_t(
+            video_id, sam3_root=adapter.sam3_root
+        )
+        quality_loader: Callable[[str], np.ndarray] = lambda video_id: _quality_for_video(
+            video_id, adapter
+        )
+
+        def evaluate_split(split: str) -> tuple[int, Predictions]:
+            source = GatedFusionWindowDataset(
+                frames,
+                split,
+                EVAL_STRIDE,
+                pose_loader,
+                visual_loader,
+                quality_loader,
+                drop_ignored=False,
+                visual_dim=V_T_DIM,
+            )
+            predictions = _predict_with_identity(
+                evaluation_model,
+                source,
+                pose_stats,
+                visual_stats,
+                device,
+                batch_size=config.batch_size,
+            )
+            return len(source), predictions
+
+        return frames, evaluate_split
+
+    return EventEvaluation(config, prepare)
+
+
 def _run_evaluate_locked(
     force: bool,
     dataset_name: str,
     run_dir: Path,
     lock: EventEvaluationLock,
 ) -> None:
-    def load_run() -> EventEvaluation:
-        adapter, config, pose_stats, visual_stats, model, frames = _load_run_assets(
-            dataset_name, run_dir
-        )
-
-        def prepare() -> tuple[pd.DataFrame, SplitEvaluator]:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            evaluation_model = model.to(device)
-            evaluation_model.eval()
-
-            pose_loader: Callable[[str], np.ndarray] = (
-                lambda video_id: build_pose_features(
-                    video_id, pose_root=adapter.pose_root
-                )[0]
-            )
-            visual_loader: Callable[[str], np.ndarray] = lambda video_id: load_v_t(
-                video_id, sam3_root=adapter.sam3_root
-            )
-            quality_loader: Callable[[str], np.ndarray] = lambda video_id: _quality_for_video(
-                video_id, adapter
-            )
-
-            def evaluate_split(split: str) -> tuple[int, Predictions]:
-                source = GatedFusionWindowDataset(
-                    frames,
-                    split,
-                    EVAL_STRIDE,
-                    pose_loader,
-                    visual_loader,
-                    quality_loader,
-                    drop_ignored=False,
-                    visual_dim=V_T_DIM,
-                )
-                predictions = _predict_with_identity(
-                    evaluation_model,
-                    source,
-                    pose_stats,
-                    visual_stats,
-                    device,
-                    batch_size=config.batch_size,
-                )
-                return len(source), predictions
-
-            return frames, evaluate_split
-
-        return EventEvaluation(config, prepare)
-
-    run_event_evaluation(force, "C1", run_dir, lock, load_run)
+    run_event_evaluation(
+        force, "C1", run_dir, lock, lambda: load_event_evaluation(dataset_name, run_dir)
+    )
 
 
 def _guard_foreign_arm_run_dir(run_dir: Path) -> None:

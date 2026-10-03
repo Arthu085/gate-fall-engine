@@ -15,6 +15,9 @@ from gatefall.eval.analysis.grouped_bootstrap import (
     build_subject_to_videos,
     run_grouped_bootstrap_for_split,
 )
+from gatefall.eval.analysis.selftests.grouped_bootstrap_arms import (
+    run_grouped_bootstrap_arms_selftest,
+)
 from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
 
 
@@ -536,6 +539,7 @@ def run_grouped_bootstrap_selftest() -> bool:
         _selftest_undefined_replicates_handling(),
         _selftest_binary_f1_validity_rule(),
         _selftest_alarm_protocol_recorded_in_report(),
+        *run_grouped_bootstrap_arms_selftest(),
     ]
     ok = all(checks)
     if not ok:

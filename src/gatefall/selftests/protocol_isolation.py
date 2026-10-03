@@ -371,6 +371,32 @@ def check_entry_points_reject_mismatched_run_dir() -> bool:
             force=False, dataset_name="le2i", run_dir=cv_run_dir
         )
     )
+    bootstrap_arms_rejected = all(
+        _raises_cross_protocol_guard(
+            lambda arm=arm: grouped_bootstrap.run_analyze(
+                force=False,
+                dataset_name="le2i",
+                run_dir=default_run_dir_for_arm("le2i-cv", arm),
+                arm=arm,
+            )
+        )
+        for arm in ("B0", "B1", "C0", "C1")
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        paired_bootstrap_rejected = all(
+            _raises_cross_protocol_guard(
+                lambda adaptive=adaptive, baseline=baseline: grouped_bootstrap.run_compare(
+                    adaptive,
+                    baseline,
+                    "le2i",
+                    default_run_dir_for_arm("le2i-cv", adaptive),
+                    default_run_dir_for_arm("le2i-cv", baseline),
+                    Path(tmp) / "paired",
+                    force=False,
+                )
+            )
+            for adaptive, baseline in grouped_bootstrap.PAIRED_COMPARISONS
+        ) and not (Path(tmp) / "paired").exists()
     qualitative_rejected = _raises_cross_protocol_guard(
         lambda: qualitative.run_render(
             run_dir=cv_run_dir,
@@ -459,7 +485,8 @@ def check_entry_points_reject_mismatched_run_dir() -> bool:
         )
     )
     return _check(
-        "entry points (alarm_protocol_sensitivity/grouped_bootstrap/"
+        "entry points (alarm_protocol_sensitivity/grouped_bootstrap analyze "
+        "A/B0/B1/C0/C1 e compare B1-B0/C1-C0/"
         "qualitative/multiseed_summary/baseline_b0.run_train/baseline_b0.run_report/"
         "b0_events.run_evaluate/baseline_b1.run_train/baseline_b1.run_report/"
         "b1_events.run_evaluate/baseline_c0.run_train/baseline_c0.run_report/"
@@ -469,6 +496,8 @@ def check_entry_points_reject_mismatched_run_dir() -> bool:
         "através da própria função de produção",
         sensitivity_rejected
         and bootstrap_rejected
+        and bootstrap_arms_rejected
+        and paired_bootstrap_rejected
         and qualitative_rejected
         and multiseed_rejected
         and b0_train_rejected
