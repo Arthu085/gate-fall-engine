@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import torch
 from PIL import Image, ImageFont
 
 from gatefall.dinov3.backbone import NORMALIZE_MEAN, NORMALIZE_STD, RESIZE_SIZE
@@ -12,6 +13,7 @@ from gatefall.eval.analysis.multiseed_summary import ARMS
 from gatefall.eval.analysis.qualitative import (
     CAPTION_FONT_SIZE_MIN,
     DINOV3_INPUT_PANEL,
+    DINOV3_PCA_PANEL,
     SAM3_MASK_PANEL,
     RenderTarget,
     Sam3VideoContext,
@@ -24,7 +26,10 @@ from gatefall.eval.analysis.qualitative import (
     _render_video,
     _write_png_atomic,
     dinov3_input_frame,
+    dinov3_patch_tokens,
+    feature_panel_for_arm,
     load_render_evaluation,
+    patch_feature_pca_image,
     replay_sam3_selection,
     resolve_render_run_dir,
     source_panel_for_arm,
@@ -355,12 +360,14 @@ def _selftest_figure_filenames_by_panel() -> bool:
         _figure_filename("env/video_a", 7),
         _figure_filename("env/video_a", 7, is_false_alarm=True),
         _figure_filename("env/video_a", 7, panel=DINOV3_INPUT_PANEL),
+        _figure_filename("env/video_a", 7, panel=DINOV3_PCA_PANEL),
         _figure_filename("env/video_a", 7, is_false_alarm=True, panel=SAM3_MASK_PANEL),
     }
     ok = names == {
         "env__video_a__k000007.png",
         "falsealarm__env__video_a__k000007.png",
         "env__video_a__k000007__dinov3_input.png",
+        "env__video_a__k000007__dinov3_pca.png",
         "falsealarm__env__video_a__k000007__sam3_mask.png",
     }
     return _check(
@@ -601,6 +608,188 @@ def _selftest_sam3_replay_matches_extraction_and_validates() -> bool:
     )
 
 
+def _selftest_feature_panel_by_arm() -> bool:
+    ok = (
+        feature_panel_for_arm("A", False) is None
+        and feature_panel_for_arm("C1", False) is None
+        and feature_panel_for_arm("B0", True) == DINOV3_PCA_PANEL
+        and feature_panel_for_arm("B1", True) == DINOV3_PCA_PANEL
+        and _raises(lambda: feature_panel_for_arm("A", True), ValueError, "não se aplica")
+        and _raises(
+            lambda: feature_panel_for_arm("C0", True), ValueError, "sem embedding espacial denso"
+        )
+        and _raises(
+            lambda: feature_panel_for_arm("C1", True), ValueError, "sem embedding espacial denso"
+        )
+    )
+    return _check(
+        "--feature-panel resolve a PCA DINOv3 só para B0/B1 e recusa A e "
+        "C0/C1 (SAM 3 sem embedding espacial denso, sem PCA falsa)",
+        ok,
+    )
+
+
+def _synthetic_patch_tokens(seed: int = 0) -> np.ndarray:
+    return np.random.default_rng(seed).normal(size=(14 * 14, 768)).astype(np.float32)
+
+
+def _selftest_patch_feature_pca_image_is_deterministic() -> bool:
+    tokens = _synthetic_patch_tokens()
+    image = patch_feature_pca_image(tokens)
+    again = patch_feature_pca_image(tokens.copy())
+    patch_px = RESIZE_SIZE // 14
+    blocks_constant = all(
+        np.array_equal(
+            image[row * patch_px : (row + 1) * patch_px, col * patch_px : (col + 1) * patch_px],
+            np.broadcast_to(
+                image[row * patch_px, col * patch_px],
+                (patch_px, patch_px, 3),
+            ),
+        )
+        for row in range(14)
+        for col in range(14)
+    )
+    full_range = all(
+        int(image[:, :, channel].min()) == 0 and int(image[:, :, channel].max()) == 255
+        for channel in range(3)
+    )
+    return _check(
+        "PCA de 3 componentes dos patch tokens gera 224x224x3 uint8 "
+        "determinístico, um bloco constante por patch da grade 14x14 e cada "
+        "componente normalizado para [0,255]; grade não quadrada é recusada",
+        image.shape == (RESIZE_SIZE, RESIZE_SIZE, 3)
+        and image.dtype == np.uint8
+        and np.array_equal(image, again)
+        and blocks_constant
+        and full_range
+        and _raises(
+            lambda: patch_feature_pca_image(tokens[:150]), ValueError, "grade quadrada"
+        ),
+    )
+
+
+class _FakeDinov3Backbone:
+    def __init__(self, tokens: np.ndarray) -> None:
+        self.tokens = tokens
+        self.inputs: list[torch.Tensor] = []
+
+    def forward_features(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+        self.inputs.append(x)
+        return {
+            "x_norm_clstoken": torch.zeros((1, self.tokens.shape[1])),
+            "x_norm_patchtokens": torch.from_numpy(self.tokens).unsqueeze(0),
+        }
+
+
+def _selftest_dinov3_patch_tokens_use_backbone_input() -> bool:
+    rng = np.random.default_rng(1)
+    frame = rng.integers(0, 256, size=(240, 320, 3), dtype=np.uint8)
+    tokens = _synthetic_patch_tokens(1)
+    backbone = _FakeDinov3Backbone(tokens)
+    captured = dinov3_patch_tokens(backbone, frame, "cpu")
+    ok = (
+        len(backbone.inputs) == 1
+        and torch.equal(backbone.inputs[0], preprocess_frames([frame]))
+        and captured.shape == tokens.shape
+        and captured.dtype == np.float32
+        and np.array_equal(captured, tokens)
+    )
+    return _check(
+        "patch tokens vêm de forward_features sobre a entrada normal do "
+        "DINOv3 (preprocess_frames) e não do descritor de 1536 dimensões",
+        ok,
+    )
+
+
+def _selftest_dinov3_pca_panel_render_path() -> bool:
+    rng = np.random.default_rng(2)
+    frame = rng.integers(0, 256, size=(240, 320, 3), dtype=np.uint8)
+    tokens = _synthetic_patch_tokens(2)
+    seen_frames: list[np.ndarray] = []
+
+    def fake_patch_tokens(frame_rgb: np.ndarray) -> np.ndarray:
+        seen_frames.append(frame_rgb)
+        return tokens
+
+    target = RenderTarget(
+        video_id="env/video_p", trigger_k=5, src_index=10, time_s=0.5,
+        predicted_label=1, latency_s=0.3,
+    )
+
+    def render(figures_dir: Path, force: bool, written: dict[str, np.ndarray]) -> tuple[int, int]:
+        return _render_video(
+            "env/video_p",
+            Path("fake_video.avi"),
+            Path("fake_pose_root"),
+            [target],
+            figures_dir,
+            ("walk", "fall", "fallen"),
+            force=force,
+            decode_frames_fn=lambda _path, indices: [frame for _ in indices],
+            load_pose_fn=lambda _video_id, *, pose_root: _synthetic_pose_arrays(20),
+            write_png_fn=lambda path, image: written.__setitem__(path.name, image),
+            source_panel=DINOV3_INPUT_PANEL,
+            feature_panel=DINOV3_PCA_PANEL,
+            patch_tokens_fn=fake_patch_tokens,
+        )
+
+    written: dict[str, np.ndarray] = {}
+    counts = render(Path("fake_figures_dir"), True, written)
+    pca_panel = written.get("env__video_p__k000005__dinov3_pca.png")
+    input_panel = written.get("env__video_p__k000005__dinov3_input.png")
+    rendered = (
+        counts == (3, 0)
+        and list(written)
+        == [
+            "env__video_p__k000005.png",
+            "env__video_p__k000005__dinov3_input.png",
+            "env__video_p__k000005__dinov3_pca.png",
+        ]
+        and len(seen_frames) == 1
+        and seen_frames[0] is frame
+        and pca_panel is not None
+        and pca_panel.shape[1] == RESIZE_SIZE
+        and pca_panel.shape[0] > RESIZE_SIZE
+        and np.array_equal(pca_panel[:RESIZE_SIZE], patch_feature_pca_image(tokens))
+        and input_panel is not None
+        and np.array_equal(input_panel[:RESIZE_SIZE], dinov3_input_frame(frame))
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        figures_dir = Path(tmp)
+        (figures_dir / "env__video_p__k000005__dinov3_pca.png").touch()
+        skip_written: dict[str, np.ndarray] = {}
+        skip_counts = render(figures_dir, False, skip_written)
+        skip_ok = (
+            skip_counts == (2, 1)
+            and "env__video_p__k000005__dinov3_pca.png" not in skip_written
+        )
+
+    missing_backbone = _raises(
+        lambda: _render_video(
+            "env/video_p",
+            Path("fake_video.avi"),
+            Path("fake_pose_root"),
+            [target],
+            Path("fake_figures_dir"),
+            ("walk", "fall", "fallen"),
+            force=True,
+            decode_frames_fn=lambda _path, indices: [frame for _ in indices],
+            load_pose_fn=lambda _video_id, *, pose_root: _synthetic_pose_arrays(20),
+            write_png_fn=lambda _path, _image: None,
+            feature_panel=DINOV3_PCA_PANEL,
+        ),
+        ValueError,
+        "exige o backbone",
+    )
+    return _check(
+        "painel __dinov3_pca é gravado ao lado de __dinov3_input (inalterado), "
+        "com legenda fora dos pixels da PCA, respeita skip sem --force e exige "
+        "o backbone carregado",
+        rendered and skip_ok and missing_backbone,
+    )
+
+
 def run_qualitative_selftest() -> bool:
     checks = [
         _selftest_imputed_pose_skips_drawing(),
@@ -617,6 +806,10 @@ def run_qualitative_selftest() -> bool:
         _selftest_arm_a_render_has_no_panel(),
         _selftest_dinov3_panel_matches_backbone_input(),
         _selftest_sam3_replay_matches_extraction_and_validates(),
+        _selftest_feature_panel_by_arm(),
+        _selftest_patch_feature_pca_image_is_deterministic(),
+        _selftest_dinov3_patch_tokens_use_backbone_input(),
+        _selftest_dinov3_pca_panel_render_path(),
     ]
     ok = all(checks)
     if not ok:

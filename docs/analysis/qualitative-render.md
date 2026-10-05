@@ -87,7 +87,8 @@ PNGs vão para `{run_dir}/figures/`, um arquivo por
 par `(video_id, trigger_k)`: `{video_id com "/" trocado por
 "__"}__k{trigger_k:06d}.png`, igual para todos os braços. Com
 `--source-panel`, o painel de origem usa o mesmo nome com sufixo
-`__dinov3_input` ou `__sam3_mask` antes de `.png`. Sem `--force`, um arquivo já existente é
+`__dinov3_input` ou `__sam3_mask` antes de `.png`; com `--feature-panel`,
+o painel de PCA usa o sufixo `__dinov3_pca`. Sem `--force`, um arquivo já existente é
 preservado e contado como pulado; com `--force`, é sobrescrito
 atomicamente (escrita em `.tmp` seguida de `os.replace`). O desenho do
 esqueleto/bbox e a codificação do PNG usam Pillow (`PIL.Image`,
@@ -150,6 +151,56 @@ GPU é recomendada: o custo cresce com o prefixo de cada vídeo até o último
 alarme, não com o número de alvos. Sem `--source-panel`, C0/C1 não sobem o
 runtime do SAM 3.
 
+## Painel de features (`--feature-panel`)
+
+`--feature-panel` é opcional, independente de `--source-panel` e só se
+aplica a B0/B1. Grava mais um PNG por alvo, com sufixo `__dinov3_pca`: uma
+visualização **pós-hoc e diagnóstica** dos patch tokens do DINOv3 no
+quadro do gatilho do alarme.
+
+- O quadro passa pelo mesmo pré-processamento da extração
+  (`preprocess_frames`: 224×224 e normalização) e pelo backbone congelado
+  (`forward_features`); o painel usa `x_norm_patchtokens` — os tokens
+  espaciais de patch, uma grade 14×14 para patch 16 —, não o descritor de
+  1536 dimensões persistido no HDF5.
+- PCA de 3 componentes sobre a matriz de patch tokens do quadro (patches
+  como amostras, canais do embedding como features), após centralizar cada
+  canal. O sinal de cada componente é fixado deterministicamente (maior
+  carga absoluta positiva), e cada componente é normalizado por min–max
+  para `[0,255]` e vira um canal RGB. A grade 14×14 é ampliada para
+  224×224 por vizinho mais próximo, preservando os blocos de patch.
+- A legenda (`DINOv3 patch-feature PCA (diagnostico pos-hoc)`) fica numa
+  faixa abaixo da imagem.
+
+As cores são relativas ao próprio quadro: a PCA é recalculada por quadro,
+então cores iguais em dois PNGs não indicam features iguais. O painel não
+mostra o que a TCN usou para decidir — B0/B1 consomem só o descritor
+persistido — nem é um mapa de atenção.
+
+Antes de carregar o backbone, o comando confere que o commit do
+repositório e o hash dos pesos (`--repo-dir`, `--weights`, ou os padrões e
+variáveis de ambiente de [Features DINOv3](../data/dinov3-features.md))
+batem com a proveniência gravada nos HDF5 do DINOv3. Inferência roda em
+modo determinístico; GPU é recomendada. Nenhum HDF5 é lido para escrita.
+
+Para C0/C1, `--feature-panel` é recusado: o runtime oficial isolado do
+SAM 3 devolve só máscaras e scores por quadro, sem embedding espacial
+denso, então não há base para uma PCA de features do SAM 3. A evidência
+visual de C0/C1 continua sendo a máscara selecionada de `--source-panel`.
+
+## Evidência ancorada versus visualização diagnóstica
+
+| Sufixo | Braços | Conteúdo | Natureza |
+| --- | --- | --- | --- |
+| (nenhum) | A, B0, B1, C0, C1 | Quadro do gatilho com pose/bbox do YOLO-Pose | Evidência ancorada |
+| `__dinov3_input` | B0, B1 | Quadro 224×224 de entrada do DINOv3, antes da normalização | Evidência ancorada |
+| `__sam3_mask` | C0, C1 | Máscara SAM 3 selecionada, validada contra o HDF5 | Evidência ancorada |
+| `__dinov3_pca` | B0, B1 | PCA de 3 componentes dos patch tokens DINOv3 | Visualização diagnóstica pós-hoc |
+
+Os painéis ancorados mostram exatamente o que entra no pipeline (quadro,
+pose, entrada do backbone, máscara que gera `V_t`). O painel de PCA é uma
+projeção calculada só para inspeção e não é entrada de nenhum modelo.
+
 ## Como executar
 
 ```bash
@@ -159,8 +210,9 @@ uv run python -m gatefall.eval.analysis.qualitative selftest
 Roda checagens sintéticas (pose imputada não desenha, `decode_frames`
 chamado uma vez por vídeo, desenho altera pixels, escolha do alarme mais
 cedo, nome de arquivo estável, despacho A/B0/B1/C0/C1, saída de A
-preservada, pré-processamento do painel B e replay/validação da máscara
-SAM 3 com segmentador falso) sem vídeo real, sem GPU e sem tocar em
+preservada, pré-processamento do painel B, replay/validação da máscara
+SAM 3 com segmentador falso, despacho de `--feature-panel` só para B0/B1 e
+PCA determinística de patch tokens com backbone falso) sem vídeo real, sem GPU e sem tocar em
 nenhum artefato do projeto.
 
 ```bash
@@ -175,6 +227,10 @@ eventos detectados. `--force` sobrescreve figuras já existentes.
 ```bash
 uv run python -m gatefall.eval.analysis.qualitative render --arm B1 \
   --run-dir runs/local/le2i/baseline_b1 --source-panel
+
+uv run python -m gatefall.eval.analysis.qualitative render --arm B1 \
+  --run-dir runs/local/le2i/baseline_b1 --source-panel --feature-panel \
+  --repo-dir DIR --weights PATH
 
 uv run python -m gatefall.eval.analysis.qualitative render --arm C1 \
   --run-dir runs/local/le2i/baseline_c1 --source-panel \

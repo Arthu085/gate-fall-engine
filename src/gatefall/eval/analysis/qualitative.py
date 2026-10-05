@@ -30,7 +30,16 @@ from PIL import Image, ImageDraw, ImageFont
 # Le2i (ver docstring de video_io.py).
 from gatefall.data.video_io import decode_frames
 from gatefall.datasets import get_dataset
-from gatefall.dinov3.preprocessing import resize_frames
+from gatefall.dinov3.backbone import (
+    RESIZE_SIZE,
+    configure_deterministic_inference,
+    load_backbone,
+    resolve_repo_dir,
+    resolve_weights_path,
+)
+from gatefall.dinov3.features import Dinov3Backbone
+from gatefall.dinov3.preprocessing import preprocess_frames, resize_frames
+from gatefall.eval.analysis.gate_degradation import _check_dinov3_backbone
 from gatefall.eval.analysis.grouped_bootstrap import load_arm_evaluation
 from gatefall.eval.analysis.multiseed_summary import ARMS
 from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, AlarmProtocol, load_alarm_protocol
@@ -59,12 +68,18 @@ from gatefall.sam3.storage import read_n_instances, read_sam_score, read_v_t, sa
 
 DINOV3_INPUT_PANEL = "dinov3_input"
 SAM3_MASK_PANEL = "sam3_mask"
+DINOV3_PCA_PANEL = "dinov3_pca"
 SOURCE_PANEL_BY_ARM: dict[str, str] = {
     "B0": DINOV3_INPUT_PANEL,
     "B1": DINOV3_INPUT_PANEL,
     "C0": SAM3_MASK_PANEL,
     "C1": SAM3_MASK_PANEL,
 }
+FEATURE_PANEL_BY_ARM: dict[str, str] = {
+    "B0": DINOV3_PCA_PANEL,
+    "B1": DINOV3_PCA_PANEL,
+}
+PCA_COMPONENTS = 3
 
 COLOR_SKELETON = (0, 255, 0)
 COLOR_KEYPOINT = (255, 0, 0)
@@ -338,6 +353,51 @@ def _draw_dinov3_input_panel(frame_rgb: np.ndarray, target: RenderTarget) -> np.
     )
 
 
+def dinov3_patch_tokens(
+    backbone: Dinov3Backbone, frame_rgb: np.ndarray, device: str
+) -> np.ndarray:
+    batch = preprocess_frames([frame_rgb]).to(device)
+    with torch.inference_mode():
+        out = backbone.forward_features(batch)
+    return out["x_norm_patchtokens"][0].float().cpu().numpy()
+
+
+def patch_feature_pca_image(patch_tokens: np.ndarray) -> np.ndarray:
+    n_patches = patch_tokens.shape[0]
+    grid = int(round(np.sqrt(n_patches)))
+    if patch_tokens.ndim != 2 or grid * grid != n_patches:
+        raise ValueError(
+            f"patch tokens com shape {patch_tokens.shape} não formam uma grade quadrada"
+        )
+    centered = patch_tokens.astype(np.float64) - patch_tokens.astype(np.float64).mean(axis=0)
+    _, _, components = np.linalg.svd(centered, full_matrices=False)
+    components = components[:PCA_COMPONENTS]
+    # Sinal da PCA é arbitrário: fixa positiva a maior carga absoluta de
+    # cada componente, para que o mesmo quadro gere sempre as mesmas cores.
+    dominant = components[np.arange(PCA_COMPONENTS), np.argmax(np.abs(components), axis=1)]
+    components = components * np.where(dominant < 0, -1.0, 1.0)[:, None]
+    projected = centered @ components.T
+    low = projected.min(axis=0)
+    span = projected.max(axis=0) - low
+    normalized = np.where(span > 0, (projected - low) / np.where(span > 0, span, 1.0), 0.0)
+    grid_rgb = np.round(normalized * 255.0).astype(np.uint8).reshape(grid, grid, PCA_COMPONENTS)
+    upsampled = Image.fromarray(grid_rgb, mode="RGB").resize(
+        (RESIZE_SIZE, RESIZE_SIZE), Image.Resampling.NEAREST
+    )
+    return np.array(upsampled)
+
+
+def _draw_dinov3_pca_panel(pca_rgb: np.ndarray, target: RenderTarget) -> np.ndarray:
+    return _with_caption_strip(
+        pca_rgb,
+        (
+            f"{target.video_id} k={target.trigger_k}",
+            "DINOv3 patch-feature PCA",
+            "(diagnostico pos-hoc)",
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class Sam3Observation:
     mask: np.ndarray | None
@@ -485,18 +545,25 @@ def _render_video(
     write_png_fn: Callable[[Path, np.ndarray], None] = _write_png_atomic,
     source_panel: str | None = None,
     sam3_context: Sam3VideoContext | None = None,
+    feature_panel: str | None = None,
+    patch_tokens_fn: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> tuple[int, int]:
-    def panel_path(target: RenderTarget) -> Path:
+    if feature_panel is not None and patch_tokens_fn is None:
+        raise ValueError("painel de features DINOv3 exige o backbone carregado")
+
+    def panel_path(target: RenderTarget, panel: str) -> Path:
         return figures_dir / _figure_filename(
-            target.video_id, target.trigger_k, target.is_false_alarm, source_panel
+            target.video_id, target.trigger_k, target.is_false_alarm, panel
         )
 
-    pending_panels = (
-        []
-        if source_panel is None
-        else [target for target in targets if force or not panel_path(target).exists()]
-    )
-    replay_sam3 = source_panel == SAM3_MASK_PANEL and bool(pending_panels)
+    panels = [panel for panel in (source_panel, feature_panel) if panel is not None]
+    pending_panels = {
+        panel: [
+            target for target in targets if force or not panel_path(target, panel).exists()
+        ]
+        for panel in panels
+    }
+    replay_sam3 = bool(pending_panels.get(SAM3_MASK_PANEL))
     if replay_sam3:
         if sam3_context is None:
             raise ValueError("painel SAM 3 exige o contexto de replay do vídeo")
@@ -510,7 +577,7 @@ def _render_video(
     sam3_observations: dict[int, Sam3Observation] = {}
     if replay_sam3:
         assert sam3_context is not None
-        target_ks = sorted({target.trigger_k for target in pending_panels})
+        target_ks = sorted({target.trigger_k for target in pending_panels[SAM3_MASK_PANEL]})
         sam3_observations = replay_sam3_selection(
             decoded_frames[: target_ks[-1] + 1],
             target_ks,
@@ -547,21 +614,28 @@ def _render_video(
             write_png_fn(out_path, annotated)
             written += 1
 
-        if source_panel is None:
-            continue
-        if target not in pending_panels:
-            print(f"skip {panel_path(target)} (já existe, use --force para sobrescrever)")
-            skipped += 1
-            continue
-        if source_panel == DINOV3_INPUT_PANEL:
-            panel = _draw_dinov3_input_panel(frame_rgb, target)
-        else:
-            observation = sam3_observations[target.trigger_k]
-            panel = _draw_sam3_mask_frame(
-                frame_rgb, observation, _sam3_caption(target, observation)
-            )
-        write_png_fn(panel_path(target), panel)
-        written += 1
+        for panel in panels:
+            if target not in pending_panels[panel]:
+                print(
+                    f"skip {panel_path(target, panel)} "
+                    "(já existe, use --force para sobrescrever)"
+                )
+                skipped += 1
+                continue
+            if panel == DINOV3_INPUT_PANEL:
+                image = _draw_dinov3_input_panel(frame_rgb, target)
+            elif panel == DINOV3_PCA_PANEL:
+                assert patch_tokens_fn is not None
+                image = _draw_dinov3_pca_panel(
+                    patch_feature_pca_image(patch_tokens_fn(frame_rgb)), target
+                )
+            else:
+                observation = sam3_observations[target.trigger_k]
+                image = _draw_sam3_mask_frame(
+                    frame_rgb, observation, _sam3_caption(target, observation)
+                )
+            write_png_fn(panel_path(target, panel), image)
+            written += 1
 
     return written, skipped
 
@@ -575,6 +649,25 @@ def source_panel_for_arm(arm: str, enabled: bool) -> str | None:
         raise ValueError(
             f"--source-panel não se aplica à arma {arm!r}; disponível para "
             f"{', '.join(SOURCE_PANEL_BY_ARM)}"
+        ) from exc
+
+
+def feature_panel_for_arm(arm: str, enabled: bool) -> str | None:
+    if not enabled:
+        return None
+    if arm in ("C0", "C1"):
+        raise ValueError(
+            f"--feature-panel não se aplica à arma {arm!r}: o runtime oficial "
+            "isolado do SAM 3 devolve só máscaras e scores, sem embedding "
+            "espacial denso para uma PCA de features; use --source-panel para "
+            "a máscara SAM 3 selecionada"
+        )
+    try:
+        return FEATURE_PANEL_BY_ARM[arm]
+    except KeyError as exc:
+        raise ValueError(
+            f"--feature-panel não se aplica à arma {arm!r}; disponível para "
+            f"{', '.join(FEATURE_PANEL_BY_ARM)}"
         ) from exc
 
 
@@ -648,8 +741,12 @@ def run_render(
     source_panel: bool = False,
     runtime_dir: str | None = None,
     sam3_checkpoint: str | None = None,
+    feature_panel: bool = False,
+    repo_dir: str | None = None,
+    weights: str | None = None,
 ) -> None:
     panel = source_panel_for_arm(arm, source_panel)
+    features = feature_panel_for_arm(arm, feature_panel)
     run_dir = resolve_render_run_dir(dataset_name, arm, run_dir)
     evaluation, protocol, event_metrics = load_render_evaluation(arm, dataset_name, run_dir)
     adapter = get_dataset(dataset_name)
@@ -658,6 +755,20 @@ def run_render(
     frame_lookup = _build_frame_lookup(frames)
     video_paths = adapter.video_paths()
     manifest = adapter.load_manifest() if panel == SAM3_MASK_PANEL else None
+
+    patch_tokens_fn: Callable[[np.ndarray], np.ndarray] | None = None
+    if features == DINOV3_PCA_PANEL:
+        repo_path = resolve_repo_dir(repo_dir)
+        weights_path = resolve_weights_path(weights)
+        _check_dinov3_backbone(adapter, frames, repo_path, weights_path)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        configure_deterministic_inference()
+        backbone = cast(Dinov3Backbone, load_backbone(repo_path, weights_path, device))
+
+        def backbone_patch_tokens(frame_rgb: np.ndarray) -> np.ndarray:
+            return dinov3_patch_tokens(backbone, frame_rgb, device)
+
+        patch_tokens_fn = backbone_patch_tokens
 
     figures_dir = run_dir / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
@@ -718,6 +829,8 @@ def run_render(
                     force,
                     source_panel=panel,
                     sam3_context=sam3_context,
+                    feature_panel=features,
+                    patch_tokens_fn=patch_tokens_fn,
                 )
                 total_written += written
                 total_skipped += skipped
@@ -752,6 +865,13 @@ def main() -> None:
     )
     render_parser.add_argument("--runtime-dir", default=None)
     render_parser.add_argument("--sam3-checkpoint", default=None)
+    render_parser.add_argument(
+        "--feature-panel",
+        action="store_true",
+        help="B0/B1: PCA de 3 componentes dos patch tokens DINOv3 (diagnóstico pós-hoc)",
+    )
+    render_parser.add_argument("--repo-dir", default=None)
+    render_parser.add_argument("--weights", default=None)
     subparsers.add_parser(
         "selftest", help="Roda checagens sintéticas do diagnóstico qualitativo"
     )
@@ -769,6 +889,9 @@ def main() -> None:
             source_panel=args.source_panel,
             runtime_dir=args.runtime_dir,
             sam3_checkpoint=args.sam3_checkpoint,
+            feature_panel=args.feature_panel,
+            repo_dir=args.repo_dir,
+            weights=args.weights,
         )
     elif args.command == "selftest":
         from gatefall.eval.analysis.selftests.qualitative import run_selftest
