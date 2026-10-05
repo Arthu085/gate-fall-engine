@@ -3,25 +3,26 @@
 Ferramenta independente de estágio, deliberadamente fora do pipeline padrão
 (`gatefall.pipeline`). O subcomando `render` fica fora da suíte de selftests da
 CI — depende de vídeo bruto decodificado, que a CI não tem; `selftest` roda na
-CI normalmente, pois é totalmente sintético. Lê apenas artefatos já publicados
-do run (`config.yaml`, `alarm_protocol.yaml`, `event_metrics.json`) e nunca
-escreve ou toca no lock/journal de `gatefall.eval.baseline_a.cli`.
+CI normalmente, pois é totalmente sintético. Atende os braços A, B0, B1, C0 e
+C1 reusando o `load_event_evaluation()` de cada avaliador de eventos. Lê apenas
+artefatos já publicados do run (`config.yaml`, `alarm_protocol.yaml`,
+`event_metrics.json`) e das features (HDF5), e nunca escreve ou toca no
+lock/journal de `gatefall.eval.baseline_*`.
 """
 
 import argparse
 import json
 import os
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from contextlib import ExitStack
+from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
 import torch
 from PIL import Image, ImageDraw, ImageFont
-
-from gatefall.config import EVAL_STRIDE
-from gatefall.data.pose_dataset import PoseWindowDataset
 
 # Este módulo nunca abre vídeo diretamente: toda decodificação passa por
 # gatefall.data.video_io.decode_frames (ffmpeg-pipe). Desenho/codificação de
@@ -29,6 +30,9 @@ from gatefall.data.pose_dataset import PoseWindowDataset
 # Le2i (ver docstring de video_io.py).
 from gatefall.data.video_io import decode_frames
 from gatefall.datasets import get_dataset
+from gatefall.dinov3.preprocessing import resize_frames
+from gatefall.eval.analysis.grouped_bootstrap import load_arm_evaluation
+from gatefall.eval.analysis.multiseed_summary import ARMS
 from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, AlarmProtocol, load_alarm_protocol
 from gatefall.eval.shared.events import (
     Alarm,
@@ -37,29 +41,37 @@ from gatefall.eval.shared.events import (
     detect_alarms_for_video,
     fall_events_for_video,
 )
-from gatefall.features.standardization import (
-    StandardizationStats,
-    apply_standardization,
-    load_stats,
-    validate_stats_layout,
-)
-from gatefall.hashing import sha256_file
-from gatefall.pose.kinematics import (
-    COCO17_SKELETON_EDGES,
-    build_pose_features,
-)
+from gatefall.eval.shared.orchestration import EventEvaluation
+from gatefall.pose.kinematics import COCO17_SKELETON_EDGES
 from gatefall.pose.loading import PoseArrays, load_pose
-from gatefall.runs import validate_local_run_dir
-from gatefall.train.baseline_a.artifacts import load_compatible_checkpoint, validate_training_run
-from gatefall.train.baseline_a.config import BASELINE_A_CONFIG, TrainConfig
-from gatefall.train.shared.tcn import TCNClassifier
+from gatefall.runs import default_run_dir_for_arm, validate_local_run_dir
+from gatefall.sam3.descriptors import bbox_from_mask, compute_descriptor
+from gatefall.sam3.runtime import (
+    TEXT_PROMPT,
+    Sam3RuntimeSegmenter,
+    Sam3Segmenter,
+    ensure_sam3_runtime_available,
+    resolve_checkpoint_path,
+    resolve_runtime_project_dir,
+)
+from gatefall.sam3.selection import InstanceSelector
+from gatefall.sam3.storage import read_n_instances, read_sam_score, read_v_t, sam3_path
 
-RUN_DIR = Path("runs/local/le2i/baseline_a")
+DINOV3_INPUT_PANEL = "dinov3_input"
+SAM3_MASK_PANEL = "sam3_mask"
+SOURCE_PANEL_BY_ARM: dict[str, str] = {
+    "B0": DINOV3_INPUT_PANEL,
+    "B1": DINOV3_INPUT_PANEL,
+    "C0": SAM3_MASK_PANEL,
+    "C1": SAM3_MASK_PANEL,
+}
 
 COLOR_SKELETON = (0, 255, 0)
 COLOR_KEYPOINT = (255, 0, 0)
 COLOR_BBOX = (255, 255, 0)
 COLOR_CAPTION = (255, 255, 255)
+COLOR_MASK = (255, 0, 255)
+MASK_ALPHA = 0.45
 
 
 @dataclass(frozen=True)
@@ -71,62 +83,6 @@ class RenderTarget:
     predicted_label: int
     latency_s: float | None
     is_false_alarm: bool = False
-
-
-def _load_model(
-    config: TrainConfig, checkpoint_path: Path, device: str
-) -> TCNClassifier:
-    model = load_compatible_checkpoint(checkpoint_path, config).to(device)
-    model.eval()
-    return model
-
-
-@torch.no_grad()
-def _predict_with_identity(
-    model: TCNClassifier,
-    source: PoseWindowDataset,
-    stats: StandardizationStats,
-    device: str,
-    batch_size: int,
-) -> tuple[list[str], list[int], list[int], list[int]]:
-    video_ids: list[str] = []
-    k_ends: list[int] = []
-    true_labels: list[int] = []
-    pred_labels: list[int] = []
-
-    batch_windows: list[np.ndarray] = []
-    batch_labels: list[int] = []
-    batch_identity: list[tuple[str, int]] = []
-
-    def flush() -> None:
-        if not batch_windows:
-            return
-        stacked = np.stack(batch_windows, axis=0)
-        standardized = apply_standardization(stacked, stats)
-        x = torch.from_numpy(standardized).to(device)
-        logits = model(x)
-        preds = torch.argmax(logits, dim=1).cpu().numpy().tolist()
-
-        for (video_id, k_end), label, pred in zip(batch_identity, batch_labels, preds):
-            video_ids.append(video_id)
-            k_ends.append(k_end)
-            true_labels.append(label)
-            pred_labels.append(int(pred))
-
-        batch_windows.clear()
-        batch_labels.clear()
-        batch_identity.clear()
-
-    for i in range(len(source)):
-        window, label, (video_id, k_end) = source[i]
-        batch_windows.append(window)
-        batch_labels.append(label)
-        batch_identity.append((video_id, k_end))
-        if len(batch_windows) == batch_size:
-            flush()
-    flush()
-
-    return video_ids, k_ends, true_labels, pred_labels
 
 
 def _matched_alarm(event: FallEvent, alarms: list[Alarm]) -> Alarm | None:
@@ -282,6 +238,12 @@ def _draw_alarm_frame(
         bottom_right = (float(bbox[2]), float(bbox[3]))
         draw.rectangle([top_left, bottom_right], outline=COLOR_BBOX, width=2)
 
+    _draw_caption(image, caption)
+    return np.array(image)
+
+
+def _draw_caption(image: Image.Image, caption: str) -> None:
+    draw = ImageDraw.Draw(image)
     caption_margin_px = 10
     max_caption_width = image.width - 2 * caption_margin_px
     font = _fit_caption_font(caption, max_caption_width)
@@ -293,7 +255,6 @@ def _draw_alarm_frame(
         fill=COLOR_CAPTION,
         font=font,
     )
-    return np.array(image)
 
 
 CAPTION_FONT_SIZE_DEFAULT = 16
@@ -324,15 +285,191 @@ def _fit_caption_font(
     return font
 
 
-def _figure_filename(video_id: str, trigger_k: int, is_false_alarm: bool = False) -> str:
+def _figure_filename(
+    video_id: str,
+    trigger_k: int,
+    is_false_alarm: bool = False,
+    panel: str | None = None,
+) -> str:
     prefix = "falsealarm__" if is_false_alarm else ""
-    return f"{prefix}{video_id.replace('/', '__')}__k{trigger_k:06d}.png"
+    suffix = f"__{panel}" if panel is not None else ""
+    return f"{prefix}{video_id.replace('/', '__')}__k{trigger_k:06d}{suffix}.png"
 
 
 def _write_png_atomic(path: Path, frame_rgb: np.ndarray) -> None:
     tmp_path = path.with_name(f".{path.stem}.tmp")
     Image.fromarray(frame_rgb, mode="RGB").save(tmp_path, format="PNG")
     os.replace(tmp_path, path)
+
+
+def dinov3_input_frame(frame_rgb: np.ndarray) -> np.ndarray:
+    resized = resize_frames([frame_rgb])[0]
+    return (resized.permute(1, 2, 0) * 255.0).round().clamp(0, 255).to(torch.uint8).numpy()
+
+
+def _with_caption_strip(image_rgb: np.ndarray, lines: tuple[str, ...]) -> np.ndarray:
+    margin_px = 6
+    line_height_px = CAPTION_FONT_SIZE_MIN + 4
+    height, width = image_rgb.shape[:2]
+    canvas = Image.new(
+        "RGB", (width, height + 2 * margin_px + line_height_px * len(lines)), (0, 0, 0)
+    )
+    canvas.paste(Image.fromarray(image_rgb, mode="RGB"), (0, 0))
+    draw = ImageDraw.Draw(canvas)
+    font = ImageFont.load_default(size=CAPTION_FONT_SIZE_MIN)
+    for index, line in enumerate(lines):
+        draw.text(
+            (margin_px, height + margin_px + index * line_height_px),
+            line,
+            fill=COLOR_CAPTION,
+            font=font,
+        )
+    return np.array(canvas)
+
+
+def _draw_dinov3_input_panel(frame_rgb: np.ndarray, target: RenderTarget) -> np.ndarray:
+    return _with_caption_strip(
+        dinov3_input_frame(frame_rgb),
+        (
+            f"{target.video_id} k={target.trigger_k}",
+            "entrada DINOv3 224x224",
+            "antes da normalizacao",
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class Sam3Observation:
+    mask: np.ndarray | None
+    v_t: np.ndarray
+    sam_score: float
+    n_instances: int
+
+
+@dataclass(frozen=True)
+class Sam3VideoContext:
+    segmenter: Sam3Segmenter
+    src_indices: list[int]
+    width: int
+    height: int
+    v_t: np.ndarray
+    sam_score: np.ndarray
+    n_instances: np.ndarray
+
+
+def replay_sam3_selection(
+    frames_rgb: list[np.ndarray],
+    target_ks: list[int],
+    *,
+    segmenter: Sam3Segmenter,
+    width: int,
+    height: int,
+) -> dict[int, Sam3Observation]:
+    # InstanceSelector é causal: a escolha em k depende das escolhas em
+    # 0..k-1, então o replay percorre o prefixo inteiro do vídeo, como em
+    # gatefall.sam3.extract.run_frames_through_segmenter.
+    targets = set(target_ks)
+    observations: dict[int, Sam3Observation] = {}
+    selector = InstanceSelector()
+    for position, frame in enumerate(frames_rgb):
+        instances = segmenter.segment_frame(frame, TEXT_PROMPT)
+        selected_index = selector.select(instances)
+        if position not in targets:
+            continue
+        if selected_index is None:
+            observations[position] = Sam3Observation(
+                mask=None,
+                v_t=compute_descriptor(None, frame_width=width, frame_height=height),
+                sam_score=0.0,
+                n_instances=len(instances),
+            )
+            continue
+        selected = instances[selected_index]
+        observations[position] = Sam3Observation(
+            mask=selected.mask,
+            v_t=compute_descriptor(selected.mask, frame_width=width, frame_height=height),
+            sam_score=float(np.float32(selected.score)),
+            n_instances=len(instances),
+        )
+    missing = sorted(targets - observations.keys())
+    if missing:
+        raise ValueError(f"replay SAM 3 não alcançou os quadros alvo k={missing}")
+    return observations
+
+
+def validate_sam3_observation(
+    video_id: str, k: int, observation: Sam3Observation, context: Sam3VideoContext
+) -> None:
+    mismatches: list[str] = []
+    if int(context.n_instances[k]) != observation.n_instances:
+        mismatches.append(
+            f"n_instances persistido={int(context.n_instances[k])} "
+            f"recomputado={observation.n_instances}"
+        )
+    if np.float32(context.sam_score[k]) != np.float32(observation.sam_score):
+        mismatches.append(
+            f"sam_score persistido={float(context.sam_score[k])} "
+            f"recomputado={observation.sam_score}"
+        )
+    if not np.array_equal(context.v_t[k].astype(np.float32), observation.v_t):
+        mismatches.append("v_t recomputado diverge do persistido")
+    if mismatches:
+        raise ValueError(
+            f"video_id={video_id!r}, k={k}: observação SAM 3 recomputada diverge "
+            f"do HDF5 ({'; '.join(mismatches)}); PNG não publicado"
+        )
+
+
+def _sam3_caption(target: RenderTarget, observation: Sam3Observation) -> str:
+    base = f"{target.video_id} k={target.trigger_k}"
+    if observation.mask is None:
+        return f"{base} SAM 3 sem instancia (n={observation.n_instances})"
+    return (
+        f"{base} mascara SAM 3 score={observation.sam_score:.2f} "
+        f"n={observation.n_instances}"
+    )
+
+
+def _draw_sam3_mask_frame(
+    frame_rgb: np.ndarray, observation: Sam3Observation, caption: str
+) -> np.ndarray:
+    blended = frame_rgb.astype(np.float32)
+    mask: np.ndarray | None = None
+    if observation.mask is not None:
+        mask = observation.mask.astype(bool)
+        if mask.shape != frame_rgb.shape[:2]:
+            raise ValueError(
+                f"máscara SAM 3 com shape {mask.shape} diverge do quadro "
+                f"{frame_rgb.shape[:2]}"
+            )
+        color = np.array(COLOR_MASK, dtype=np.float32)
+        blended[mask] = (1.0 - MASK_ALPHA) * blended[mask] + MASK_ALPHA * color
+    image = Image.fromarray(np.round(blended).astype(np.uint8), mode="RGB")
+    if mask is not None:
+        bbox = bbox_from_mask(mask)
+        if bbox is not None:
+            ImageDraw.Draw(image).rectangle(bbox, outline=COLOR_MASK, width=2)
+    _draw_caption(image, caption)
+    return np.array(image)
+
+
+def _sam3_decode_indices(
+    video_id: str, targets: list[RenderTarget], context: Sam3VideoContext
+) -> list[int]:
+    last_k = max(target.trigger_k for target in targets)
+    if last_k >= len(context.src_indices):
+        raise ValueError(
+            f"video_id={video_id!r}: trigger_k={last_k} fora da grade "
+            f"({len(context.src_indices)} quadros)"
+        )
+    for target in targets:
+        if context.src_indices[target.trigger_k] != target.src_index:
+            raise ValueError(
+                f"video_id={video_id!r}, k={target.trigger_k}: src_index do alvo "
+                f"({target.src_index}) diverge da grade SAM 3 "
+                f"({context.src_indices[target.trigger_k]})"
+            )
+    return context.src_indices[: last_k + 1]
 
 
 def _render_video(
@@ -346,11 +483,43 @@ def _render_video(
     decode_frames_fn: Callable[[Path, list[int]], list[np.ndarray]] = decode_frames,
     load_pose_fn: Callable[..., PoseArrays] = load_pose,
     write_png_fn: Callable[[Path, np.ndarray], None] = _write_png_atomic,
+    source_panel: str | None = None,
+    sam3_context: Sam3VideoContext | None = None,
 ) -> tuple[int, int]:
-    src_indices = list(dict.fromkeys(target.src_index for target in targets))
+    def panel_path(target: RenderTarget) -> Path:
+        return figures_dir / _figure_filename(
+            target.video_id, target.trigger_k, target.is_false_alarm, source_panel
+        )
+
+    pending_panels = (
+        []
+        if source_panel is None
+        else [target for target in targets if force or not panel_path(target).exists()]
+    )
+    replay_sam3 = source_panel == SAM3_MASK_PANEL and bool(pending_panels)
+    if replay_sam3:
+        if sam3_context is None:
+            raise ValueError("painel SAM 3 exige o contexto de replay do vídeo")
+        src_indices = _sam3_decode_indices(video_id, targets, sam3_context)
+    else:
+        src_indices = list(dict.fromkeys(target.src_index for target in targets))
     decoded_frames = decode_frames_fn(video_path, src_indices)
     frame_by_src_index = dict(zip(src_indices, decoded_frames))
     pose = load_pose_fn(video_id, pose_root=pose_root)
+
+    sam3_observations: dict[int, Sam3Observation] = {}
+    if replay_sam3:
+        assert sam3_context is not None
+        target_ks = sorted({target.trigger_k for target in pending_panels})
+        sam3_observations = replay_sam3_selection(
+            decoded_frames[: target_ks[-1] + 1],
+            target_ks,
+            segmenter=sam3_context.segmenter,
+            width=sam3_context.width,
+            height=sam3_context.height,
+        )
+        for k in target_ks:
+            validate_sam3_observation(video_id, k, sam3_observations[k], sam3_context)
 
     written = 0
     skipped = 0
@@ -358,122 +527,202 @@ def _render_video(
         out_path = figures_dir / _figure_filename(
             target.video_id, target.trigger_k, target.is_false_alarm
         )
+        frame_rgb = frame_by_src_index[target.src_index]
         if out_path.exists() and not force:
             print(f"skip {out_path} (já existe, use --force para sobrescrever)")
             skipped += 1
-            continue
+        else:
+            imputed = not bool(pose.person_found[target.trigger_k])
+            label_name = label_names[target.predicted_label]
+            caption = _caption_text(
+                target.video_id,
+                target.trigger_k,
+                target.time_s,
+                label_name,
+                target.latency_s,
+                imputed,
+                target.is_false_alarm,
+            )
+            annotated = _draw_alarm_frame(frame_rgb, pose, target.trigger_k, caption, imputed)
+            write_png_fn(out_path, annotated)
+            written += 1
 
-        imputed = not bool(pose.person_found[target.trigger_k])
-        label_name = label_names[target.predicted_label]
-        caption = _caption_text(
-            target.video_id,
-            target.trigger_k,
-            target.time_s,
-            label_name,
-            target.latency_s,
-            imputed,
-            target.is_false_alarm,
-        )
-        frame_rgb = frame_by_src_index[target.src_index]
-        annotated = _draw_alarm_frame(frame_rgb, pose, target.trigger_k, caption, imputed)
-        write_png_fn(out_path, annotated)
+        if source_panel is None:
+            continue
+        if target not in pending_panels:
+            print(f"skip {panel_path(target)} (já existe, use --force para sobrescrever)")
+            skipped += 1
+            continue
+        if source_panel == DINOV3_INPUT_PANEL:
+            panel = _draw_dinov3_input_panel(frame_rgb, target)
+        else:
+            observation = sam3_observations[target.trigger_k]
+            panel = _draw_sam3_mask_frame(
+                frame_rgb, observation, _sam3_caption(target, observation)
+            )
+        write_png_fn(panel_path(target), panel)
         written += 1
 
     return written, skipped
 
 
+def source_panel_for_arm(arm: str, enabled: bool) -> str | None:
+    if not enabled:
+        return None
+    try:
+        return SOURCE_PANEL_BY_ARM[arm]
+    except KeyError as exc:
+        raise ValueError(
+            f"--source-panel não se aplica à arma {arm!r}; disponível para "
+            f"{', '.join(SOURCE_PANEL_BY_ARM)}"
+        ) from exc
+
+
+def resolve_render_run_dir(dataset_name: str, arm: str, run_dir: Path | None) -> Path:
+    return default_run_dir_for_arm(dataset_name, arm) if run_dir is None else run_dir
+
+
+def load_render_evaluation(
+    arm: str, dataset_name: str, run_dir: Path
+) -> tuple[EventEvaluation, AlarmProtocol, dict]:
+    validate_local_run_dir(run_dir, dataset_name)
+    evaluation = load_arm_evaluation(arm, dataset_name, run_dir)
+
+    protocol = load_alarm_protocol(run_dir / "alarm_protocol.yaml")
+    if protocol != BASELINE_A_ALARM_PROTOCOL:
+        raise ValueError(f"alarm_protocol.yaml incompatível com o braço {arm}")
+
+    with (run_dir / "event_metrics.json").open(encoding="utf-8") as stream:
+        event_metrics = json.load(stream)
+    return evaluation, protocol, event_metrics
+
+
+def _video_src_indices(frames: pd.DataFrame, video_id: str) -> list[int]:
+    video_frames = cast(
+        pd.DataFrame, frames[frames["video_id"] == video_id]
+    ).sort_values("frame_index")
+    frame_indices = [int(index) for index in video_frames["frame_index"]]
+    if frame_indices != list(range(len(frame_indices))):
+        raise ValueError(f"video_id={video_id!r}: frame_index não é contíguo a partir de 0")
+    return [int(index) for index in video_frames["src_index"]]
+
+
+def _sam3_video_context(
+    video_id: str,
+    frames: pd.DataFrame,
+    manifest: pd.DataFrame,
+    sam3_root: Path,
+    segmenter: Sam3Segmenter,
+) -> Sam3VideoContext:
+    src_indices = _video_src_indices(frames, video_id)
+    path = sam3_path(video_id, sam3_root=sam3_root)
+    v_t = read_v_t(path)
+    sam_score = read_sam_score(path)
+    n_instances = read_n_instances(path)
+    if not v_t.shape[0] == sam_score.shape[0] == n_instances.shape[0] == len(src_indices):
+        raise ValueError(
+            f"video_id={video_id!r}: K do HDF5 SAM 3 diverge da grade "
+            f"({len(src_indices)} quadros)"
+        )
+    manifest_row = cast(pd.DataFrame, manifest[manifest["video_id"] == video_id])
+    if manifest_row.empty:
+        raise ValueError(f"video_id={video_id!r} ausente do manifesto")
+    return Sam3VideoContext(
+        segmenter=segmenter,
+        src_indices=src_indices,
+        width=int(manifest_row.iloc[0]["width"]),
+        height=int(manifest_row.iloc[0]["height"]),
+        v_t=v_t,
+        sam_score=sam_score,
+        n_instances=n_instances,
+    )
+
+
 def run_render(
-    run_dir: Path,
+    run_dir: Path | None,
     dataset_name: str,
     splits: tuple[str, ...],
     force: bool,
     include_false_alarms: bool = False,
+    arm: str = "A",
+    source_panel: bool = False,
+    runtime_dir: str | None = None,
+    sam3_checkpoint: str | None = None,
 ) -> None:
-    validate_local_run_dir(run_dir, dataset_name)
+    panel = source_panel_for_arm(arm, source_panel)
+    run_dir = resolve_render_run_dir(dataset_name, arm, run_dir)
+    evaluation, protocol, event_metrics = load_render_evaluation(arm, dataset_name, run_dir)
     adapter = get_dataset(dataset_name)
 
-    expected_config = replace(
-        BASELINE_A_CONFIG,
-        standardization_stats_path=str(adapter.pose_stats_path),
-        standardization_stats_sha256=sha256_file(adapter.pose_stats_path),
-    )
-    config = validate_training_run(run_dir, expected_config=expected_config)
-    if config.eval_stride != EVAL_STRIDE:
-        raise ValueError(
-            f"config.eval_stride ({config.eval_stride}) diverge de "
-            f"EVAL_STRIDE ({EVAL_STRIDE})"
-        )
-
-    protocol = load_alarm_protocol(run_dir / "alarm_protocol.yaml")
-    if protocol != BASELINE_A_ALARM_PROTOCOL:
-        raise ValueError("alarm_protocol.yaml incompatível com o braço A")
-
-    event_metrics_path = run_dir / "event_metrics.json"
-    with event_metrics_path.open(encoding="utf-8") as stream:
-        event_metrics = json.load(stream)
-
-    stats = load_stats(adapter.pose_stats_path)
-    validate_stats_layout(stats)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    checkpoint_path = run_dir / "checkpoint.pt"
-    model = _load_model(config, checkpoint_path, device)
-
-    frames = adapter.load_frames()
+    frames, evaluate_split = evaluation.prepare()
     frame_lookup = _build_frame_lookup(frames)
     video_paths = adapter.video_paths()
+    manifest = adapter.load_manifest() if panel == SAM3_MASK_PANEL else None
 
     figures_dir = run_dir / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    summary: dict[str, tuple[int, int]] = {}
-    for split in splits:
-        source = PoseWindowDataset(
-            frames,
-            split,
-            EVAL_STRIDE,
-            lambda video_id: build_pose_features(video_id, pose_root=adapter.pose_root)[0],
-            drop_ignored=False,
-        )
-        video_ids, k_ends, true_labels, pred_labels = _predict_with_identity(
-            model, source, stats, device, batch_size=config.batch_size
-        )
-        targets, n_detected = _collect_render_targets(
-            video_ids,
-            k_ends,
-            true_labels,
-            pred_labels,
-            protocol,
-            frame_lookup,
-            include_false_alarms,
-        )
-
-        expected_n_detected = event_metrics["splits"][split]["n_detected_events"]
-        if n_detected != expected_n_detected:
-            raise ValueError(
-                f"split={split!r}: n_detected_events recomputado ({n_detected}) "
-                f"diverge de event_metrics.json ({expected_n_detected})"
+    with ExitStack() as stack:
+        segmenter: Sam3Segmenter | None = None
+        if panel == SAM3_MASK_PANEL:
+            runtime_project_dir = resolve_runtime_project_dir(runtime_dir)
+            checkpoint_path = resolve_checkpoint_path(sam3_checkpoint)
+            ensure_sam3_runtime_available(runtime_project_dir, checkpoint_path)
+            segmenter = stack.enter_context(
+                Sam3RuntimeSegmenter(
+                    runtime_project_dir=runtime_project_dir,
+                    checkpoint_path=checkpoint_path,
+                )
             )
 
-        grouped_targets: dict[str, list[RenderTarget]] = {}
-        for target in targets:
-            grouped_targets.setdefault(target.video_id, []).append(target)
-
-        total_written = 0
-        total_skipped = 0
-        for video_id, video_targets in grouped_targets.items():
-            written, skipped = _render_video(
-                video_id,
-                video_paths[video_id],
-                adapter.pose_root,
-                video_targets,
-                figures_dir,
-                adapter.label_names,
-                force,
+        summary: dict[str, tuple[int, int]] = {}
+        for split in splits:
+            _, (video_ids, k_ends, true_labels, pred_labels) = evaluate_split(split)
+            targets, n_detected = _collect_render_targets(
+                video_ids,
+                k_ends,
+                true_labels,
+                pred_labels,
+                protocol,
+                frame_lookup,
+                include_false_alarms,
             )
-            total_written += written
-            total_skipped += skipped
 
-        summary[split] = (total_written, total_skipped)
+            expected_n_detected = event_metrics["splits"][split]["n_detected_events"]
+            if n_detected != expected_n_detected:
+                raise ValueError(
+                    f"split={split!r}: n_detected_events recomputado ({n_detected}) "
+                    f"diverge de event_metrics.json ({expected_n_detected})"
+                )
+
+            grouped_targets: dict[str, list[RenderTarget]] = {}
+            for target in targets:
+                grouped_targets.setdefault(target.video_id, []).append(target)
+
+            total_written = 0
+            total_skipped = 0
+            for video_id, video_targets in grouped_targets.items():
+                sam3_context = None
+                if segmenter is not None:
+                    assert manifest is not None
+                    sam3_context = _sam3_video_context(
+                        video_id, frames, manifest, adapter.sam3_root, segmenter
+                    )
+                written, skipped = _render_video(
+                    video_id,
+                    video_paths[video_id],
+                    adapter.pose_root,
+                    video_targets,
+                    figures_dir,
+                    adapter.label_names,
+                    force,
+                    source_panel=panel,
+                    sam3_context=sam3_context,
+                )
+                total_written += written
+                total_skipped += skipped
+
+            summary[split] = (total_written, total_skipped)
 
     for split, (written, skipped) in summary.items():
         total = written + skipped
@@ -488,13 +737,21 @@ def main() -> None:
         "render",
         help="Renderiza PNGs dos quadros reais nos gatilhos de alarme detectados",
     )
+    render_parser.add_argument("--arm", default="A", choices=ARMS)
     render_parser.add_argument("--dataset", default="le2i", choices=("le2i",))
-    render_parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    render_parser.add_argument("--run-dir", type=Path, default=None)
     render_parser.add_argument(
         "--split", default="both", choices=("val", "test", "both")
     )
     render_parser.add_argument("--force", action="store_true")
     render_parser.add_argument("--include-false-alarms", action="store_true")
+    render_parser.add_argument(
+        "--source-panel",
+        action="store_true",
+        help="B0/B1: entrada DINOv3 224x224; C0/C1: máscara SAM 3 selecionada",
+    )
+    render_parser.add_argument("--runtime-dir", default=None)
+    render_parser.add_argument("--sam3-checkpoint", default=None)
     subparsers.add_parser(
         "selftest", help="Roda checagens sintéticas do diagnóstico qualitativo"
     )
@@ -508,6 +765,10 @@ def main() -> None:
             splits=splits,
             force=args.force,
             include_false_alarms=args.include_false_alarms,
+            arm=args.arm,
+            source_panel=args.source_panel,
+            runtime_dir=args.runtime_dir,
+            sam3_checkpoint=args.sam3_checkpoint,
         )
     elif args.command == "selftest":
         from gatefall.eval.analysis.selftests.qualitative import run_selftest
