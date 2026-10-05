@@ -74,8 +74,8 @@ para vídeo bruto, então todos os alvos de um vídeo são resolvidos numa
 ## Pose imputada
 
 Quando a pose no `trigger_k` do alarme tem `person_found=False`, o esqueleto
-e a bbox não são desenhados — a legenda troca para "pose imputada" no lugar
-do desenho. A origem do desenho seria imputada em qualquer um dos dois
+e a bbox não são desenhados — o quadro fica intacto e a legenda ganha a
+linha "(pose imputada)". A origem do desenho seria imputada em qualquer um dos dois
 regimes de ausência: zerada antes da primeira detecção do vídeo, ou copiada
 por forward-fill da última observação num gap interior (ver [Contrato
 temporal — imputação de pose e causalidade do
@@ -95,6 +95,25 @@ esqueleto/bbox e a codificação do PNG usam Pillow (`PIL.Image`,
 `PIL.ImageDraw`, `PIL.ImageFont`); a decodificação de vídeo continua
 exclusivamente via `gatefall.data.video_io.decode_frames`, nunca por
 alguma API de vídeo do Pillow.
+
+## Legenda abaixo do quadro
+
+A legenda nunca é desenhada sobre o vídeo: todo PNG (principal e painéis)
+é o quadro, ou a imagem do painel, seguido de uma faixa preta de legenda
+abaixo dele. A altura do PNG é a altura do quadro mais a faixa; a largura é
+a do quadro. Os pixels do quadro só mudam pelo desenho de pose/bbox no PNG
+principal, pela sobreposição da máscara em `__sam3_mask` ou pelo próprio
+conteúdo do painel — nunca pelo texto, e nunca são cortados.
+
+No PNG principal, a legenda tem uma linha por campo: `video_id`;
+`k=... t=...s pred=...`; `latencia=...s` para evento detectado ou
+`(ALARME FALSO)` para alarme falso; e `(pose imputada)` quando aplicável.
+A fonte tem tamanho fixo (`CAPTION_FONT_SIZE = 14`, o menor tamanho em que
+os espaços do `ImageFont.load_default` continuam visíveis). Uma linha mais
+larga que o quadro quebra entre palavras; se uma única palavra não couber,
+o canvas é alargado com preto à direita em vez de cortar o texto. Num
+quadro Le2i de 320 px, todos os campos ficam visíveis — a versão anterior,
+de linha única sobre o vídeo, cortava `latencia=...`.
 
 Com `--include-false-alarms`, o comando escreve também um PNG por
 gatilho de alarme falso, além dos PNGs de evento detectado já descritos
@@ -128,8 +147,8 @@ projetar sobre o quadro.
 ### C0/C1: máscara SAM 3 selecionada
 
 Sufixo `__sam3_mask`. Mostra o quadro do alarme com a máscara da instância
-selecionada pelo SAM 3 sobreposta em magenta, com a bbox da máscara e uma
-legenda com `score` e número de instâncias. Máscaras não são persistidas,
+selecionada pelo SAM 3 sobreposta em magenta, com a bbox da máscara e,
+na faixa abaixo do quadro, uma legenda com `score` e número de instâncias. Máscaras não são persistidas,
 e a seleção de instância (`InstanceSelector`) é causal: a escolha no quadro
 `k` depende das escolhas em `0..k-1` (ver
 [Fundação SAM 3 — Seleção de instância](../data/sam3-foundation.md#selecao-de-instancia)).
@@ -208,7 +227,9 @@ uv run python -m gatefall.eval.analysis.qualitative selftest
 ```
 
 Roda checagens sintéticas (pose imputada não desenha, `decode_frames`
-chamado uma vez por vídeo, desenho altera pixels, escolha do alarme mais
+chamado uma vez por vídeo, desenho altera pixels, legenda de quadro de
+320 px abaixo do vídeo com `latencia=...` inteira e sem corte, quebra de
+linha e alargamento da faixa de legenda, escolha do alarme mais
 cedo, nome de arquivo estável, despacho A/B0/B1/C0/C1, saída de A
 preservada, pré-processamento do painel B, replay/validação da máscara
 SAM 3 com segmentador falso, despacho de `--feature-panel` só para B0/B1 e

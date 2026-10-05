@@ -11,19 +11,23 @@ from gatefall.dinov3.backbone import NORMALIZE_MEAN, NORMALIZE_STD, RESIZE_SIZE
 from gatefall.dinov3.preprocessing import preprocess_frames
 from gatefall.eval.analysis.multiseed_summary import ARMS
 from gatefall.eval.analysis.qualitative import (
-    CAPTION_FONT_SIZE_MIN,
+    CAPTION_FONT_SIZE,
+    CAPTION_LINE_HEIGHT_PX,
+    CAPTION_MARGIN_PX,
     DINOV3_INPUT_PANEL,
     DINOV3_PCA_PANEL,
     SAM3_MASK_PANEL,
     RenderTarget,
     Sam3VideoContext,
-    _caption_text,
+    _caption_font,
+    _caption_lines,
     _collect_render_targets,
     _draw_alarm_frame,
     _figure_filename,
-    _fit_caption_font,
     _matched_alarm,
     _render_video,
+    _with_caption_strip,
+    _wrap_caption_lines,
     _write_png_atomic,
     dinov3_input_frame,
     dinov3_patch_tokens,
@@ -74,20 +78,21 @@ def _selftest_imputed_pose_skips_drawing() -> bool:
     imputed_pose.person_found[0] = False
     imputed_pose.keypoints[0] = 0.0
     imputed_pose.bbox[0] = 0.0
-    caption_imputed = _caption_text("video_x", 0, 0.0, "fall", 0.5, imputed=True)
+    caption_imputed = _caption_lines("video_x", 0, 0.0, "fall", 0.5, imputed=True)
     result_imputed = _draw_alarm_frame(frame, imputed_pose, 0, caption_imputed, imputed=True)
 
     non_imputed_pose = _synthetic_pose_arrays(1)
-    caption_real = _caption_text("video_x", 0, 0.0, "fall", 0.5, imputed=False)
+    caption_real = _caption_lines("video_x", 0, 0.0, "fall", 0.5, imputed=False)
     result_real = _draw_alarm_frame(frame, non_imputed_pose, 0, caption_real, imputed=False)
 
-    caption_mentions_imputed = "imputada" in caption_imputed
-    drawing_path_changes_pixels = not np.array_equal(result_real, frame)
+    caption_mentions_imputed = "(pose imputada)" in caption_imputed
+    imputed_frame_untouched = np.array_equal(result_imputed[:100], frame)
+    drawing_path_changes_pixels = not np.array_equal(result_real[:100], frame)
 
     return _check(
-        "pose imputada não desenha esqueleto/bbox mas mantém legenda; "
-        "caminho de desenho real altera pixels visivelmente",
-        caption_mentions_imputed and drawing_path_changes_pixels,
+        "pose imputada não desenha esqueleto/bbox (quadro intacto) mas mantém "
+        "legenda; caminho de desenho real altera pixels do quadro",
+        caption_mentions_imputed and imputed_frame_untouched and drawing_path_changes_pixels,
     )
 
 
@@ -155,7 +160,7 @@ def _selftest_decode_frames_called_once_per_video() -> bool:
 def _selftest_draw_alarm_frame_changes_pixels() -> bool:
     frame = np.zeros((100, 100, 3), dtype=np.uint8)
     pose = _synthetic_pose_arrays(1)
-    caption = _caption_text("video_z", 0, 0.0, "fall", 0.2, imputed=False)
+    caption = _caption_lines("video_z", 0, 0.0, "fall", 0.2, imputed=False)
 
     raised = False
     result = frame
@@ -165,41 +170,117 @@ def _selftest_draw_alarm_frame_changes_pixels() -> bool:
         raised = True
 
     return _check(
-        "desenho de esqueleto/bbox/legenda não levanta exceção e altera "
-        "pixels visivelmente em relação ao quadro de fundo zerado",
-        not raised and not np.array_equal(result, frame),
+        "desenho de esqueleto/bbox não levanta exceção e altera pixels "
+        "visivelmente em relação ao quadro de fundo zerado",
+        not raised and not np.array_equal(result[:100], frame),
     )
 
 
-def _selftest_narrow_frame_caption_never_shrinks_below_legible_floor() -> bool:
-    # CAPTION_FONT_SIZE_MIN=14 foi calibrado visualmente (ver comentário na
-    # constante): abaixo disso, PIL.ImageFont.load_default() rasteriza alguns
-    # espaços como colapsados mesmo com getlength() > 0, o que não é
-    # detectável só pela largura medida. Este teste garante que o piso
-    # nunca regride silenciosamente para um valor não revisado; a legenda
-    # pode ficar mais larga que o quadro (clipando) em vez de encolher além
-    # do piso, o que é o comportamento aceito.
-    frame = np.zeros((240, 320, 3), dtype=np.uint8)
+def _strip_ink_columns(strip: np.ndarray) -> np.ndarray:
+    return np.flatnonzero(strip.max(axis=(0, 2)) > 0)
+
+
+def _selftest_le2i_caption_fits_below_frame() -> bool:
+    # Quadro Le2i real tem 320px de largura; a legenda antiga em linha única
+    # clipava `latencia=...` à direita. A legenda agora fica numa faixa
+    # preta abaixo do quadro, quebrada em linhas que cabem na largura.
+    rng = np.random.default_rng(3)
+    frame = rng.integers(0, 256, size=(240, 320, 3), dtype=np.uint8)
     pose = _synthetic_pose_arrays(1)
-    caption = _caption_text(
-        "home_01/video_13", 64, 6.4, "fall", 1.1, imputed=False
+    pose.person_found[0] = False
+    font = _caption_font()
+    max_width_px = frame.shape[1] - 2 * CAPTION_MARGIN_PX
+
+    cases = (
+        _caption_lines("coffee_room_01/video_23", 64, 6.4, "fallen", 11.1, imputed=True),
+        _caption_lines(
+            "coffee_room_01/video_23", 123, 12.3, "fallen", None, imputed=True,
+            is_false_alarm=True,
+        ),
+    )
+    ok = isinstance(font, ImageFont.FreeTypeFont) and font.size == CAPTION_FONT_SIZE
+    for lines in cases:
+        wrapped = _wrap_caption_lines(lines, font, max_width_px)
+        result = _draw_alarm_frame(frame, pose, 0, lines, imputed=True)
+        strip = result[frame.shape[0] :]
+        ink_columns = _strip_ink_columns(strip)
+        lines_inked = all(
+            strip[
+                CAPTION_MARGIN_PX + index * CAPTION_LINE_HEIGHT_PX : CAPTION_MARGIN_PX
+                + (index + 1) * CAPTION_LINE_HEIGHT_PX
+            ].max()
+            > 0
+            for index in range(len(wrapped))
+        )
+        ok = ok and (
+            result.shape
+            == (
+                frame.shape[0] + 2 * CAPTION_MARGIN_PX + CAPTION_LINE_HEIGHT_PX * len(wrapped),
+                frame.shape[1],
+                3,
+            )
+            and np.array_equal(result[: frame.shape[0]], frame)
+            and " ".join(wrapped).split() == " ".join(lines).split()
+            and all(font.getlength(line) <= max_width_px for line in wrapped)
+            and ink_columns.size > 0
+            and int(ink_columns.max()) < frame.shape[1] - CAPTION_MARGIN_PX // 2
+            and lines_inked
+        )
+    detected_lines = cases[0]
+    false_alarm_lines = cases[1]
+    ok = (
+        ok
+        and "latencia=11.1s" in detected_lines
+        and any(
+            "latencia=11.1s" in line.split(" ")
+            for line in _wrap_caption_lines(detected_lines, font, max_width_px)
+        )
+        and "(ALARME FALSO)" in false_alarm_lines
+        and all("latencia" not in line for line in false_alarm_lines)
+        and "(pose imputada)" in detected_lines
+        and "k=64 t=6.4s pred=fallen" in detected_lines
+    )
+    return _check(
+        "legenda de quadro Le2i de 320px fica numa faixa abaixo do quadro "
+        "(pixels do vídeo intactos), com fonte fixa, todas as linhas dentro da "
+        "largura e latencia=... inteira; alarme falso mantém o marcador",
+        ok,
     )
 
-    caption_margin_px = 10
-    max_width_px = frame.shape[1] - 2 * caption_margin_px
-    font = _fit_caption_font(caption, max_width_px)
-    chosen_size = font.size if isinstance(font, ImageFont.FreeTypeFont) else CAPTION_FONT_SIZE_MIN
 
-    raised = False
-    try:
-        _draw_alarm_frame(frame, pose, 0, caption, imputed=False)
-    except Exception:
-        raised = True
+def _selftest_caption_strip_wraps_narrow_panels() -> bool:
+    font = _caption_font()
+    image = np.zeros((10, 120, 3), dtype=np.uint8)
+    lines = ("k=123 t=12.3s pred=fallen latencia=11.1s",)
+    max_width_px = image.shape[1] - 2 * CAPTION_MARGIN_PX
+    wrapped = _wrap_caption_lines(lines, font, max_width_px)
+    result = _with_caption_strip(image, lines)
+    ok = (
+        len(wrapped) > 1
+        and " ".join(wrapped).split() == lines[0].split()
+        and all(font.getlength(line) <= max_width_px for line in wrapped)
+        and result.shape[0]
+        == image.shape[0] + 2 * CAPTION_MARGIN_PX + CAPTION_LINE_HEIGHT_PX * len(wrapped)
+    )
 
+    tiny = np.full((10, 40, 3), 7, dtype=np.uint8)
+    word = "latencia=11.1s"
+    widened = _with_caption_strip(tiny, (word,))
+    ink_columns = _strip_ink_columns(widened[tiny.shape[0] :])
+    ok = (
+        ok
+        and widened.shape[1] > tiny.shape[1]
+        and widened.shape[1] >= font.getlength(word) + 2 * CAPTION_MARGIN_PX
+        and np.array_equal(widened[: tiny.shape[0], : tiny.shape[1]], tiny)
+        and not widened[: tiny.shape[0], tiny.shape[1] :].any()
+        and ink_columns.size > 0
+        and int(ink_columns.max()) < widened.shape[1] - CAPTION_MARGIN_PX // 2
+    )
     return _check(
-        "legenda de vídeo estreito (320px) nunca usa fonte menor que "
-        "CAPTION_FONT_SIZE_MIN, mesmo quando isso implica clipar a legenda",
-        not raised and chosen_size >= CAPTION_FONT_SIZE_MIN,
+        "faixa de legenda quebra linhas longas em palavras sem perder texto e, "
+        "se uma palavra não cabe na largura, alarga o canvas com preto à "
+        "direita em vez de clipar ou cobrir o quadro",
+        ok,
     )
 
 
@@ -795,7 +876,8 @@ def run_qualitative_selftest() -> bool:
         _selftest_imputed_pose_skips_drawing(),
         _selftest_decode_frames_called_once_per_video(),
         _selftest_draw_alarm_frame_changes_pixels(),
-        _selftest_narrow_frame_caption_never_shrinks_below_legible_floor(),
+        _selftest_le2i_caption_fits_below_frame(),
+        _selftest_caption_strip_wraps_narrow_panels(),
         _selftest_matched_alarm_picks_earliest(),
         _selftest_figure_filename_is_unique_and_stable(),
         _selftest_write_png_atomic_writes_readable_png(),

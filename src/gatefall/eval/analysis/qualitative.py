@@ -200,7 +200,7 @@ def _collect_render_targets(
     return targets, n_detected
 
 
-def _caption_text(
+def _caption_lines(
     video_id: str,
     trigger_k: int,
     time_s: float,
@@ -208,28 +208,23 @@ def _caption_text(
     latency_s: float | None,
     imputed: bool,
     is_false_alarm: bool = False,
-) -> str:
+) -> tuple[str, ...]:
     if is_false_alarm:
-        base = (
-            f"{video_id} k={trigger_k} t={time_s:.1f}s pred={label_name} "
-            f"(ALARME FALSO)"
-        )
+        outcome = "(ALARME FALSO)"
     else:
         assert latency_s is not None
-        base = (
-            f"{video_id} k={trigger_k} t={time_s:.1f}s pred={label_name} "
-            f"latencia={latency_s:.1f}s"
-        )
+        outcome = f"latencia={latency_s:.1f}s"
+    lines = [video_id, f"k={trigger_k} t={time_s:.1f}s pred={label_name}", outcome]
     if imputed:
-        return f"{base} (pose imputada)"
-    return base
+        lines.append("(pose imputada)")
+    return tuple(lines)
 
 
 def _draw_alarm_frame(
     frame_rgb: np.ndarray,
     pose: PoseArrays,
     k: int,
-    caption: str,
+    caption_lines: tuple[str, ...],
     imputed: bool,
 ) -> np.ndarray:
     image = Image.fromarray(frame_rgb, mode="RGB")
@@ -253,26 +248,9 @@ def _draw_alarm_frame(
         bottom_right = (float(bbox[2]), float(bbox[3]))
         draw.rectangle([top_left, bottom_right], outline=COLOR_BBOX, width=2)
 
-    _draw_caption(image, caption)
-    return np.array(image)
+    return _with_caption_strip(np.array(image), caption_lines)
 
 
-def _draw_caption(image: Image.Image, caption: str) -> None:
-    draw = ImageDraw.Draw(image)
-    caption_margin_px = 10
-    max_caption_width = image.width - 2 * caption_margin_px
-    font = _fit_caption_font(caption, max_caption_width)
-    _, top, _, bottom = draw.textbbox((0, 0), caption, font=font)
-    caption_height = bottom - top
-    draw.text(
-        (caption_margin_px, image.height - caption_margin_px - caption_height),
-        caption,
-        fill=COLOR_CAPTION,
-        font=font,
-    )
-
-
-CAPTION_FONT_SIZE_DEFAULT = 16
 # PIL.ImageFont.load_default(size=N) rasteriza espaços de forma inconsistente
 # em tamanhos muito pequenos: alguns espaços (ex.: entre dígito/underscore e
 # a letra seguinte) colapsam visualmente a um espaçamento quase nulo, mesmo
@@ -280,24 +258,32 @@ CAPTION_FONT_SIZE_DEFAULT = 16
 # renderizando legendas reais do Le2i (320px): tamanho 11 colapsa
 # "k=64 t=6.4s" em "k=64t=6.4s"; tamanho 14 mantém todos os espaços visíveis
 # nas legendas reais testadas. Não reduzir sem reverificar visualmente.
-CAPTION_FONT_SIZE_MIN = 14
+CAPTION_FONT_SIZE = 14
+CAPTION_MARGIN_PX = 6
+CAPTION_LINE_HEIGHT_PX = CAPTION_FONT_SIZE + 4
 
 
-def _fit_caption_font(
-    caption: str, max_width_px: int
-) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    font_size = CAPTION_FONT_SIZE_DEFAULT
-    font = ImageFont.load_default(size=font_size)
-    text_width = font.getlength(caption)
-    if text_width <= max_width_px or max_width_px <= 0:
-        return font
+def _caption_font() -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    return ImageFont.load_default(size=CAPTION_FONT_SIZE)
 
-    font_size = max(int(font_size * (max_width_px / text_width)), CAPTION_FONT_SIZE_MIN)
-    font = ImageFont.load_default(size=font_size)
-    while font.getlength(caption) > max_width_px and font_size > CAPTION_FONT_SIZE_MIN:
-        font_size -= 1
-        font = ImageFont.load_default(size=font_size)
-    return font
+
+def _wrap_caption_lines(
+    lines: tuple[str, ...],
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    max_width_px: int,
+) -> list[str]:
+    wrapped: list[str] = []
+    for line in lines:
+        current = ""
+        for word in line.split(" "):
+            candidate = f"{current} {word}" if current else word
+            if current and font.getlength(candidate) > max_width_px:
+                wrapped.append(current)
+                current = word
+            else:
+                current = candidate
+        wrapped.append(current)
+    return wrapped
 
 
 def _figure_filename(
@@ -323,18 +309,26 @@ def dinov3_input_frame(frame_rgb: np.ndarray) -> np.ndarray:
 
 
 def _with_caption_strip(image_rgb: np.ndarray, lines: tuple[str, ...]) -> np.ndarray:
-    margin_px = 6
-    line_height_px = CAPTION_FONT_SIZE_MIN + 4
     height, width = image_rgb.shape[:2]
+    font = _caption_font()
+    widest_word_px = max(
+        (font.getlength(word) for line in lines for word in line.split(" ")), default=0.0
+    )
+    wrap_width_px = max(width - 2 * CAPTION_MARGIN_PX, int(np.ceil(widest_word_px)))
+    wrapped = _wrap_caption_lines(lines, font, wrap_width_px)
     canvas = Image.new(
-        "RGB", (width, height + 2 * margin_px + line_height_px * len(lines)), (0, 0, 0)
+        "RGB",
+        (
+            max(width, wrap_width_px + 2 * CAPTION_MARGIN_PX),
+            height + 2 * CAPTION_MARGIN_PX + CAPTION_LINE_HEIGHT_PX * len(wrapped),
+        ),
+        (0, 0, 0),
     )
     canvas.paste(Image.fromarray(image_rgb, mode="RGB"), (0, 0))
     draw = ImageDraw.Draw(canvas)
-    font = ImageFont.load_default(size=CAPTION_FONT_SIZE_MIN)
-    for index, line in enumerate(lines):
+    for index, line in enumerate(wrapped):
         draw.text(
-            (margin_px, height + margin_px + index * line_height_px),
+            (CAPTION_MARGIN_PX, height + CAPTION_MARGIN_PX + index * CAPTION_LINE_HEIGHT_PX),
             line,
             fill=COLOR_CAPTION,
             font=font,
@@ -480,18 +474,20 @@ def validate_sam3_observation(
         )
 
 
-def _sam3_caption(target: RenderTarget, observation: Sam3Observation) -> str:
-    base = f"{target.video_id} k={target.trigger_k}"
+def _sam3_caption_lines(
+    target: RenderTarget, observation: Sam3Observation
+) -> tuple[str, ...]:
+    header = f"{target.video_id} k={target.trigger_k}"
     if observation.mask is None:
-        return f"{base} SAM 3 sem instancia (n={observation.n_instances})"
+        return (header, f"SAM 3 sem instancia (n={observation.n_instances})")
     return (
-        f"{base} mascara SAM 3 score={observation.sam_score:.2f} "
-        f"n={observation.n_instances}"
+        header,
+        f"mascara SAM 3 score={observation.sam_score:.2f} n={observation.n_instances}",
     )
 
 
 def _draw_sam3_mask_frame(
-    frame_rgb: np.ndarray, observation: Sam3Observation, caption: str
+    frame_rgb: np.ndarray, observation: Sam3Observation, caption_lines: tuple[str, ...]
 ) -> np.ndarray:
     blended = frame_rgb.astype(np.float32)
     mask: np.ndarray | None = None
@@ -509,8 +505,7 @@ def _draw_sam3_mask_frame(
         bbox = bbox_from_mask(mask)
         if bbox is not None:
             ImageDraw.Draw(image).rectangle(bbox, outline=COLOR_MASK, width=2)
-    _draw_caption(image, caption)
-    return np.array(image)
+    return _with_caption_strip(np.array(image), caption_lines)
 
 
 def _sam3_decode_indices(
@@ -601,7 +596,7 @@ def _render_video(
         else:
             imputed = not bool(pose.person_found[target.trigger_k])
             label_name = label_names[target.predicted_label]
-            caption = _caption_text(
+            caption_lines = _caption_lines(
                 target.video_id,
                 target.trigger_k,
                 target.time_s,
@@ -610,7 +605,9 @@ def _render_video(
                 imputed,
                 target.is_false_alarm,
             )
-            annotated = _draw_alarm_frame(frame_rgb, pose, target.trigger_k, caption, imputed)
+            annotated = _draw_alarm_frame(
+                frame_rgb, pose, target.trigger_k, caption_lines, imputed
+            )
             write_png_fn(out_path, annotated)
             written += 1
 
@@ -632,7 +629,7 @@ def _render_video(
             else:
                 observation = sam3_observations[target.trigger_k]
                 image = _draw_sam3_mask_frame(
-                    frame_rgb, observation, _sam3_caption(target, observation)
+                    frame_rgb, observation, _sam3_caption_lines(target, observation)
                 )
             write_png_fn(panel_path(target, panel), image)
             written += 1
