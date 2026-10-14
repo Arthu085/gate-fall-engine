@@ -7,7 +7,10 @@ de `frames.parquet` e do manifesto; `val` e `test` oficiais nunca são
 carregados. As janelas vêm de `build_window_index` com o contrato temporal
 congelado (`WINDOW_FRAMES`, `TRAIN_STRIDE`, `EVAL_STRIDE`) e `IGNORE_LABEL`
 mantém a semântica de sempre: a janela é ignorada pelo rótulo do seu último
-quadro. As classes avaliadas são as oito fixas de `RESTRICTED_CLASSES`.
+quadro. As classes avaliadas são as oito fixas de `RESTRICTED_CLASSES`. O
+suporte por classe (presença, vídeos, identidades) é medido no stride em que
+cada lado é usado: `TRAIN_STRIDE` no treino de desenvolvimento e
+`EVAL_STRIDE` no ambiente retido.
 
 Não treina, não cria split nem estatística de padronização, não seleciona
 hiperparâmetro e não introduz limiar de aceitação: as limitações listadas são
@@ -54,6 +57,10 @@ OFFICIAL_TRAIN_SPLIT = "train"
 OTHER_CLASS = LE2I_LABEL_NAMES.index("other")
 EXCLUDED_CLASSES = [class_id for class_id in range(NUM_CLASSES) if class_id not in RESTRICTED_CLASSES]
 STRIDES = {"train_stride": TRAIN_STRIDE, "eval_stride": EVAL_STRIDE}
+# O treino de desenvolvimento só enxerga janelas em TRAIN_STRIDE; o ambiente
+# retido é avaliado como val, em EVAL_STRIDE.
+DEVELOPMENT_SUPPORT_STRIDE = "train_stride"
+RETAINED_SUPPORT_STRIDE = "eval_stride"
 
 EXPECTED_OFFICIAL_TRAIN: dict[str, object] = {
     "environments": ("Coffee_room_01", "Coffee_room_02", "Lecture_room"),
@@ -110,6 +117,25 @@ def _video_metadata_conflicts(frames: pd.DataFrame) -> list[str]:
     return sorted(str(video_id) for video_id, is_ambiguous in ambiguous.items() if is_ambiguous)
 
 
+def _per_video_metadata(table: pd.DataFrame) -> dict[str, tuple[str, int]]:
+    rows = table[["video_id", "env", "subject"]].drop_duplicates()
+    return {
+        str(video_id): (str(env), int(subject))
+        for video_id, env, subject in zip(rows["video_id"], rows["env"], rows["subject"])
+    }
+
+
+def _manifest_metadata_mismatches(frames: pd.DataFrame, manifest: pd.DataFrame) -> list[str]:
+    conflicts = _video_metadata_conflicts(frames)
+    if conflicts:
+        raise ValueError(f"vídeos com ambiente ou sujeito ambíguo nos frames: {conflicts}")
+    frame_metadata = _per_video_metadata(frames)
+    manifest_metadata = _per_video_metadata(manifest)
+    return sorted(
+        video_id for video_id, metadata in manifest_metadata.items() if frame_metadata.get(video_id) != metadata
+    )
+
+
 def validate_official_train_partition(frames: pd.DataFrame, manifest: pd.DataFrame) -> None:
     expected = EXPECTED_OFFICIAL_TRAIN
     environments = tuple(sorted(str(env) for env in frames["env"].unique()))
@@ -117,6 +143,9 @@ def validate_official_train_partition(frames: pd.DataFrame, manifest: pd.DataFra
         raise ValueError(
             f"ambientes do train oficial {environments} diferem dos esperados {expected['environments']}"
         )
+    duplicated = sorted(set(manifest.loc[manifest["video_id"].duplicated(keep=False), "video_id"].astype(str)))
+    if duplicated:
+        raise ValueError(f"manifesto de train tem vídeos duplicados: {duplicated}")
     frame_videos = set(frames["video_id"].astype(str))
     manifest_videos = set(manifest["video_id"].astype(str))
     if frame_videos != manifest_videos:
@@ -124,6 +153,9 @@ def validate_official_train_partition(frames: pd.DataFrame, manifest: pd.DataFra
             "vídeos de train divergem entre frames e manifesto: só em frames="
             f"{sorted(frame_videos - manifest_videos)}, só no manifesto={sorted(manifest_videos - frame_videos)}"
         )
+    mismatched = _manifest_metadata_mismatches(frames, manifest)
+    if mismatched:
+        raise ValueError(f"ambiente ou sujeito divergem entre frames e manifesto de train: {mismatched}")
     if len(frame_videos) != expected["n_videos"]:
         raise ValueError(f"train tem {len(frame_videos)} vídeos, esperado {expected['n_videos']}")
     total = len(build_window_index(frames, stride=EVAL_STRIDE, drop_ignored=False))
@@ -152,38 +184,38 @@ def _identity_keys(table: pd.DataFrame) -> list[str]:
     return sorted(f"{env}/{int(subject)}" for env, subject in zip(pairs["env"], pairs["subject"]))
 
 
-def _class_support(windows: dict[str, pd.DataFrame], class_ids: list[int]) -> dict[str, dict[str, object]]:
-    labeled_train = windows["train_stride"][windows["train_stride"]["label"] != IGNORE_LABEL]
-    n_labeled_train = len(labeled_train)
-    n_labeled_eval = int((windows["eval_stride"]["label"] != IGNORE_LABEL).sum())
+def _class_support(
+    windows: dict[str, pd.DataFrame], class_ids: list[int], support_stride: str
+) -> dict[str, dict[str, object]]:
+    support_windows = windows[support_stride]
+    n_labeled = int((support_windows["label"] != IGNORE_LABEL).sum())
     support: dict[str, dict[str, object]] = {}
     for class_id in class_ids:
-        eval_rows = cast(pd.DataFrame, windows["eval_stride"][windows["eval_stride"]["label"] == class_id])
-        n_train = int((labeled_train["label"] == class_id).sum())
+        rows = cast(pd.DataFrame, support_windows[support_windows["label"] == class_id])
         support[LE2I_LABEL_NAMES[class_id]] = {
             "class_id": class_id,
-            "windows_train_stride": n_train,
-            "windows_eval_stride": len(eval_rows),
-            "share_train_stride": n_train / n_labeled_train if n_labeled_train else None,
-            "share_eval_stride": len(eval_rows) / n_labeled_eval if n_labeled_eval else None,
-            "videos": cast(pd.Series, eval_rows["video_id"]).nunique(),
-            "identities": len(_identity_keys(eval_rows)),
+            "windows_train_stride": int((windows["train_stride"]["label"] == class_id).sum()),
+            "windows_eval_stride": int((windows["eval_stride"]["label"] == class_id).sum()),
+            "windows_at_support_stride": len(rows),
+            "share_at_support_stride": len(rows) / n_labeled if n_labeled else None,
+            "videos_at_support_stride": cast(pd.Series, rows["video_id"]).nunique(),
+            "identities_at_support_stride": len(_identity_keys(rows)),
         }
     return support
 
 
-def _imbalance(support: dict[str, dict[str, object]]) -> dict[str, object] | None:
+def _imbalance(support: dict[str, dict[str, object]], stride: int) -> dict[str, object] | None:
     present = {
-        label: cast(int, entry["windows_train_stride"])
+        label: cast(int, entry["windows_at_support_stride"])
         for label, entry in support.items()
-        if cast(int, entry["windows_train_stride"]) > 0
+        if cast(int, entry["windows_at_support_stride"]) > 0
     }
     if not present:
         return None
     largest = max(present, key=lambda label: present[label])
     smallest = min(present, key=lambda label: present[label])
     return {
-        "stride": TRAIN_STRIDE,
+        "stride": stride,
         "largest_class": largest,
         "largest_windows": present[largest],
         "smallest_present_class": smallest,
@@ -193,7 +225,7 @@ def _imbalance(support: dict[str, dict[str, object]]) -> dict[str, object] | Non
 
 
 def side_block(
-    environments: list[str], windows: dict[str, pd.DataFrame], manifest: pd.DataFrame
+    environments: list[str], windows: dict[str, pd.DataFrame], manifest: pd.DataFrame, support_stride: str
 ) -> dict[str, object]:
     side_windows = {
         name: cast(pd.DataFrame, table[table["env"].isin(environments)]) for name, table in windows.items()
@@ -209,7 +241,7 @@ def side_block(
         }
         for name, table in side_windows.items()
     }
-    support = _class_support(side_windows, RESTRICTED_CLASSES)
+    support = _class_support(side_windows, RESTRICTED_CLASSES, support_stride)
     identities = _identity_keys(side_windows["eval_stride"])
     return {
         "environments": list(environments),
@@ -221,12 +253,19 @@ def side_block(
         "n_identities": len(identities),
         "raw_subject_ids": sorted({int(subject) for subject in side_windows["eval_stride"]["subject"]}),
         "windows": window_counts,
+        "support_stride": {"name": support_stride, "stride": STRIDES[support_stride]},
         "restricted_class_support": support,
-        "excluded_class_support": _class_support(side_windows, EXCLUDED_CLASSES),
-        "missing_restricted_classes": [label for label, entry in support.items() if entry["windows_eval_stride"] == 0],
-        "single_video_classes": [label for label, entry in support.items() if entry["videos"] == 1],
-        "single_identity_classes": [label for label, entry in support.items() if entry["identities"] == 1],
-        "imbalance": _imbalance(support),
+        "excluded_class_support": _class_support(side_windows, EXCLUDED_CLASSES, support_stride),
+        "missing_restricted_classes_at_support_stride": [
+            label for label, entry in support.items() if entry["windows_at_support_stride"] == 0
+        ],
+        "single_video_classes_at_support_stride": [
+            label for label, entry in support.items() if entry["videos_at_support_stride"] == 1
+        ],
+        "single_identity_classes_at_support_stride": [
+            label for label, entry in support.items() if entry["identities_at_support_stride"] == 1
+        ],
+        "imbalance": _imbalance(support, STRIDES[support_stride]),
     }
 
 
@@ -254,24 +293,37 @@ def _fmt_ratio(value: object) -> str:
     return f"{cast(float, value):.1f}"
 
 
+def _support_stride(side: dict[str, object]) -> int:
+    return cast(dict[str, int], side["support_stride"])["stride"]
+
+
 def fold_limitations(
     fold: dict[str, object], development: dict[str, object], retained: dict[str, object], official: dict[str, object]
 ) -> list[str]:
     limitations: list[str] = []
     sides = (("treino de desenvolvimento", development), (f"ambiente retido {fold['retained_environment']}", retained))
     for name, side in sides:
-        missing = cast(list[str], side["missing_restricted_classes"])
+        stride = _support_stride(side)
+        missing = cast(list[str], side["missing_restricted_classes_at_support_stride"])
         if missing:
-            limitations.append(f"{name}: classes restritas sem nenhuma janela: {missing}.")
-        single_video = cast(list[str], side["single_video_classes"])
+            support = cast(dict[str, dict[str, int]], side["restricted_class_support"])
+            only_eval_stride = [label for label in missing if support[label]["windows_eval_stride"] > 0]
+            detail = f" (com janelas só em stride {EVAL_STRIDE}: {only_eval_stride})" if only_eval_stride else ""
+            limitations.append(f"{name}: classes restritas sem nenhuma janela em stride {stride}: {missing}{detail}.")
+        single_video = cast(list[str], side["single_video_classes_at_support_stride"])
         if single_video:
-            limitations.append(f"{name}: classes restritas presentes em um único vídeo: {single_video}.")
+            limitations.append(
+                f"{name}: classes restritas presentes em um único vídeo em stride {stride}: {single_video}."
+            )
         single_identity = [
-            label for label in cast(list[str], side["single_identity_classes"]) if label not in single_video
+            label
+            for label in cast(list[str], side["single_identity_classes_at_support_stride"])
+            if label not in single_video
         ]
         if single_identity:
             limitations.append(
-                f"{name}: classes restritas presentes em uma única identidade (ambiente, sujeito): {single_identity}."
+                f"{name}: classes restritas presentes em uma única identidade (ambiente, sujeito) em stride "
+                f"{stride}: {single_identity}."
             )
     development_windows = cast(dict[str, dict[str, int]], development["windows"])
     official_windows = cast(dict[str, dict[str, int]], official["windows"])
@@ -286,7 +338,7 @@ def fold_limitations(
     official_imbalance = cast(dict[str, object] | None, official["imbalance"])
     if development_imbalance is not None and official_imbalance is not None:
         limitations.append(
-            "Desbalanceamento no treino de desenvolvimento (stride 4): "
+            f"Desbalanceamento no treino de desenvolvimento (stride {development_imbalance['stride']}): "
             f"{development_imbalance['largest_class']}/{development_imbalance['smallest_present_class']} = "
             f"{_fmt_ratio(development_imbalance['largest_to_smallest_ratio'])}, contra "
             f"{official_imbalance['largest_class']}/{official_imbalance['smallest_present_class']} = "
@@ -312,19 +364,19 @@ def fold_limitations(
 def _other_share(
     development: dict[str, object], retained: dict[str, object], official: dict[str, object]
 ) -> list[str]:
-    def share(side: dict[str, object], key: str) -> float | None:
+    def share(side: dict[str, object]) -> float | None:
         support = cast(dict[str, dict[str, float | None]], side["restricted_class_support"])
-        return support["other"][key]
+        return support["other"]["share_at_support_stride"]
 
-    shares = (share(development, "share_train_stride"), share(retained, "share_eval_stride"),
-              share(official, "share_train_stride"))
+    shares = (share(development), share(retained), share(official))
     if any(value is None for value in shares):
         return []
     development_share, retained_share, official_share = cast(tuple[float, float, float], shares)
     return [
         f"Fração das janelas rotuladas que são other: {development_share:.0%} no treino de desenvolvimento "
-        f"(stride {TRAIN_STRIDE}), {retained_share:.0%} no ambiente retido (stride {EVAL_STRIDE}) e "
-        f"{official_share:.0%} no train oficial (stride {TRAIN_STRIDE}). A fração predita como other também "
+        f"(stride {_support_stride(development)}), {retained_share:.0%} no ambiente retido "
+        f"(stride {_support_stride(retained)}) e {official_share:.0%} no train oficial "
+        f"(stride {_support_stride(official)}). A fração predita como other também "
         "depende dessa proporção; o critério compara armas dentro da mesma dobra."
     ]
 
@@ -349,11 +401,13 @@ def build_report(frames: pd.DataFrame, manifest: pd.DataFrame) -> dict[str, obje
         name: build_window_index(frames, stride=stride, drop_ignored=False) for name, stride in STRIDES.items()
     }
     environments = sorted(str(env) for env in frames["env"].unique())
-    official = side_block(environments, windows, manifest)
+    official = side_block(environments, windows, manifest, DEVELOPMENT_SUPPORT_STRIDE)
     folds: list[dict[str, object]] = []
     for fold in build_folds(environments):
-        development = side_block(cast(list[str], fold["development_environments"]), windows, manifest)
-        retained = side_block([cast(str, fold["retained_environment"])], windows, manifest)
+        development = side_block(
+            cast(list[str], fold["development_environments"]), windows, manifest, DEVELOPMENT_SUPPORT_STRIDE
+        )
+        retained = side_block([cast(str, fold["retained_environment"])], windows, manifest, RETAINED_SUPPORT_STRIDE)
         folds.append(
             {
                 **fold,
@@ -374,6 +428,11 @@ def build_report(frames: pd.DataFrame, manifest: pd.DataFrame) -> dict[str, obje
         "ignore_label": IGNORE_LABEL,
         "window_frames": WINDOW_FRAMES,
         "strides": STRIDES,
+        "support_strides": {
+            "official_train": DEVELOPMENT_SUPPORT_STRIDE,
+            "development_train": DEVELOPMENT_SUPPORT_STRIDE,
+            "retained": RETAINED_SUPPORT_STRIDE,
+        },
         "restricted_classes": list(RESTRICTED_CLASSES),
         "restricted_labels": [LE2I_LABEL_NAMES[class_id] for class_id in RESTRICTED_CLASSES],
         "excluded_labels": [LE2I_LABEL_NAMES[class_id] for class_id in EXCLUDED_CLASSES],
@@ -414,17 +473,20 @@ def _side_row(name: str, side: dict[str, object]) -> str:
 def _support_table(development: dict[str, object], retained: dict[str, object]) -> list[str]:
     development_support = cast(dict[str, dict[str, int]], development["restricted_class_support"])
     retained_support = cast(dict[str, dict[str, int]], retained["restricted_class_support"])
+    development_stride = _support_stride(development)
+    retained_stride = _support_stride(retained)
     lines = [
         "",
-        "| Classe | Treino dev.: janelas (stride 4) | vídeos | identidades | "
-        "Retido: janelas (stride 1) | vídeos | identidades |",
+        f"| Classe | Treino dev. stride {development_stride}: janelas | vídeos | identidades | "
+        f"Retido stride {retained_stride}: janelas | vídeos | identidades |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for label, dev in development_support.items():
         ret = retained_support[label]
         lines.append(
-            f"| {label} | {dev['windows_train_stride']} | {dev['videos']} | {dev['identities']} | "
-            f"{ret['windows_eval_stride']} | {ret['videos']} | {ret['identities']} |"
+            f"| {label} | {dev['windows_at_support_stride']} | {dev['videos_at_support_stride']} | "
+            f"{dev['identities_at_support_stride']} | {ret['windows_at_support_stride']} | "
+            f"{ret['videos_at_support_stride']} | {ret['identities_at_support_stride']} |"
         )
     return lines
 
@@ -444,7 +506,9 @@ def render_summary(report: dict[str, object]) -> str:
         "Avaliação somente leitura do candidato 1 da Etapa 2A sobre o split train oficial do Le2i-CV; val e "
         "test oficiais não são lidos. Nada foi treinado, selecionado ou ajustado. Janelas pelo contrato "
         "temporal congelado; IGNORE_LABEL pelo rótulo do último quadro; classes restritas fixas de "
-        "RESTRICTED_CLASSES. Identidades = (ambiente, sujeito).",
+        "RESTRICTED_CLASSES. Identidades = (ambiente, sujeito). Presença, vídeos e identidades por classe "
+        f"usam stride {TRAIN_STRIDE} no treino de desenvolvimento e no train oficial e stride {EVAL_STRIDE} "
+        "no ambiente retido; o JSON guarda as contagens de janelas nos dois strides.",
     ]
     if report["status"] == "missing_prerequisites":
         lines += ["", "## Pré-requisitos ausentes", ""]

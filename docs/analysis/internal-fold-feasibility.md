@@ -22,9 +22,11 @@ features, checkpoints, referências nem resultados existentes.
 - A partição precisa bater com o Le2i-CV pinado: ambientes
   `Coffee_room_01`, `Coffee_room_02` e `Lecture_room`, 97 vídeos, 17905
   janelas em stride 1 e 16595 rotuladas, os mesmos valores verificados pelo
-  relatório de janelas. Os vídeos de frames e manifesto precisam coincidir e
-  cada vídeo precisa ter ambiente e sujeito únicos. Qualquer divergência
-  interrompe a execução sem gravar nada.
+  relatório de janelas. O manifesto filtrado não pode repetir `video_id`, os
+  vídeos de frames e manifesto precisam coincidir, cada vídeo precisa ter
+  ambiente e sujeito únicos nos frames, e esse ambiente e esse sujeito
+  precisam ser iguais aos do manifesto. Qualquer divergência interrompe a
+  execução sem gravar nada.
 - As janelas vêm de `build_window_index` com `WINDOW_FRAMES`,
   `TRAIN_STRIDE` (4) e `EVAL_STRIDE` (1). Uma janela é ignorada quando o
   último quadro é `IGNORE_LABEL`, como no treino e na avaliação.
@@ -40,9 +42,16 @@ ambientes, câmeras, resolução e fps, vídeos, identidades, janelas totais,
 rotuladas, ignoradas e rotuladas fora de `other` nos dois strides, e o
 suporte de cada classe restrita em janelas, vídeos e identidades.
 
-O treino de desenvolvimento é lido em stride 4, como o treino. O ambiente
-retido é lido em stride 1, como `val`. O critério da Etapa 2A usa a fração
-predita como `other` entre as janelas fora de `other` do ambiente retido.
+Cada lado tem um **stride de suporte**, o stride em que ele é usado: o treino
+de desenvolvimento e o `train` oficial usam `TRAIN_STRIDE` (4), porque o
+treino só vê essas janelas, e o ambiente retido usa `EVAL_STRIDE` (1), como
+`val`. A presença de cada classe, os vídeos e as identidades que a contêm,
+a fração de janelas e as listas de classes ausentes ou de suporte único são
+medidos no stride de suporte do lado. Uma classe que só aparece em quadros
+fora dos fins de janela de stride 4 conta como ausente no treino de
+desenvolvimento, mesmo que exista em stride 1. As contagens de janelas nos
+dois strides continuam no JSON. O critério da Etapa 2A usa a fração predita
+como `other` entre as janelas fora de `other` do ambiente retido.
 
 As limitações por dobra são fatos estruturais, sem limiar novo:
 
@@ -68,9 +77,16 @@ nada é gravado se algum deles já existir.
 
 - `internal_fold_feasibility.json`: `canonical: false`, `read_only: true`,
   `status`, `official_splits_read`, contrato de janelas, classes restritas,
-  `official_train`, `folds` (com `development_train`, `retained`,
-  `criterion_blockers` e `limitations`), `missing_prerequisites`,
-  `limitations`, `approval_required` e `input_sha256`.
+  `support_strides`, `official_train`, `folds` (com `development_train`,
+  `retained`, `criterion_blockers` e `limitations`), `missing_prerequisites`,
+  `limitations`, `approval_required` e `input_sha256`. Cada lado traz
+  `support_stride` e, por classe, `windows_train_stride` e
+  `windows_eval_stride` (contagens nos dois strides) mais
+  `windows_at_support_stride`, `share_at_support_stride`,
+  `videos_at_support_stride` e `identities_at_support_stride`. As listas
+  `missing_restricted_classes_at_support_stride`,
+  `single_video_classes_at_support_stride` e
+  `single_identity_classes_at_support_stride` usam o mesmo stride.
 - `internal_fold_feasibility.md`: tabelas por dobra, bloqueios, limitações e
   as restrições que exigem aprovação.
 
@@ -92,14 +108,18 @@ uv run python -m gatefall.eval.analysis.internal_fold_feasibility assess \
 
 O `selftest` usa apenas dados sintéticos e cobre a construção das dobras,
 as contagens nos dois strides com `IGNORE_LABEL`, o suporte por classe e por
-identidade, as classes ausentes e de suporte único, os bloqueios do
-critério, a leitura restrita a `train`, as guardas da partição oficial, os
+identidade no stride de cada lado, inclusive uma classe presente em stride 1
+e ausente em stride 4 no treino de desenvolvimento, as classes ausentes e de
+suporte único, os bloqueios do critério, a leitura restrita a `train`, as
+guardas da partição oficial e dos metadados do manifesto, os
 pré-requisitos ausentes e a proteção da saída.
 
 ## Resultado local (não canônico)
 
 Executado em 2026-10-14 no branch `feat/le2i-cv-internal-fold-feasibility`
-(base `analysis/gatefall-improvements`, `311c6af`). SHA-256 das entradas:
+(base `analysis/gatefall-improvements`, `311c6af`), com suporte do treino de
+desenvolvimento medido em stride 4 e guardas de metadados do manifesto.
+As guardas passaram sem divergência. SHA-256 das entradas:
 `frames.parquet` `b65bedc3…b640` e `manifest.parquet` `4dcad0c5…a94a`. O
 relatório não é versionado; o comando acima o reproduz.
 
@@ -114,9 +134,14 @@ identidades.
 
 Fatos confirmados:
 
-- Nenhuma classe restrita falta em nenhum lado de nenhuma dobra, e nenhuma
-  dobra tem bloqueio do critério. `lie_down` e `lying` têm zero janelas em
-  todos os lados, como no `train` oficial.
+- Nenhuma classe restrita falta em nenhum lado de nenhuma dobra, no stride
+  de suporte de cada lado, e nenhuma dobra tem bloqueio do critério.
+  `lie_down` e `lying` têm zero janelas em todos os lados, como no `train`
+  oficial.
+- No treino de desenvolvimento, em stride 4, toda classe restrita aparece em
+  pelo menos 5 vídeos. O menor suporte é `sit_down` na dobra `Lecture_room`:
+  44 janelas de 5 vídeos e 3 identidades. Nenhuma classe depende de um
+  único vídeo ou de uma única identidade nesse lado.
 - Suporte pequeno no lado retido: `sit_down` em `Coffee_room_01` vem de um
   único vídeo (24 janelas). Em `Coffee_room_02`, `standing` vem de 3 vídeos
   e `sit_down` de 4 vídeos de 2 identidades. `Lecture_room` tem só 5

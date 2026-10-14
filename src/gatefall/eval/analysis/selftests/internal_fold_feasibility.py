@@ -29,7 +29,10 @@ I = IGNORE_LABEL
 # (video_id, split, env, cam, subject, rótulo por quadro). O sujeito bruto 1
 # aparece em EnvA e EnvB. EnvC só tem `other` fora do prefixo ignorado e
 # nenhum vídeo tem `fall`. Os vídeos de val/test usam rótulos e ambientes que
-# não existem em train para denunciar qualquer leitura fora do split.
+# não existem em train para denunciar qualquer leitura fora do split. Com 8
+# quadros, o stride 4 termina só em k_end 0 e 4: `sitting` (a1) e `stand_up`
+# (a2) existem só nos quadros 6–7, logo aparecem em stride 1 e somem em
+# stride 4; `walk` de a2 também só aparece fora desses fins.
 VIDEO_SPEC: tuple[tuple[str, str, str, int, int, list[int]], ...] = (
     ("a1", "train", "EnvA", 1, 1, [W, W, W, W, SD, SD, ST, ST]),
     ("a2", "train", "EnvA", 1, 2, [I, I, W, W, SG, SG, SU, SU]),
@@ -146,19 +149,51 @@ def _selftest_class_support_and_identities() -> bool:
     fold = _fold(report, "EnvC")
     development = fold["development_train"]
     support = development["restricted_class_support"]
-    walk_ok = (support["walk"]["windows_eval_stride"], support["walk"]["videos"], support["walk"]["identities"]) == (
-        14, 4, 4
-    )
-    sitting_ok = (support["sitting"]["windows_eval_stride"], support["sitting"]["videos"]) == (2, 1)
+    walk = support["walk"]
+    walk_ok = (
+        walk["windows_train_stride"], walk["windows_eval_stride"], walk["windows_at_support_stride"],
+        walk["videos_at_support_stride"], walk["identities_at_support_stride"],
+    ) == (3, 14, 3, 3, 3)
     excluded_ok = all(
-        entry["windows_eval_stride"] == 0 for entry in development["excluded_class_support"].values()
+        entry["windows_train_stride"] == 0 and entry["windows_eval_stride"] == 0
+        for entry in development["excluded_class_support"].values()
     )
     identities_ok = development["identities"] == ["EnvA/1", "EnvA/2", "EnvB/1", "EnvB/3"]
     official_ok = report["official_train"]["n_identities"] == 5 and report["official_train"]["n_videos"] == 5
     return _check(
-        "suporte por classe conta janelas, vídeos e identidades (ambiente, sujeito); o mesmo ID bruto em "
-        "dois ambientes vira duas identidades e classes excluídas ficam fora das restritas",
-        walk_ok and sitting_ok and excluded_ok and identities_ok and official_ok,
+        "suporte por classe guarda janelas nos dois strides e conta vídeos e identidades (ambiente, sujeito) "
+        "no stride do lado; o mesmo ID bruto em dois ambientes vira duas identidades e classes excluídas "
+        "ficam fora das restritas",
+        walk_ok and excluded_ok and identities_ok and official_ok,
+    )
+
+
+def _selftest_training_side_uses_train_stride() -> bool:
+    report = _report()
+    fold = _fold(report, "EnvC")
+    development = fold["development_train"]
+    sitting = development["restricted_class_support"]["sitting"]
+    sitting_ok = (
+        sitting["windows_eval_stride"], sitting["windows_train_stride"], sitting["windows_at_support_stride"],
+        sitting["videos_at_support_stride"], sitting["identities_at_support_stride"],
+    ) == (2, 0, 0, 0, 0)
+    missing_ok = development["missing_restricted_classes_at_support_stride"] == ["fall", "sitting", "stand_up"]
+    flagged = any(
+        "stride 4" in text and "só em stride 1: ['sitting', 'stand_up']" in text for text in fold["limitations"]
+    )
+    retained = _fold(report, "EnvA")["retained"]
+    retained_ok = (
+        retained["support_stride"] == {"name": "eval_stride", "stride": 1}
+        and retained["restricted_class_support"]["sitting"]["videos_at_support_stride"] == 1
+        and "sitting" not in retained["missing_restricted_classes_at_support_stride"]
+    )
+    strides_ok = development["support_stride"] == {"name": "train_stride", "stride": 4} and report[
+        "support_strides"
+    ] == {"official_train": "train_stride", "development_train": "train_stride", "retained": "eval_stride"}
+    return _check(
+        "o treino de desenvolvimento mede presença, vídeos e identidades em TRAIN_STRIDE: classe que só existe "
+        "em stride 1 aparece como ausente nele e continua presente no lado retido, medido em EVAL_STRIDE",
+        sitting_ok and missing_ok and flagged and retained_ok and strides_ok,
     )
 
 
@@ -166,9 +201,14 @@ def _selftest_missing_and_single_support_flags() -> bool:
     fold = _fold(_report(), "EnvA")
     development = fold["development_train"]
     retained = fold["retained"]
-    missing_ok = development["missing_restricted_classes"] == ["fall", "sit_down", "sitting", "stand_up", "standing"]
-    retained_missing_ok = retained["missing_restricted_classes"] == ["fall", "fallen", "other"]
-    single_ok = "sit_down" in retained["single_video_classes"] and "fallen" in development["single_video_classes"]
+    missing_ok = development["missing_restricted_classes_at_support_stride"] == [
+        "fall", "sit_down", "sitting", "stand_up", "standing"
+    ]
+    retained_missing_ok = retained["missing_restricted_classes_at_support_stride"] == ["fall", "fallen", "other"]
+    single_ok = (
+        "sit_down" in retained["single_video_classes_at_support_stride"]
+        and "fallen" in development["single_video_classes_at_support_stride"]
+    )
     text = " ".join(fold["limitations"])
     flagged = "sem nenhuma janela" in text and "um único vídeo" in text and "IDs brutos" in text and "[1]" in text
     return _check(
@@ -253,6 +293,50 @@ def _selftest_official_partition_guard() -> bool:
     )
 
 
+def _with_manifest_value(manifest: pd.DataFrame, video_id: str, column: str, value: object) -> pd.DataFrame:
+    changed = manifest.copy()
+    changed.loc[changed["video_id"] == video_id, column] = value
+    return changed
+
+
+def _selftest_manifest_metadata_guard() -> bool:
+    frames = _train_only(_frames())
+    manifest = _train_only(_manifest())
+    ambiguous_frames = frames.copy()
+    ambiguous_frames.loc[(ambiguous_frames["video_id"] == "b2") & (ambiguous_frames["frame_index"] == 3), "env"] = "EnvA"
+    with patch.object(internal_fold_feasibility, "EXPECTED_OFFICIAL_TRAIN", SYNTHETIC_EXPECTED):
+        duplicated = _raises(
+            ValueError,
+            lambda: validate_official_train_partition(frames, pd.concat([manifest, manifest.iloc[[0]]])),
+            "duplicados: ['a1']",
+        )
+        duplicated_with_other_metadata = _raises(
+            ValueError,
+            lambda: validate_official_train_partition(
+                frames, pd.concat([manifest, _with_manifest_value(manifest, "b1", "subject", 8).iloc[[2]]])
+            ),
+            "duplicados: ['b1']",
+        )
+        env_mismatch = _raises(
+            ValueError,
+            lambda: validate_official_train_partition(frames, _with_manifest_value(manifest, "a2", "env", "EnvB")),
+            "divergem entre frames e manifesto de train: ['a2']",
+        )
+        subject_mismatch = _raises(
+            ValueError,
+            lambda: validate_official_train_partition(frames, _with_manifest_value(manifest, "c1", "subject", 9)),
+            "divergem entre frames e manifesto de train: ['c1']",
+        )
+        ambiguous = _raises(
+            ValueError, lambda: validate_official_train_partition(ambiguous_frames, manifest), "ambíguo nos frames: ['b2']"
+        )
+    return _check(
+        "o manifesto de train não pode repetir vídeo nem divergir dos frames em ambiente ou sujeito, e os "
+        "frames não podem ter metadados ambíguos por vídeo",
+        duplicated and duplicated_with_other_metadata and env_mismatch and subject_mismatch and ambiguous,
+    )
+
+
 def _selftest_missing_prerequisites() -> bool:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -312,10 +396,12 @@ def run_internal_fold_feasibility_selftest() -> bool:
         _selftest_fold_construction(),
         _selftest_window_counts_and_ignore_semantics(),
         _selftest_class_support_and_identities(),
+        _selftest_training_side_uses_train_stride(),
         _selftest_missing_and_single_support_flags(),
         _selftest_criterion_blockers(),
         _selftest_reads_only_official_train(),
         _selftest_official_partition_guard(),
+        _selftest_manifest_metadata_guard(),
         _selftest_missing_prerequisites(),
         _selftest_end_to_end_read_only(),
     ]
