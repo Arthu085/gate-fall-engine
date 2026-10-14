@@ -12,6 +12,7 @@ separados e nunca agregados entre si. O teste é usado apenas descritivamente.
 
 import argparse
 import json
+import math
 import os
 import uuid
 from collections import Counter
@@ -163,6 +164,16 @@ def labels_from_confusion_matrix(matrix: list[list[int]]) -> tuple[np.ndarray, n
     return np.repeat(true_ids.ravel(), flat_counts), np.repeat(predicted_ids.ravel(), flat_counts)
 
 
+def _finite_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _stored_mismatches(
     stored: dict,
     macro_f1: float,
@@ -173,9 +184,10 @@ def _stored_mismatches(
     mismatches: list[str] = []
 
     def compare(field: str, stored_value: object, recomputed: float) -> None:
-        if isinstance(stored_value, bool) or not isinstance(stored_value, int | float):
-            mismatches.append(f"{field}: valor gravado ausente ou não numérico")
-        elif abs(float(stored_value) - recomputed) > METRIC_TOLERANCE:
+        stored_number = _finite_number(stored_value)
+        if stored_number is None:
+            mismatches.append(f"{field}: valor gravado ausente, não numérico ou não finito ({stored_value!r})")
+        elif abs(stored_number - recomputed) > METRIC_TOLERANCE:
             mismatches.append(f"{field}: gravado {stored_value}, recalculado {recomputed}")
 
     compare("macro_f1_restricted", stored.get("macro_f1_restricted"), macro_f1)
@@ -451,7 +463,8 @@ def _verify_summary_aggregate(summary: dict, variation: dict, context: str) -> N
         recomputed = variation[split]["macro_f1_restricted"]
         for field in ("n", "mean"):
             stored_value = stored.get(field) if isinstance(stored, dict) else None
-            if stored_value is None or abs(float(stored_value) - float(recomputed[field])) > METRIC_TOLERANCE:
+            stored_number = _finite_number(stored_value)
+            if stored_number is None or abs(stored_number - float(recomputed[field])) > METRIC_TOLERANCE:
                 raise ValueError(
                     f"{context}: aggregate.{split}.macro_f1_restricted.{field} gravado "
                     f"{stored_value} diverge do recálculo {recomputed[field]}"

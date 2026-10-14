@@ -256,6 +256,66 @@ def _selftest_invalid_inputs_rejected() -> bool:
     )
 
 
+def _selftest_non_finite_stored_values_rejected() -> bool:
+    # NaN torna qualquer comparação falsa; sem checagem explícita um valor
+    # gravado NaN passaria como "não divergente" do recálculo.
+    non_finite = (float("nan"), float("inf"), float("-inf"))
+    valid = _final_split(*labels_from_confusion_matrix(_known_matrix()))
+    setters: list[Callable[[dict, float], None]] = [
+        lambda block, value: block.__setitem__("macro_f1_restricted", value),
+        lambda block, value: block["f1_by_class"].__setitem__("0", value),
+        lambda block, value: block["per_class"]["fall"].__setitem__("precision", value),
+        lambda block, value: block["support"].__setitem__("walk", value),
+    ]
+
+    def block_rejected(setter: Callable[[dict, float], None], value: float) -> bool:
+        block = copy.deepcopy(valid)
+        setter(block, value)
+        return _raises(ValueError, lambda: diagnose_split(block, LE2I_LABEL_NAMES, "sintético"))
+
+    blocks_rejected = all(block_rejected(setter, value) for setter in setters for value in non_finite)
+    valid_block_accepted = not _raises(ValueError, lambda: diagnose_split(valid, LE2I_LABEL_NAMES, "sintético"))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        summary_path = Path(tmp) / "summary" / "multiseed_summary.json"
+        payload = _summary_payload("C1", [42, 43], str(Path(tmp) / "seeds"))
+
+        def summary_rejected(change: Callable[[dict], None]) -> bool:
+            broken = copy.deepcopy(payload)
+            change(broken)
+            _write_summary(summary_path, broken)
+            return _raises(
+                ValueError, lambda: diagnose_multiseed_summary(summary_path, "le2i", "C1", LE2I_LABEL_NAMES)
+            )
+
+        aggregate_rejected = all(
+            summary_rejected(
+                lambda broken, split=split, field=field, value=value: broken["aggregate"]["classification"][split][
+                    "macro_f1_restricted"
+                ].__setitem__(field, value)
+            )
+            for split in ("train", "test")
+            for field in ("n", "mean")
+            for value in non_finite
+        )
+        seed_metric_rejected = summary_rejected(
+            lambda broken: broken["seeds"][1]["classification"]["val"].__setitem__("macro_f1_restricted", float("nan"))
+        )
+        _write_summary(summary_path, payload)
+        valid_summary_accepted = not _raises(
+            ValueError, lambda: diagnose_multiseed_summary(summary_path, "le2i", "C1", LE2I_LABEL_NAMES)
+        )
+    return _check(
+        "NaN e ±inf gravados são recusados em Macro-F1 restrita, f1_by_class, per_class, support, "
+        "métricas por seed e agregado multi-seed (n e mean); valores finitos válidos seguem aceitos",
+        blocks_rejected
+        and valid_block_accepted
+        and aggregate_rejected
+        and seed_metric_rejected
+        and valid_summary_accepted,
+    )
+
+
 def _selftest_missing_data_reported() -> bool:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -398,6 +458,7 @@ def run_classification_diagnosis_selftest() -> bool:
         _selftest_metrics_match_independent_formula(),
         _selftest_confusion_interpretation(),
         _selftest_invalid_inputs_rejected(),
+        _selftest_non_finite_stored_values_rejected(),
         _selftest_missing_data_reported(),
         _selftest_end_to_end_protocols_and_protection(),
     ]

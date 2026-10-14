@@ -36,7 +36,8 @@ Cada fonte é validada antes de entrar no diagnóstico:
 - Todas as métricas gravadas são recalculadas a partir da `confusion_matrix`
   com `classification_summary` e `restricted_macro_f1`
   (`gatefall.train.shared.metrics`); qualquer divergência acima de `1e-9`
-  falha.
+  falha. Valores gravados ausentes, não numéricos, `NaN` ou `±Infinity`
+  também falham, inclusive no agregado do sumário multi-seed.
 - Quando presente, `classification_report.json` deve ter as mesmas matrizes
   e `verification_against_metrics_json.ok: true`.
 - O sumário multi-seed deve declarar a arma informada, ter `n_seeds`
@@ -119,8 +120,8 @@ uv run python -m gatefall.eval.analysis.classification_diagnosis diagnose --outp
 ```
 
 `selftest` usa somente artefatos sintéticos e cobre cálculo das métricas,
-interpretação da matriz de confusão, validação de entrada, dados ausentes e
-proteção das referências. Exemplo com os artefatos locais desta máquina:
+interpretação da matriz de confusão, validação de entrada, recusa de
+métricas gravadas não finitas, dados ausentes e proteção das referências. Exemplo com os artefatos locais desta máquina:
 
 ```bash
 uv run python -m gatefall.eval.analysis.classification_diagnosis diagnose \
