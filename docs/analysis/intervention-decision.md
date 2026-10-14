@@ -179,6 +179,11 @@ não revisada. Ela não serve como evidência para esta decisão:
 
 No máximo dois, ambos fora de execução até revisão explícita.
 
+Os dois candidatos são motivados por uma falha já examinada no `test`. Por
+isso, qualquer intervenção que venha deles permanece exploratória, mesmo que
+seja avaliada só em dobras de desenvolvimento: o `test` já exposto não pode
+confirmar de forma independente a generalização.
+
 ### Candidato 1 — validação interna por ambiente em Le2i-CV (instrumento)
 
 - **Mecanismo:** criar um sinal de desenvolvimento para a falha. Cada dobra
@@ -193,9 +198,14 @@ No máximo dois, ambos fora de execução até revisão explícita.
 - **Critério em train/val:** o deslocamento é considerado reproduzido se, em
   pelo menos dois dos três ambientes retidos, a menor fração predita como
   `other` entre as seeds de B0 (ou B1) superar a maior entre as seeds de A,
-  com o mesmo cálculo da consolidação multi-seed. Caso contrário, a hipótese
-  de atalho de cena perde apoio e a mudança de entrada específica do `test`
-  ganha peso.
+  com o mesmo cálculo da consolidação multi-seed.
+- **Leitura de um resultado negativo:** não reproduzir o deslocamento nas
+  dobras não identifica a causa da falha no `test` oficial e não prova que
+  propriedades de entrada específicas do `test`, como resolução e fps, sejam
+  responsáveis. Cada dobra treina com dois ambientes em vez de três, com menos
+  janelas e outra composição de classes, sujeitos e cenas. A ausência do
+  deslocamento pode vir dessa mudança de treino, e não de uma diferença entre
+  os ambientes retidos e o `test`.
 - **Impacto em classificação e alarmes:** nenhum nos modelos existentes. O
   resultado só decide se o candidato 2 é testável.
 - **Custo:** um novo modo de split e de padronização por dobra no pipeline de
@@ -209,9 +219,11 @@ No máximo dois, ambos fora de execução até revisão explícita.
 
 ### Candidato 2 — dropout de modalidade visual em B0/B1 (condicional)
 
-- **Mecanismo:** reduzir a dependência de B0/B1 de um atalho visual. A
-  memorização de `train` e a troca `standing→walk` em Le2i-CS `val` indicam
-  que a TCN separa estados próximos pela cena DINOv3, não pelo movimento.
+- **Mecanismo:** reduzir uma possível dependência de B0/B1 de um atalho
+  visual. É uma hipótese não verificada, uma das explicações concorrentes
+  acima. A memorização de `train` e a troca `standing→walk` em Le2i-CS `val`
+  são compatíveis com ela, mas não estabelecem que a TCN separe estados
+  próximos pela cena DINOv3 em vez do movimento.
 - **Mudança mínima:** só no treino, zerar a projeção `E_V(visual)` de cada
   janela com uma probabilidade fixa definida antes de treinar, sem busca. A
   inferência não muda.
