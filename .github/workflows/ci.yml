@@ -60,6 +60,7 @@ jobs:
           uv run python -m gatefall.eval.analysis.gate_degradation selftest
           uv run python -m gatefall.eval.analysis.grouped_bootstrap selftest
           uv run python -m gatefall.eval.analysis.multiseed_summary selftest
+          uv run python -m gatefall.eval.analysis.classification_diagnosis selftest
           uv run python -m gatefall.eval.analysis.generalization_report selftest
           uv run python -m gatefall.pipeline selftest
           uv run python -m gatefall.selftests.protocol_isolation
