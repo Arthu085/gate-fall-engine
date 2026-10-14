@@ -218,8 +218,12 @@ confirmar de forma independente a generalização.
   não se soma a ela.
 - **Viabilidade:** avaliada sem treino na
   [Etapa 2B](internal-fold-feasibility.md).
-- **Implementação:** [Etapa 2C](../train/internal-folds.md), validada só com
-  dados sintéticos e ainda sem treino real.
+- **Implementação:** [Etapa 2C](../train/internal-folds.md).
+- **Resultado:** [Etapa 2D](internal-fold-pilot.md), encerrada como resultado
+  exploratório negativo. No piloto da seed 42, B0 e B1 predizem `other` com
+  fração menor que A nas três dobras, o que torna o critério impossível de
+  satisfazer com as cinco seeds. Os 36 treinos restantes não são
+  recomendados.
 
 ### Candidato 2 — dropout de modalidade visual em B0/B1 (condicional)
 
@@ -252,7 +256,9 @@ confirmar de forma independente a generalização.
 
 Se o candidato 1 não for aprovado, ou não reproduzir o deslocamento, a
 decisão permanece **não**: nenhuma intervenção de modelo é justificada pela
-evidência atual. O resultado de B0/B1 em Le2i-CV fica descrito como
+evidência atual. A [Etapa 2D](internal-fold-pilot.md) confirmou o segundo
+caso: o candidato 1 não reproduz o deslocamento, e o candidato 2 não é
+executado. O resultado de B0/B1 em Le2i-CV fica descrito como
 limitação de generalização entre ambientes, sem causa atribuída, ao lado dos
 erros compartilhados `standing→walk`, `sitting→stand_up` e `other→walk`.
 
