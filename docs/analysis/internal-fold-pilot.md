@@ -116,6 +116,8 @@ critério e não foi pré-registrado como sinal de nenhuma intervenção.
 ### Explicações possíveis, não testadas
 
 Nada nesta etapa separa as leituras abaixo. Elas não são resultados.
+A [Etapa 2E](internal-fold-retained-audit.md) audita as entradas e as
+predições desse ambiente sem retreinar.
 
 - **Atalho de cena.** O treino de desenvolvimento da dobra `Lecture_room`
   tem só as duas salas de café. B0/B1 quase memorizam esse treino, e o
