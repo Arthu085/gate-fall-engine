@@ -218,6 +218,8 @@ confirmar de forma independente a generalização.
   não se soma a ela.
 - **Viabilidade:** avaliada sem treino na
   [Etapa 2B](internal-fold-feasibility.md).
+- **Implementação:** [Etapa 2C](../train/internal-folds.md), validada só com
+  dados sintéticos e ainda sem treino real.
 
 ### Candidato 2 — dropout de modalidade visual em B0/B1 (condicional)
 
