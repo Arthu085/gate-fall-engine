@@ -47,9 +47,10 @@ dados de desenvolvimento.
   manifesto filtrado.
 - O engine exige as posições `val` e `test`. Nas dobras, as duas avaliam o
   mesmo ambiente retido; nenhuma é o split oficial de mesmo nome. Cada run
-  grava `fold_run.json` com `evaluation_split_mapping`, a dobra, a arma, a
-  seed e os hashes das estatísticas, e o resumo confere que `final.val` e
-  `final.test` são idênticos.
+  recém-treinado grava `fold_run.json` com `evaluation_split_mapping`, a
+  dobra, a arma, a seed, os hashes das estatísticas e o SHA-256 de
+  `config.yaml`, `metrics.json` e `checkpoint.pt`. O resumo confere que
+  `final.val` e `final.test` são idênticos.
 
 ## Padronização por dobra
 
@@ -81,17 +82,51 @@ runs/local/le2i_cv_internal_folds/
 └── summary/{pilot,assessment}/internal_fold_summary.{json,md}
 ```
 
-`folds.json` registra a composição das dobras, o hash das entradas e dos
-sidecars de qualidade, a política de checkpoint e o critério congelado.
-`train` recusa a execução se frames, manifesto, composição ou qualidade
-tiverem mudado desde o `prepare`.
+`folds.json` registra a composição das dobras, as contagens de janelas de
+cada lado, o SHA-256 de frames e manifesto (`input_sha256`, por papel), o
+hash da composição (`membership_sha256`), o hash dos sidecars de qualidade e
+o contrato congelado: janelamento, classes restritas, armas, conjuntos de
+seeds, mapeamento de avaliação, política de checkpoint e critério. `train`
+recusa a execução se o contrato divergir ou se frames, manifesto, composição
+ou qualidade tiverem mudado desde o `prepare`.
 
 `--output-root` não pode coincidir com, conter ou ficar dentro de
 `runs/reference/`, `runs/local/le2i/`, `runs/local/le2i_cv/`, `src/`, `data/`
-ou dos diretórios das entradas. Sem `--force`, estatísticas e runs completos e
-íntegros são preservados, e estatísticas inválidas, runs parciais e
-`fold_run.json` divergente interrompem a execução. O resumo não sobrescreve
-uma saída existente sem `--force`.
+ou dos diretórios das entradas. Sem `--force`, estatísticas íntegras são
+preservadas e estatísticas inválidas interrompem a execução.
+
+Um run só é pulado quando os artefatos canônicos estão completos e íntegros
+**e** `fold_run.json` existe, é legível, corresponde à dobra, à arma, à seed
+e às estatísticas pedidas e aos hashes atuais dos artefatos. Se o
+`fold_run.json` faltar, estiver corrompido ou divergir, o treino falha sem
+`--force` e não toca no checkpoint. O `fold_run.json` nunca é criado para um
+run que o engine pulou. Com `--force`, o run é retreinado e a proveniência
+é publicada de novo. Runs parciais também falham sem `--force`.
+
+## Validação do resumo
+
+`summarize` é somente leitura e não abre frames, manifesto nem features.
+Antes de relatar qualquer número, ele confere:
+
+- `folds.json` contra o contrato congelado, com o conjunto exato de campos;
+- `input_sha256`, que deve ter exatamente frames e manifesto;
+- a composição gravada: nomes e ambientes das dobras, listas de vídeos
+  ordenadas, retidos disjuntos entre dobras e desenvolvimento igual aos
+  retidos das outras dobras;
+- `membership_sha256`, recalculado a partir da composição gravada;
+- a proveniência de cada dobra contra `folds.json`, incluindo
+  `input_sha256`, vídeos e janelas de desenvolvimento e os hashes de
+  `pose.json` e `dinov3.json`, além de `frames_hash` e `window_count` dos
+  próprios arquivos de estatística;
+- cada run contra a configuração determinística da dobra e contra o próprio
+  `fold_run.json`, e as janelas de `final.train` e `final.val` contra as
+  contagens registradas.
+
+Qualquer divergência interrompe o resumo, que não grava nada. Os campos
+`evaluation_split_mapping` e `checkpoint_policy` do resumo vêm das
+constantes do protocolo, já reconciliadas, e não são copiados de
+`folds.json`. O resumo também não sobrescreve uma saída existente sem
+`--force`.
 
 ## Como executar
 
@@ -106,7 +141,10 @@ loaders restritos, a proveniência e a recusa de estatísticas, a proteção das
 saídas, a determinação do plano e das configurações e o cálculo do critério.
 Ele também treina A, B0 e B1 nas três dobras com features sintéticas, para
 conferir que o treino só vê o desenvolvimento e que a avaliação só vê o
-ambiente retido.
+ambiente retido. Sobre esses runs, ele testa a recusa de `fold_run.json`
+ausente, corrompido ou divergente, com o checkpoint preservado, e a recusa
+do resumo para cada metadado adulterado de `folds.json`, da proveniência e
+de `fold_run.json`.
 
 Plano de runs, sem ler dados:
 

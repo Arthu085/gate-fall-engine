@@ -14,11 +14,7 @@ from gatefall.datasets.le2i import Le2iDatasetAdapter
 from gatefall.dinov3 import storage as dinov3_storage
 from gatefall.dinov3.report import find_provenance_divergences
 from gatefall.dinov3.storage import dinov3_path, read_features
-from gatefall.eval.analysis.classification_diagnosis import (
-    display_path,
-    snapshot_inputs,
-    verify_inputs_unchanged,
-)
+from gatefall.eval.analysis.classification_diagnosis import snapshot_inputs, verify_inputs_unchanged
 from gatefall.eval.analysis.internal_fold_feasibility import (
     read_train_partition,
     validate_official_train_partition,
@@ -58,7 +54,7 @@ def _official_train(
     frames = read_train_partition(frames_path)
     manifest = read_train_partition(manifest_path)
     validate_official_train_partition(frames, manifest)
-    input_sha256 = {display_path(Path(path)): digest for path, digest in snapshot.items()}
+    input_sha256 = {"frames": snapshot[str(frames_path)], "manifest": snapshot[str(manifest_path)]}
     return frames, manifest, snapshot, input_sha256
 
 

@@ -44,7 +44,9 @@ def _check(name: str, condition: bool) -> bool:
     return condition
 
 
-def raises(error: type[Exception], action: Callable[[], object], fragment: str = "") -> bool:
+def raises(
+    error: type[Exception] | tuple[type[Exception], ...], action: Callable[[], object], fragment: str = ""
+) -> bool:
     try:
         action()
     except error as exc:

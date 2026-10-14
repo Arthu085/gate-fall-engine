@@ -57,17 +57,17 @@ def _development_source(partition: FoldPartition, loader: FeatureLoader, modalit
     )
 
 
-def expected_provenance(partition: FoldPartition, input_sha256: dict[str, str], window_count: int) -> dict:
+def expected_provenance(fold_record: dict[str, object], input_sha256: dict[str, str]) -> dict:
     return {
         "canonical": False,
         "dataset": DATASET,
-        "fold": partition.fold,
-        "retained_environment": partition.retained_environment,
-        "development_environments": list(partition.development_environments),
+        "fold": fold_record["fold"],
+        "retained_environment": fold_record["retained_environment"],
+        "development_environments": fold_record["development_environments"],
         "fit_split": DEVELOPMENT_SPLIT,
-        "development_video_ids": list(partition.development_video_ids),
+        "development_video_ids": fold_record["development_video_ids"],
         "stride": TRAIN_STRIDE,
-        "window_count": window_count,
+        "window_count": fold_record["development_windows_train_stride"],
         "input_sha256": input_sha256,
     }
 
@@ -105,13 +105,15 @@ def fit_fold_stats(
     (directory / PROVENANCE_FILE).unlink(missing_ok=True)
     pose_source = _development_source(partition, pose_loader, "pose")
     visual_source = _development_source(partition, visual_loader, "dinov3")
+    provenance = expected_provenance(partition.membership_record, input_sha256)
+    if len(pose_source) != provenance["window_count"]:
+        raise RuntimeError(f"{partition.fold}: janelas de desenvolvimento divergem da composição da dobra")
     pose_stats = standardization.compute_train_stats(pose_source, frames_path, stride=TRAIN_STRIDE)
     visual_stats = dinov3_standardization.compute_train_stats(
         visual_source, frames_path, DATASET, stride=TRAIN_STRIDE
     )
     standardization.save_stats(pose_stats, directory / POSE_STATS_FILE, force=True)
     dinov3_standardization.save_stats(visual_stats, directory / DINOV3_STATS_FILE, force=True)
-    provenance = expected_provenance(partition, input_sha256, len(pose_source))
     provenance["files"] = {
         "pose": sha256_file(directory / POSE_STATS_FILE),
         "dinov3": sha256_file(directory / DINOV3_STATS_FILE),
@@ -120,12 +122,17 @@ def fit_fold_stats(
     return load_fold_stats(partition, directory, frames_path, input_sha256)
 
 
-def read_stats_files(directory: Path) -> tuple[dict, StatsFiles]:
+def _load_recorded_stats(
+    directory: Path, fold_record: dict[str, object], input_sha256: dict[str, str]
+) -> FoldStats:
     provenance_path = directory / PROVENANCE_FILE
     if not provenance_path.is_file():
         raise FileNotFoundError(f"{provenance_path} ausente; rode `prepare` antes")
-    with provenance_path.open(encoding="utf-8") as stream:
-        provenance = json.load(stream)
+    try:
+        with provenance_path.open(encoding="utf-8") as stream:
+            provenance = json.load(stream)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{provenance_path} não é um JSON válido: {exc}") from exc
     if not isinstance(provenance, dict):
         raise ValueError(f"{provenance_path} deve ser um objeto")
     pose_path = directory / POSE_STATS_FILE
@@ -136,32 +143,38 @@ def read_stats_files(directory: Path) -> tuple[dict, StatsFiles]:
         dinov3_path=Path(display_path(dinov3_path)),
         dinov3_sha256=sha256_file(dinov3_path),
     )
-    if provenance.get("files") != {"pose": files.pose_sha256, "dinov3": files.dinov3_sha256}:
-        raise ValueError(f"{provenance_path}: hash de pose.json ou dinov3.json diverge da proveniência")
-    return provenance, files
+    expected = {
+        **expected_provenance(fold_record, input_sha256),
+        "files": {"pose": files.pose_sha256, "dinov3": files.dinov3_sha256},
+    }
+    divergent = sorted(
+        field for field in set(expected) | set(provenance) if provenance.get(field) != expected.get(field)
+    )
+    if divergent:
+        raise ValueError(f"{provenance_path}: proveniência diverge da dobra registrada: {', '.join(divergent)}")
+
+    window_count = expected["window_count"]
+    pose = standardization.load_stats(pose_path)
+    standardization.validate_stats_layout(pose)
+    dinov3 = dinov3_standardization.load_stats(dinov3_path)
+    dinov3_standardization.validate_stats_layout(dinov3, dataset_name=DATASET)
+    if pose.frames_hash != input_sha256["frames"] or dinov3.frames_hash != input_sha256["frames"]:
+        raise ValueError(f"{directory}: estatísticas ajustadas sobre frames diferentes dos registrados")
+    if pose.window_count != window_count or dinov3.window_count != window_count:
+        raise ValueError(f"{directory}: window_count das estatísticas diverge da proveniência")
+    return FoldStats(pose=pose, dinov3=dinov3, files=files, window_count=window_count)
+
+
+def load_recorded_stats_files(
+    directory: Path, fold_record: dict[str, object], input_sha256: dict[str, str]
+) -> StatsFiles:
+    """Valida as estatísticas de uma dobra só contra os registros gravados, sem ler as entradas."""
+    return _load_recorded_stats(directory, fold_record, input_sha256).files
 
 
 def load_fold_stats(
     partition: FoldPartition, directory: Path, frames_path: Path, input_sha256: dict[str, str]
 ) -> FoldStats:
-    provenance, files = read_stats_files(directory)
-    window_count = provenance.get("window_count")
-    if not isinstance(window_count, int):
-        raise ValueError(f"{directory / PROVENANCE_FILE}: window_count ausente")
-    expected = expected_provenance(partition, input_sha256, window_count)
-    divergent = sorted(field for field, value in expected.items() if provenance.get(field) != value)
-    if divergent:
-        raise ValueError(
-            f"{directory / PROVENANCE_FILE}: proveniência diverge da dobra atual: {', '.join(divergent)}"
-        )
-
-    pose = standardization.load_stats(directory / POSE_STATS_FILE)
-    standardization.validate_stats_layout(pose)
-    dinov3 = dinov3_standardization.load_stats(directory / DINOV3_STATS_FILE)
-    dinov3_standardization.validate_stats_layout(dinov3, dataset_name=DATASET)
-    dinov3_standardization.validate_stats_freshness(dinov3, frames_path)
-    if pose.frames_hash != dinov3.frames_hash:
-        raise ValueError(f"{directory}: estatísticas de pose e DINOv3 vêm de frames diferentes")
-    if pose.window_count != window_count or dinov3.window_count != window_count:
-        raise ValueError(f"{directory}: window_count das estatísticas diverge da proveniência")
-    return FoldStats(pose=pose, dinov3=dinov3, files=files, window_count=window_count)
+    stats = _load_recorded_stats(directory, partition.membership_record, input_sha256)
+    dinov3_standardization.validate_stats_freshness(stats.dinov3, frames_path)
+    return stats

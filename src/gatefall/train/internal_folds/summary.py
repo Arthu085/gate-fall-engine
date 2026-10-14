@@ -1,8 +1,11 @@
 """Resumo das dobras internas e aplicação do critério congelado da Etapa 2A.
 
 Lê só artefatos já gravados no diretório das dobras: `folds.json`, a
-proveniência das estatísticas e os runs. Cada run é validado contra a
-configuração determinística da dobra antes de entrar no resumo. A fração
+proveniência das estatísticas e os runs; frames, manifesto e features não são
+abertos. Antes de relatar qualquer número, `folds.json` é reconciliado com o
+contrato congelado e com a composição gravada, a proveniência de cada dobra
+com `folds.json`, e cada run com a configuração determinística da dobra, seu
+`fold_run.json` e as contagens de janelas registradas. A fração
 predita como `other` vem da matriz de confusão do ambiente retido, com o
 mesmo cálculo da consolidação multi-seed.
 """
@@ -15,6 +18,8 @@ from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.eval.analysis.classification_diagnosis import display_path, write_text_outputs
 from gatefall.train.internal_folds.folds import (
     ARMS,
+    CHECKPOINT_POLICY,
+    EVALUATION_SPLIT_MAPPING,
     PROTOCOL,
     REPRODUCTION_CRITERION,
     SEED_SETS,
@@ -23,13 +28,14 @@ from gatefall.train.internal_folds.folds import (
     stats_dir,
     summary_dir,
 )
-from gatefall.train.internal_folds.stats import read_stats_files
+from gatefall.eval.analysis.internal_fold_feasibility import OFFICIAL_TRAIN_SPLIT
+from gatefall.train.internal_folds.stats import StatsFiles, load_recorded_stats_files
 from gatefall.train.internal_folds.training import (
-    FOLD_RUN_FILE,
     QualityFeatures,
     fold_run_document,
     resolve_fold_config,
     validate_fold_run,
+    validate_fold_run_document,
 )
 from gatefall.train.shared.metrics import RESTRICTED_CLASSES
 
@@ -71,22 +77,32 @@ def _read_json(path: Path) -> dict:
     return data
 
 
-def run_entry(root: Path, fold: dict, quality: QualityFeatures, arm: str, seed: int) -> dict[str, object]:
+def _total_support(split_metrics: dict) -> int:
+    return sum(cast(dict[str, int], split_metrics["support"]).values())
+
+
+def run_entry(
+    root: Path, fold: dict, files: StatsFiles, quality: QualityFeatures, arm: str, seed: int
+) -> dict[str, object]:
     run_dir = fold_run_dir(root, fold["fold"], arm, seed)
-    _provenance, files = read_stats_files(stats_dir(root, fold["fold"]))
     config = resolve_fold_config(arm, seed, files, quality)
     try:
         validate_fold_run(run_dir, config)
+        validate_fold_run_document(
+            run_dir,
+            fold_run_document(
+                fold["fold"], fold["retained_environment"], fold["development_environments"], arm, seed, files
+            ),
+        )
     except RuntimeError as exc:
         raise RuntimeError(f"run da dobra inválido em {run_dir}: {exc}") from exc
-    expected_document = fold_run_document(
-        fold["fold"], fold["retained_environment"], fold["development_environments"], arm, seed, files
-    )
-    if _read_json(run_dir / FOLD_RUN_FILE) != expected_document:
-        raise RuntimeError(f"{run_dir / FOLD_RUN_FILE} diverge da dobra esperada")
     final = _read_json(run_dir / "metrics.json")["final"]
     if final["val"] != final["test"]:
         raise RuntimeError(f"{run_dir}: val e test deveriam avaliar o mesmo ambiente retido")
+    if _total_support(final["train"]) != fold["development_windows_train_stride"]:
+        raise RuntimeError(f"{run_dir}: janelas de treino divergem de development_windows_train_stride")
+    if _total_support(final["val"]) != fold["retained_windows_eval_stride"]:
+        raise RuntimeError(f"{run_dir}: janelas do retido divergem de retained_windows_eval_stride")
     retained = final["val"]
     fraction, outside_other = predicted_other_fraction(retained)
     return {
@@ -149,15 +165,18 @@ def build_summary(root: Path, seed_set: str) -> dict[str, object]:
     if missing:
         raise FileNotFoundError(f"runs ausentes para o conjunto {seed_set}: {missing}")
 
-    fold_blocks: list[dict] = [
-        {
-            "fold": fold["fold"],
-            "retained_environment": fold["retained_environment"],
-            "development_environments": fold["development_environments"],
-            "runs": [run_entry(root, fold, quality, arm, seed) for arm in ARMS for seed in seeds],
-        }
-        for fold in folds
-    ]
+    input_sha256 = cast(dict[str, str], document["input_sha256"])
+    fold_blocks: list[dict] = []
+    for fold in folds:
+        files = load_recorded_stats_files(stats_dir(root, fold["fold"]), fold, input_sha256)
+        fold_blocks.append(
+            {
+                "fold": fold["fold"],
+                "retained_environment": fold["retained_environment"],
+                "development_environments": fold["development_environments"],
+                "runs": [run_entry(root, fold, files, quality, arm, seed) for arm in ARMS for seed in seeds],
+            }
+        )
 
     criterion: dict[str, object] = {"text": REPRODUCTION_CRITERION, "seed_set": seed_set, "seeds": list(seeds)}
     if seed_set == "assessment":
@@ -175,11 +194,12 @@ def build_summary(root: Path, seed_set: str) -> dict[str, object]:
     return {
         "protocol": PROTOCOL,
         "canonical": False,
-        "official_splits_read": document["official_splits_read"],
-        "input_sha256": document["input_sha256"],
+        "official_splits_read": [OFFICIAL_TRAIN_SPLIT],
+        "input_sha256": input_sha256,
+        "membership_sha256": document["membership_sha256"],
         "restricted_classes": list(RESTRICTED_CLASSES),
-        "evaluation_split_mapping": document["evaluation_split_mapping"],
-        "checkpoint_policy": document["checkpoint_policy"],
+        "evaluation_split_mapping": EVALUATION_SPLIT_MAPPING,
+        "checkpoint_policy": CHECKPOINT_POLICY,
         "criterion": criterion,
         "folds": fold_blocks,
         "limitations": LIMITATIONS,

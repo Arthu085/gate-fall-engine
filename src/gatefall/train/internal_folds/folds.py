@@ -12,6 +12,7 @@ import hashlib
 import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import cast
 
@@ -63,7 +64,8 @@ class FoldPartition:
     retained_video_ids: tuple[str, ...]
     frames: pd.DataFrame
 
-    def membership(self) -> dict[str, object]:
+    @cached_property
+    def membership_record(self) -> dict[str, object]:
         return {
             "fold": self.fold,
             "retained_environment": self.retained_environment,
@@ -199,8 +201,37 @@ def run_plan(root: Path, seed_set: str) -> list[dict[str, object]]:
     ]
 
 
-def membership_sha256(partitions: list[FoldPartition]) -> str:
-    payload = json.dumps([partition.membership() for partition in partitions], sort_keys=True)
+INPUT_ROLES = ("frames", "manifest")
+FOLD_RECORD_FIELDS = (
+    "fold",
+    "retained_environment",
+    "development_environments",
+    "development_video_ids",
+    "retained_video_ids",
+    "development_windows_train_stride",
+    "retained_windows_eval_stride",
+)
+_SHA256_LENGTH = 64
+
+
+def protocol_contract() -> dict[str, object]:
+    return {
+        "protocol": PROTOCOL,
+        "canonical": False,
+        "dataset": DATASET,
+        "official_splits_read": [OFFICIAL_TRAIN_SPLIT],
+        "window_contract": {"window_frames": WINDOW_FRAMES, "train_stride": TRAIN_STRIDE, "eval_stride": EVAL_STRIDE},
+        "restricted_classes": list(RESTRICTED_CLASSES),
+        "arms": list(ARMS),
+        "seed_sets": {name: list(seeds) for name, seeds in SEED_SETS.items()},
+        "evaluation_split_mapping": EVALUATION_SPLIT_MAPPING,
+        "checkpoint_policy": CHECKPOINT_POLICY,
+        "reproduction_criterion": REPRODUCTION_CRITERION,
+    }
+
+
+def membership_sha256(records: list[dict[str, object]]) -> str:
+    payload = json.dumps(records, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -210,35 +241,116 @@ def folds_document(
     quality_features_path: str,
     quality_features_sha256: str,
 ) -> dict[str, object]:
+    records = [partition.membership_record for partition in partitions]
     return {
-        "protocol": PROTOCOL,
-        "canonical": False,
-        "dataset": DATASET,
-        "official_splits_read": [OFFICIAL_TRAIN_SPLIT],
+        **protocol_contract(),
         "input_sha256": input_sha256,
-        "window_contract": {"window_frames": WINDOW_FRAMES, "train_stride": TRAIN_STRIDE, "eval_stride": EVAL_STRIDE},
-        "restricted_classes": list(RESTRICTED_CLASSES),
-        "arms": list(ARMS),
-        "seed_sets": {name: list(seeds) for name, seeds in SEED_SETS.items()},
-        "evaluation_split_mapping": EVALUATION_SPLIT_MAPPING,
-        "checkpoint_policy": CHECKPOINT_POLICY,
-        "reproduction_criterion": REPRODUCTION_CRITERION,
         "quality_features_path": quality_features_path,
         "quality_features_sha256": quality_features_sha256,
-        "membership_sha256": membership_sha256(partitions),
-        "folds": [partition.membership() for partition in partitions],
+        "membership_sha256": membership_sha256(records),
+        "folds": records,
     }
+
+
+def is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == _SHA256_LENGTH
+        and all(char in "0123456789abcdef" for char in value)
+    )
+
+
+def _video_list_problems(fold: str, field: str, value: object) -> list[str]:
+    if not isinstance(value, list) or not value or not all(isinstance(item, str) for item in value):
+        return [f"{fold}: {field} deve ser uma lista não vazia de vídeos"]
+    if value != sorted(set(value)):
+        return [f"{fold}: {field} deve estar ordenada e sem repetição"]
+    return []
+
+
+def _fold_record_problems(record: object, expected_fold: str, environments: list[str]) -> list[str]:
+    if not isinstance(record, dict) or sorted(record) != sorted(FOLD_RECORD_FIELDS):
+        return [f"{expected_fold}: campos da dobra divergem do contrato"]
+    problems: list[str] = []
+    retained = record["retained_environment"]
+    if record["fold"] != expected_fold or retained != expected_fold.removeprefix("retain_"):
+        problems.append(f"{expected_fold}: nome ou ambiente retido divergem da dobra esperada")
+    if record["development_environments"] != [env for env in environments if env != retained]:
+        problems.append(f"{expected_fold}: ambientes de desenvolvimento divergem dos outros ambientes do train")
+    for field in ("development_video_ids", "retained_video_ids"):
+        problems += _video_list_problems(expected_fold, field, record[field])
+    for field in ("development_windows_train_stride", "retained_windows_eval_stride"):
+        count = record[field]
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            problems.append(f"{expected_fold}: {field} deve ser um inteiro positivo")
+    return problems
+
+
+def _membership_problems(records: list[dict]) -> list[str]:
+    retained_sets = [set(record["retained_video_ids"]) for record in records]
+    universe = set().union(*retained_sets)
+    problems: list[str] = []
+    if sum(len(videos) for videos in retained_sets) != len(universe):
+        problems.append("um vídeo aparece como retido em mais de uma dobra")
+    for record, retained in zip(records, retained_sets):
+        if set(record["development_video_ids"]) != universe - retained:
+            problems.append(
+                f"{record['fold']}: o treino de desenvolvimento não é exatamente o conjunto dos vídeos retidos "
+                "nas outras dobras"
+            )
+    return problems
+
+
+def validate_recorded_folds(document: object, source: str = FOLDS_FILE) -> dict[str, object]:
+    """Reconcilia `folds.json` com o contrato congelado e com a própria composição gravada."""
+    if not isinstance(document, dict):
+        raise ValueError(f"{source} deve ser um objeto")
+    contract = protocol_contract()
+    expected_fields = {*contract, "input_sha256", "quality_features_path", "quality_features_sha256",
+                       "membership_sha256", "folds"}
+    problems: list[str] = []
+    if set(document) != expected_fields:
+        problems.append(f"campos divergentes: {sorted(set(document) ^ expected_fields)}")
+    problems += [f"{field} diverge do protocolo congelado" for field, value in contract.items()
+                 if document.get(field) != value]
+    input_sha256 = document.get("input_sha256")
+    if not isinstance(input_sha256, dict) or sorted(input_sha256) != sorted(INPUT_ROLES) or not all(
+        is_sha256(value) for value in input_sha256.values()
+    ):
+        problems.append(f"input_sha256 deve ter exatamente {list(INPUT_ROLES)} com SHA-256 válidos")
+    if not isinstance(document.get("quality_features_path"), str) or not is_sha256(
+        document.get("quality_features_sha256")
+    ):
+        problems.append("quality_features_path ou quality_features_sha256 inválidos")
+    records = document.get("folds")
+    names = fold_names()
+    environments = cast(list[str], sorted(cast(tuple[str, ...], EXPECTED_OFFICIAL_TRAIN["environments"])))
+    if not isinstance(records, list) or len(records) != len(names):
+        problems.append(f"folds deve listar as dobras {names}")
+    else:
+        record_problems = [
+            problem
+            for record, name in zip(records, names)
+            for problem in _fold_record_problems(record, name, environments)
+        ]
+        problems += record_problems or _membership_problems(records)
+        if document.get("membership_sha256") != membership_sha256(records):
+            problems.append("membership_sha256 não corresponde à composição gravada")
+    if problems:
+        raise ValueError(f"{source} inconsistente: " + "; ".join(problems))
+    return document
 
 
 def read_folds_document(root: Path) -> dict[str, object]:
     path = root / FOLDS_FILE
     if not path.is_file():
         raise FileNotFoundError(f"{path} não existe; rode `prepare` antes")
-    with path.open(encoding="utf-8") as stream:
-        data = json.load(stream)
-    if not isinstance(data, dict) or data.get("protocol") != PROTOCOL or data.get("canonical") is not False:
-        raise ValueError(f"{path} não descreve o protocolo {PROTOCOL} não canônico")
-    return data
+    try:
+        with path.open(encoding="utf-8") as stream:
+            data = json.load(stream)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path} não é um JSON válido: {exc}") from exc
+    return validate_recorded_folds(data, str(path))
 
 
 def validate_folds_document(
@@ -246,5 +358,5 @@ def validate_folds_document(
 ) -> None:
     if document.get("input_sha256") != input_sha256:
         raise ValueError(f"{FOLDS_FILE}: frames ou manifesto mudaram desde o `prepare`; rode `prepare --force`")
-    if document.get("membership_sha256") != membership_sha256(partitions):
+    if document.get("folds") != [partition.membership_record for partition in partitions]:
         raise ValueError(f"{FOLDS_FILE}: a composição das dobras diverge da partição atual; rode `prepare --force`")

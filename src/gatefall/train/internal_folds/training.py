@@ -7,6 +7,8 @@ checkpoint da última época. Nenhum split oficial além de `train` é lido.
 """
 
 import json
+import os
+import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -15,6 +17,7 @@ from gatefall.data.fusion_dataset import FusionWindowDataset
 from gatefall.data.gated_fusion_dataset import GatedFusionWindowDataset
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
+from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM
 from gatefall.train.baseline_a.artifacts import validate_training_run
 from gatefall.train.baseline_a.config import BASELINE_A_CONFIG, TrainConfig
@@ -42,6 +45,7 @@ from gatefall.train.internal_folds.folds import (
 from gatefall.train.internal_folds.stats import FoldStats, StatsFiles
 
 FOLD_RUN_FILE = "fold_run.json"
+RUN_ARTIFACTS = ("config.yaml", "metrics.json", "checkpoint.pt")
 
 FoldConfig = TrainConfig | B0TrainConfig | B1TrainConfig
 
@@ -143,14 +147,52 @@ def _check_window_count(partition: FoldPartition, train_windows: int, stats: Fol
         )
 
 
-def _publish_fold_run_document(run_dir: Path, document: dict[str, object], force: bool) -> None:
+def _artifact_hashes(run_dir: Path) -> dict[str, str]:
+    return {name: sha256_file(run_dir / name) for name in RUN_ARTIFACTS}
+
+
+def validate_fold_run_document(run_dir: Path, document: dict[str, object]) -> None:
+    """Exige `fold_run.json` íntegro, da dobra pedida e ligado aos artefatos atuais do run."""
     path = run_dir / FOLD_RUN_FILE
-    if path.is_file() and not force:
+    if not path.is_file():
+        raise RuntimeError(
+            f"{path} ausente: o run não tem proveniência de dobra; use --force para retreiná-lo"
+        )
+    try:
         with path.open(encoding="utf-8") as stream:
-            if json.load(stream) != document:
-                raise RuntimeError(f"{path} diverge da dobra solicitada; use --force para reconstruir o run")
+            recorded = json.load(stream)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"{path} ilegível ({exc}); use --force para retreinar o run") from exc
+    expected = {**document, "artifacts_sha256": _artifact_hashes(run_dir)}
+    if recorded != expected:
+        divergent = sorted(
+            field for field in set(expected) | set(recorded if isinstance(recorded, dict) else {})
+            if not isinstance(recorded, dict) or recorded.get(field) != expected.get(field)
+        )
+        raise RuntimeError(
+            f"{path} diverge da dobra solicitada ou dos artefatos do run ({', '.join(divergent)}); "
+            "use --force para retreinar o run"
+        )
+
+
+def _publish_fold_run_document(run_dir: Path, document: dict[str, object]) -> None:
+    path = run_dir / FOLD_RUN_FILE
+    temporary = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex}")
+    data = {**document, "artifacts_sha256": _artifact_hashes(run_dir)}
+    try:
+        temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _guard_existing_run(run_dir: Path, document: dict[str, object], force: bool) -> None:
+    # Sem esta guarda, o engine pularia um run canônico completo e o
+    # fold_run.json seria criado depois, sem que o run tenha sido treinado
+    # nesta dobra. Runs parciais seguem para o engine, que os recusa.
+    if force or not all((run_dir / name).is_file() for name in RUN_ARTIFACTS):
         return
-    path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    validate_fold_run_document(run_dir, document)
 
 
 def train_fold_run(
@@ -164,13 +206,22 @@ def train_fold_run(
     force: bool,
 ) -> None:
     config = resolve_fold_config(arm, seed, stats.files, quality)
+    document = fold_run_document(
+        partition.fold,
+        partition.retained_environment,
+        list(partition.development_environments),
+        arm,
+        seed,
+        stats.files,
+    )
+    _guard_existing_run(run_dir, document, force)
     development, retained = _sides(partition, arm, loaders)
     frames = partition.frames
     if isinstance(config, TrainConfig):
         train_source = PoseWindowDataset(frames, development.split, development.stride, development.pose)
         _check_window_count(partition, len(train_source), stats)
         retained_source = PoseWindowDataset(frames, retained.split, retained.stride, retained.pose)
-        run_training(
+        metrics = run_training(
             input_dim=POSE_FEATURE_DIM,
             train_source=train_source,
             val_source=retained_source,
@@ -187,7 +238,7 @@ def train_fold_run(
         )
         _check_window_count(partition, len(train_fusion), stats)
         retained_fusion = FusionWindowDataset(frames, retained.split, retained.stride, retained.pose, retained.visual)
-        run_b0_training(
+        metrics = run_b0_training(
             train_source=train_fusion,
             val_source=retained_fusion,
             test_source=retained_fusion,
@@ -206,7 +257,7 @@ def train_fold_run(
         retained_gated = GatedFusionWindowDataset(
             frames, retained.split, retained.stride, retained.pose, retained.visual, retained.quality
         )
-        run_b1_training(
+        metrics = run_b1_training(
             train_source=train_gated,
             val_source=retained_gated,
             test_source=retained_gated,
@@ -217,12 +268,5 @@ def train_fold_run(
             force=force,
             label_names=LE2I_LABEL_NAMES,
         )
-    document = fold_run_document(
-        partition.fold,
-        partition.retained_environment,
-        list(partition.development_environments),
-        arm,
-        seed,
-        stats.files,
-    )
-    _publish_fold_run_document(run_dir, document, force)
+    if metrics is not None:
+        _publish_fold_run_document(run_dir, document)
