@@ -15,6 +15,13 @@ matrizes somadas de cada nível de agrupamento precisam reproduzir exatamente
 a `confusion_matrix` de `metrics.json`. Sujeitos são agrupados pelo par
 (ambiente, sujeito), nunca pelo ID bruto. O resultado é exploratório e não
 canônico; o split `test` é usado só descritivamente.
+
+As predições analisadas são as da reexecução validada, não as históricas da
+avaliação de treino, que nunca foram persistidas por janela. A reconciliação
+com `metrics.json` é uma checagem de integridade necessária, mas não prova
+que a reexecução atribuiu os mesmos rótulos às mesmas janelas: atribuições
+diferentes podem produzir a mesma matriz global e matrizes de subgrupo
+diferentes.
 """
 
 import argparse
@@ -240,6 +247,8 @@ def reconcile(levels: dict[str, list[dict]], overall: dict, stored: dict, contex
                 raise ValueError(f"{context}: soma de {field} por {level} diverge do total do split")
     return {
         "ok": True,
+        "prediction_source": "validated_rerun",
+        "proves_historical_window_predictions": False,
         "levels_checked": list(levels),
         "n_labeled_windows": int(expected.sum()),
         "macro_f1_restricted_metrics_json": stored["macro_f1_restricted"],
@@ -461,8 +470,12 @@ def _limitations(protocols: dict) -> list[str]:
         "Le2i-CS, os ambientes de test têm poucos sujeitos, então ambiente e sujeito se confundem.",
         "Cada run é uma única seed; não há variação entre seeds nem intervalo de confiança aqui (ver o "
         "sumário multi-seed e o bootstrap agrupado por sujeito).",
-        "A inferência é refeita sobre o checkpoint congelado; a igualdade exata com a confusion_matrix de "
-        "metrics.json é verificada, mas os arquivos de features não são hasheados um a um.",
+        "As predições por janela vêm da reexecução validada sobre o checkpoint congelado; as predições "
+        "históricas da avaliação de treino não foram persistidas por janela. A igualdade exata com a "
+        "confusion_matrix de metrics.json é uma checagem de integridade necessária, mas não prova que cada "
+        "janela recebeu o mesmo rótulo historicamente: atribuições diferentes podem ter a mesma matriz global "
+        "e matrizes por ambiente, sujeito ou vídeo diferentes. Os arquivos de features também não são "
+        "hasheados um a um.",
         "Hipóteses são geradas por regras fixas sobre os números confirmados e não foram testadas.",
     ]
     ambiguous_by_split: dict[tuple[str, str], dict] = {}
@@ -623,8 +636,9 @@ def render_summary(report: dict) -> str:
     lines = [
         "# Diagnóstico estratificado de erros de classificação (não canônico)",
         "",
-        "Análise exploratória e somente leitura: inferência refeita sobre checkpoints congelados, sem treino, "
-        "ajuste ou seleção. Macro-F1 restrita = média simples do F1 sobre "
+        "Análise exploratória e somente leitura sobre predições reexecutadas a partir de checkpoints "
+        "congelados, sem treino, ajuste ou seleção; a reconciliação com metrics.json não prova que elas "
+        "coincidem janela a janela com as predições históricas, que não foram persistidas. Macro-F1 restrita = média simples do F1 sobre "
         f"{definition['restricted_labels']}, mesmo em subgrupos sem alguma dessas classes; janelas "
         "IGNORE_LABEL ficam fora. Sujeitos são agrupados por (ambiente, sujeito). Detalhes por vídeo e por "
         "classe estão no JSON e no CSV.",

@@ -91,7 +91,11 @@ def _evaluator(
 
 
 def _stored_block(frames: pd.DataFrame, split: str) -> dict:
-    _video_ids, _k_ends, true_labels, pred_labels = _predictions(frames, split)
+    return _stored_from(_predictions(frames, split))
+
+
+def _stored_from(predictions: Predictions) -> dict:
+    _video_ids, _k_ends, true_labels, pred_labels = predictions
     y_true = np.asarray(true_labels, dtype=np.int64)
     y_pred = np.asarray(pred_labels, dtype=np.int64)
     labeled = y_true != IGNORE_LABEL
@@ -239,6 +243,57 @@ def _selftest_aggregate_reconciliation() -> bool:
                     "por video")
         and _raises(ValueError, lambda: reconcile(corrupted_support, analysis["overall"], stored_validated, "s"),
                     "suportes por environment"),
+    )
+
+
+def _selftest_reconciliation_does_not_identify_window_assignment() -> bool:
+    # Em val, v1 (EnvA) e v2 (EnvC) começam com walk. Errar walk→other em v1
+    # ou em v2 dá a mesma matriz global; só os subgrupos distinguem os casos.
+    frames = _frames()
+    video_ids, k_ends, _true_labels, _pred_labels = _predictions(frames, "val")
+    identities = list(zip(video_ids, k_ends))
+
+    def walk_to_other_in(video_id: str) -> PredictionMutation:
+        index = identities.index((video_id, 0))
+
+        def mutate(predictions: Predictions) -> Predictions:
+            pred_labels = list(predictions[3])
+            pred_labels[index] = 9
+            return predictions[0], predictions[1], predictions[2], pred_labels
+
+        return mutate
+
+    in_env_a = walk_to_other_in("v1")
+    in_env_c = walk_to_other_in("v2")
+    stored = _stored_from(in_env_a(_predictions(frames, "val")))
+    same_stored = stored == _stored_from(in_env_c(_predictions(frames, "val")))
+    first = analyze_split(frames, _evaluator(frames, in_env_a), "val", stored, "sintético")
+    second = analyze_split(frames, _evaluator(frames, in_env_c), "val", stored, "sintético")
+
+    def matrix(analysis: dict, level: str, group: str) -> np.ndarray:
+        return np.asarray(_groups(analysis, level)[group]["confusion_matrix"])
+
+    both_reconcile = all(
+        analysis["reconciliation"]["ok"] is True
+        and analysis["reconciliation"]["prediction_source"] == "validated_rerun"
+        and analysis["reconciliation"]["proves_historical_window_predictions"] is False
+        for analysis in (first, second)
+    )
+    return _check(
+        "duas atribuições por janela com a mesma matriz global reconciliam com o mesmo metrics.json, mas "
+        "têm matrizes por ambiente, sujeito e vídeo diferentes",
+        same_stored
+        and both_reconcile
+        and first["overall"]["confusion_matrix"] == second["overall"]["confusion_matrix"]
+        and matrix(first, "environment", "EnvA")[0][9] == 1
+        and matrix(second, "environment", "EnvA")[0][9] == 0
+        and matrix(first, "environment", "EnvC")[0][9] == 0
+        and matrix(second, "environment", "EnvC")[0][9] == 1
+        and not np.array_equal(
+            matrix(first, "environment_subject", "EnvA/subject_3"),
+            matrix(second, "environment_subject", "EnvA/subject_3"),
+        )
+        and not np.array_equal(matrix(first, "video", "v2"), matrix(second, "video", "v2")),
     )
 
 
@@ -395,6 +450,7 @@ def run_stratified_error_diagnosis_selftest() -> bool:
         _selftest_label_exclusion_and_restricted_macro(),
         _selftest_identity_alignment(),
         _selftest_aggregate_reconciliation(),
+        _selftest_reconciliation_does_not_identify_window_assignment(),
         _selftest_missing_classes(),
         _selftest_ambiguous_subject_ids(),
         _selftest_end_to_end_partial_and_read_only(),

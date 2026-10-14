@@ -24,6 +24,12 @@ o checkpoint congelado e obtém `(video_id, k_end, rótulo verdadeiro, rótulo
 predito)` por janela. Diferentemente do bootstrap, A aceita qualquer seed de
 treino, como as demais armas.
 
+Todos os resultados por ambiente, sujeito e vídeo descrevem essas
+**predições reexecutadas e validadas**, não as predições históricas da
+avaliação feita no treino. As predições históricas por janela nunca foram
+persistidas, então não é possível provar que a reexecução atribuiu
+exatamente os mesmos rótulos às mesmas janelas.
+
 ## Entradas e validação
 
 Cada run entra explicitamente com `--run DATASET ARMA RUN_DIR` (repetível).
@@ -74,6 +80,16 @@ idêntica à `confusion_matrix` de `metrics.json`, e a soma das matrizes, dos
 suportes por classe, das janelas e dos erros de cada nível (ambiente,
 ambiente × sujeito, vídeo) precisa reproduzir esse total. Qualquer
 divergência faz a análise falhar; o resultado fica em `reconciliation`.
+
+Essa reconciliação é uma checagem de integridade **necessária, mas não
+suficiente**. Ela detecta janelas perdidas ou duplicadas, rótulos verdadeiros
+trocados e qualquer mudança na contagem agregada, mas não prova que cada
+janela recebeu o mesmo rótulo predito da avaliação histórica: duas
+atribuições diferentes podem ter a mesma matriz global e matrizes por
+ambiente, sujeito ou vídeo diferentes. Por isso `reconciliation` registra
+`prediction_source: validated_rerun` e
+`proves_historical_window_predictions: false`. O `selftest` inclui um exemplo
+sintético dessa situação.
 
 ## Sujeitos e ambientes
 
@@ -137,8 +153,10 @@ uv run python -m gatefall.eval.analysis.stratified_error_diagnosis diagnose \
 
 `selftest` usa somente dados sintéticos e cobre agrupamento, exclusão de
 `IGNORE_LABEL`, Macro-F1 restrita fixa, alinhamento de identidade,
-reconciliação com `metrics.json`, classes ausentes, IDs de sujeito ambíguos,
-runs parciais e proteção da saída. Execução com os runs locais de seed 42
+reconciliação com `metrics.json`, o limite dessa reconciliação (duas
+atribuições por janela com a mesma matriz global e matrizes de subgrupo
+diferentes), classes ausentes, IDs de sujeito ambíguos, runs parciais e
+proteção da saída. Execução com os runs locais de seed 42
 desta máquina:
 
 ```bash
@@ -182,7 +200,9 @@ Executado no branch `feat/stratified-error-diagnosis` (base
 `analysis/gatefall-improvements`) sobre os dez runs locais de seed 42 listados
 acima. Todos os splits reconciliaram exatamente com `metrics.json` nos três
 níveis, `missing_inputs` ficou vazio e o SHA-256 de todos os arquivos dos dez
-runs ficou idêntico antes e depois.
+runs ficou idêntico antes e depois. Os números abaixo descrevem as predições
+reexecutadas; a reconciliação não prova que elas coincidem janela a janela
+com as predições históricas do treino.
 
 Cobertura: em Le2i-CS, `val` tem um único sujeito (5) em três ambientes e
 `test` tem os sujeitos 2 e 7 em seis ambientes, com o sujeito 7 em todos. Em
@@ -232,3 +252,6 @@ efeito causal da câmera nem das features DINOv3.
   confiança (ver [sumário multi-seed](multiseed-summary.md) e
   [bootstrap agrupado por sujeito](grouped-bootstrap.md)).
 - Le2i-CS e Le2i-CV nunca são agregados entre si.
+- Os resultados estratificados valem para as predições reexecutadas; a
+  igualdade agregada com `metrics.json` não comprova a identidade das
+  predições históricas por janela.
