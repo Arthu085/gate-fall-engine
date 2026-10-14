@@ -216,6 +216,8 @@ confirmar de forma independente a generalização.
   oficiais. Acrescenta um protocolo de desenvolvimento, que precisa de
   aprovação explícita. Ele desloca a próxima etapa exploratória de treino,
   não se soma a ela.
+- **Viabilidade:** avaliada sem treino na
+  [Etapa 2B](internal-fold-feasibility.md).
 
 ### Candidato 2 — dropout de modalidade visual em B0/B1 (condicional)
 
