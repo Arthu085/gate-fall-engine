@@ -1067,6 +1067,10 @@ def write_outputs(output_dir: Path, report: dict, rows: list[dict], summary: str
         output_dir / DIAGNOSIS_CSV_FILE: pd.DataFrame(rows, columns=CSV_COLUMNS).to_csv(index=False),
         output_dir / DIAGNOSIS_SUMMARY_FILE: summary,
     }
+    return write_text_outputs(output_dir, targets, force)
+
+
+def write_text_outputs(output_dir: Path, targets: dict[Path, str], force: bool) -> bool:
     existing = [str(path) for path in targets if path.exists()]
     if existing and not force:
         print(f"skip {', '.join(existing)} (já existe, use --force para sobrescrever)")

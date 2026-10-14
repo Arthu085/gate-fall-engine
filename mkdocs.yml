@@ -75,6 +75,7 @@ nav:
       - Bootstrap agrupado por sujeito (IC): analysis/grouped-bootstrap.md
       - Sumário multi-seed: analysis/multiseed-summary.md
       - Diagnóstico de erros de classificação: analysis/classification-diagnosis.md
+      - Diagnóstico estratificado de erros: analysis/stratified-error-diagnosis.md
   - Referência:
       - Referência de comandos: reference/commands.md
       - Referências finais do Le2i: reference/le2i-runs.md
