@@ -51,9 +51,14 @@ A consolidação falha, sem gravar nada, se:
   `prediction_source: validated_rerun` e
   `proves_historical_window_predictions: false`;
 - algum grupo for inconsistente com a própria matriz de confusão (Macro-F1
-  restrita, suporte, precisão, revocação, F1, `tp`/`fp`/`fn`, janelas,
-  erros e classes ausentes são recalculados) ou a soma das matrizes de um
-  nível divergir da matriz do split;
+  restrita, suporte, precisão, revocação, F1, `tp`/`fp`/`fn`, janelas
+  rotuladas, erros, classes ausentes, classes ausentes porém preditas e as
+  confusões dominantes de `dominant_confusions`, com ordem, rótulos,
+  contagens e frações, são recalculados), se `n_windows` diferir de
+  `n_labeled_windows + n_ignored_windows`, se uma métrica gravada estiver
+  ausente ou não for um número finito (booleano, texto, `NaN` ou infinito)
+  ou se uma contagem não for um inteiro não negativo, ou se a soma das
+  matrizes de um nível divergir da matriz do split;
 - dentro de um protocolo, seeds ou armas usarem `frames.parquet`, grupos ou
   suporte por grupo diferentes.
 
@@ -155,7 +160,9 @@ uv run python -m gatefall.eval.analysis.multiseed_error_consolidation consolidat
 consistência das confusões, separação entre observações sustentadas e
 hipóteses, seeds e armas ausentes, suporte, grupos e frames incompatíveis,
 identidades de seed e checkpoint duplicadas, procedência e reconciliação
-inválidas, relatório adulterado, reprodutibilidade byte a byte e proteção da
+inválidas, relatório adulterado (inclusive confusões dominantes alteradas e
+métricas ausentes, não numéricas, booleanas ou não finitas, recusadas antes
+de gravar qualquer saída), reprodutibilidade byte a byte e proteção da
 saída.
 
 Para os runs locais desta máquina, primeiro gere um relatório estratificado

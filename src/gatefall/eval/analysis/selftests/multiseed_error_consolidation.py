@@ -4,6 +4,7 @@ import json
 import statistics
 import sys
 import tempfile
+from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path
 from typing import cast
@@ -322,6 +323,87 @@ def _selftest_duplicate_identities_and_provenance() -> bool:
     )
 
 
+def _mutated_report(mutate: Callable[[dict], None]) -> dict:
+    # B0 seed 42 em test: o split inteiro tem duas confusões dominantes
+    # (sitting→other com 2 janelas, fall→fallen com 1) e EnvB não tem fall.
+    report = _report([_b0_entry(42)])
+    mutate(report["protocols"]["le2i"]["arms"]["B0"][0]["splits"]["test"])
+    return report
+
+
+def _env_b(split: dict) -> dict:
+    return next(group for group in split["levels"]["environment"] if group["group"] == "EnvB")
+
+
+def _set(target: Callable[[dict], dict], key: str, value: object) -> Callable[[dict], None]:
+    def mutate(split: dict) -> None:
+        target(split)[key] = value
+
+    return mutate
+
+
+def _overall(split: dict) -> dict:
+    return split["overall"]
+
+
+def _top_confusion(split: dict) -> dict:
+    return split["overall"]["dominant_confusions"][0]
+
+
+def _walk(split: dict) -> dict:
+    return split["overall"]["per_class"]["walk"]
+
+
+GROUP_METADATA_CASES: tuple[tuple[str, Callable[[dict], None], str], ...] = (
+    ("ordem trocada", lambda split: split["overall"]["dominant_confusions"].reverse(), "dominant_confusions[0]"),
+    ("contagem", _set(_top_confusion, "count", 3), "dominant_confusions[0].count"),
+    ("rótulo", _set(_top_confusion, "predicted_label", "walk"), "dominant_confusions[0].predicted_label"),
+    ("fração", _set(_top_confusion, "share_of_true_support", 0.5), "share_of_true_support"),
+    ("fração não finita", _set(_top_confusion, "share_of_all_errors", float("inf")), "não finito"),
+    ("lista truncada", lambda split: split["overall"]["dominant_confusions"].pop(), "esperado lista com 2"),
+    ("ausente mas predita", _set(_env_b, "predicted_absent_labels", ["fall"]), "predicted_absent_labels"),
+    ("Macro-F1 NaN", _set(_overall, "macro_f1_restricted", float("nan")), "não finito"),
+    ("Macro-F1 ausente", lambda split: split["overall"].pop("macro_f1_restricted"), "ausente"),
+    ("revocação infinita", _set(_walk, "recall", float("-inf")), "per_class[walk].recall"),
+    ("precisão textual", _set(_walk, "precision", "1.0"), "não numérico"),
+    ("suporte booleano", _set(_walk, "support", True), "per_class[walk].support"),
+    ("erros não inteiros", _set(_overall, "n_errors", 3.0), "n_errors"),
+    ("janelas totais", lambda split: split["overall"].update(n_windows=split["overall"]["n_windows"] + 1),
+     "n_windows: gravado"),
+    ("janelas ignoradas negativas", _set(_overall, "n_ignored_windows", -1), "não inteiras"),
+)
+
+
+def _selftest_group_metadata_integrity() -> bool:
+    rejected = {
+        name: _raises(ValueError, lambda mutate=mutate: _consolidate(_mutated_report(mutate)), text)
+        for name, mutate, text in GROUP_METADATA_CASES
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        published: list[bool] = []
+        for name, mutate in (("nan", _set(_overall, "macro_f1_restricted", float("nan"))),
+                             ("confusion", _set(_top_confusion, "count", 3))):
+            path = root / name / "stratified_error_diagnosis.json"
+            path.parent.mkdir()
+            # json.dumps grava NaN literal como o json.load padrão aceita.
+            path.write_text(json.dumps(_mutated_report(mutate)), encoding="utf-8")
+            output_dir = root / f"{name}_out"
+            published.append(
+                not _raises(ValueError, lambda: run_consolidation([path], output_dir), "inconsistente")
+                or output_dir.exists()
+            )
+    failed = [name for name, ok in rejected.items() if not ok]
+    if failed:
+        print(f"  mutações aceitas: {failed}")
+    return _check(
+        "recusa confusões dominantes adulteradas (ordem, contagem, rótulo, fração, lista), classes ausentes "
+        "preditas divergentes, métricas ausentes, não numéricas, booleanas ou não finitas e contagens de "
+        "janelas inconsistentes, antes de publicar qualquer saída",
+        not failed and not any(published),
+    )
+
+
 def _selftest_reproducibility() -> bool:
     entries = _scenario_entries()
     combined = _consolidate(_report(entries))
@@ -410,6 +492,7 @@ def run_multiseed_error_consolidation_selftest() -> bool:
         _selftest_incomplete_seeds(),
         _selftest_incompatible_support(),
         _selftest_duplicate_identities_and_provenance(),
+        _selftest_group_metadata_integrity(),
         _selftest_reproducibility(),
         _selftest_protected_outputs(),
     ]

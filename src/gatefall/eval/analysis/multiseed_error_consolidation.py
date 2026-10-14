@@ -25,6 +25,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TypeGuard
 
 import numpy as np
 import pandas as pd
@@ -39,9 +40,11 @@ from gatefall.eval.analysis.classification_diagnosis import (
     RESIDUAL_LABEL,
     TOP_CONFUSIONS,
     UNSTABLE_SEED_STD,
+    _finite_number,
     _read_json,
     check_output_dir,
     display_path,
+    dominant_confusions,
     labels_from_confusion_matrix,
     run_dir_protocol,
     snapshot_inputs,
@@ -126,42 +129,110 @@ def _level_groups(analysis: dict, level: str) -> list[dict]:
     return [_overall_group(analysis)] if level == "split" else analysis["levels"][level]
 
 
+def _is_count(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _metric_mismatch(field: str, stored: object, recomputed: float) -> str | None:
+    number = _finite_number(stored)
+    if number is None:
+        return f"{field}: valor gravado ausente, não numérico ou não finito ({stored!r})"
+    if abs(number - recomputed) > METRIC_TOLERANCE:
+        return f"{field}: gravado {stored}, recalculado {recomputed}"
+    return None
+
+
+def _count_mismatch(field: str, stored: object, expected: int) -> str | None:
+    if not _is_count(stored):
+        return f"{field}: contagem gravada ausente ou não inteira ({stored!r})"
+    if stored != expected:
+        return f"{field}: gravado {stored}, recalculado {expected}"
+    return None
+
+
+def _window_count_mismatches(group: dict, n_labeled: int) -> list[str]:
+    total = group.get("n_windows")
+    ignored = group.get("n_ignored_windows")
+    if not _is_count(total) or not _is_count(ignored):
+        return [f"n_windows/n_ignored_windows: contagens ausentes ou não inteiras ({total!r}, {ignored!r})"]
+    if total != n_labeled + ignored:
+        return [f"n_windows: gravado {total}, esperado n_labeled_windows + n_ignored_windows = {n_labeled + ignored}"]
+    return []
+
+
+def _dominant_confusion_mismatches(stored: object, expected: list[dict]) -> list[str]:
+    if not isinstance(stored, list):
+        return [f"dominant_confusions: esperado lista, gravado {type(stored).__name__}"]
+    if len(stored) != len(expected):
+        return [f"dominant_confusions: esperado lista com {len(expected)} item(ns), gravado {len(stored)}"]
+    mismatches: list[str] = []
+    for index, (item, recomputed) in enumerate(zip(stored, expected)):
+        field = f"dominant_confusions[{index}]"
+        if not isinstance(item, dict):
+            mismatches.append(f"{field}: item inválido ({item!r})")
+            continue
+        for key in ("true_id", "true_label", "predicted_id", "predicted_label", "count"):
+            if item.get(key) != recomputed[key] or isinstance(item.get(key), bool):
+                mismatches.append(f"{field}.{key}: gravado {item.get(key)!r}, recalculado {recomputed[key]!r}")
+        for key in ("share_of_true_support", "share_of_predicted", "share_of_all_errors"):
+            mismatch = _metric_mismatch(f"{field}.{key}", item.get(key), recomputed[key])
+            if mismatch:
+                mismatches.append(mismatch)
+    return mismatches
+
+
 def _validate_group(group: dict, context: str) -> np.ndarray:
     matrix = np.asarray(validate_confusion_matrix(group.get("confusion_matrix"), context), dtype=np.int64)
     y_true, y_pred = labels_from_confusion_matrix(matrix.tolist())
     summary = classification_summary(y_true, y_pred, LE2I_LABEL_NAMES, NUM_CLASSES)
     n_labeled = int(matrix.sum())
-    mismatches: list[str] = []
-    if group.get("n_labeled_windows") != n_labeled:
-        mismatches.append("n_labeled_windows")
-    if group.get("n_errors") != n_labeled - int(np.trace(matrix)):
-        mismatches.append("n_errors")
+    mismatches = [
+        message
+        for message in (
+            _count_mismatch("n_labeled_windows", group.get("n_labeled_windows"), n_labeled),
+            _count_mismatch("n_errors", group.get("n_errors"), n_labeled - int(np.trace(matrix))),
+        )
+        if message
+    ]
+    mismatches += _window_count_mismatches(group, n_labeled)
     stored_macro = group.get("macro_f1_restricted")
     if n_labeled == 0:
         if stored_macro is not None:
-            mismatches.append("macro_f1_restricted")
-    elif not isinstance(stored_macro, int | float) or isinstance(stored_macro, bool) or abs(
-        stored_macro - restricted_macro_f1(y_true, y_pred, NUM_CLASSES)[0]
-    ) > METRIC_TOLERANCE:
-        mismatches.append("macro_f1_restricted")
+            mismatches.append(f"macro_f1_restricted: esperado null sem janelas rotuladas, gravado {stored_macro!r}")
+    else:
+        mismatch = _metric_mismatch(
+            "macro_f1_restricted", stored_macro, restricted_macro_f1(y_true, y_pred, NUM_CLASSES)[0]
+        )
+        if mismatch:
+            mismatches.append(mismatch)
     stored_per_class = group.get("per_class") or {}
     for label in LE2I_LABEL_NAMES:
         stored = stored_per_class.get(label) or {}
         recomputed = summary["per_class"][label]
         for field in VALIDATED_PER_CLASS_FIELDS:
-            value = stored.get(field)
-            if not isinstance(value, int | float) or isinstance(value, bool) or abs(
-                value - recomputed[field]
-            ) > METRIC_TOLERANCE:
-                mismatches.append(f"per_class[{label}].{field}")
+            name = f"per_class[{label}].{field}"
+            mismatch = (
+                _metric_mismatch(name, stored.get(field), recomputed[field])
+                if field in AGGREGATED_PER_CLASS_FIELDS
+                else _count_mismatch(name, stored.get(field), recomputed[field])
+            )
+            if mismatch:
+                mismatches.append(mismatch)
     restricted_labels = [LE2I_LABEL_NAMES[class_id] for class_id in RESTRICTED_CLASSES]
     absent = [label for label in LE2I_LABEL_NAMES if summary["per_class"][label]["support"] == 0]
-    if group.get("absent_labels") != absent:
-        mismatches.append("absent_labels")
-    if group.get("absent_restricted_labels") != [label for label in absent if label in restricted_labels]:
-        mismatches.append("absent_restricted_labels")
-    if not isinstance(group.get("dominant_confusions"), list):
-        mismatches.append("dominant_confusions")
+    expected_labels = {
+        "absent_labels": absent,
+        "absent_restricted_labels": [label for label in absent if label in restricted_labels],
+        "predicted_absent_labels": [label for label in absent if summary["per_class"][label]["fp"] > 0],
+    }
+    mismatches += [
+        f"{field}: gravado {group.get(field)!r}, recalculado {expected!r}"
+        for field, expected in expected_labels.items()
+        if group.get(field) != expected
+    ]
+    mismatches += _dominant_confusion_mismatches(
+        group.get("dominant_confusions"), dominant_confusions(matrix.tolist(), LE2I_LABEL_NAMES)
+    )
     if mismatches:
         raise ValueError(f"{context}: relatório inconsistente com a própria confusion_matrix: {mismatches[:5]}")
     return matrix
