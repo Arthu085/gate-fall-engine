@@ -200,8 +200,12 @@ as frações por run e marca o critério como `not_applicable`.
 
 ## Estado
 
-A implementação foi validada só com dados sintéticos. Nenhum treino real foi
-executado. O piloto e a avaliação exigem aprovação e execução explícitas.
+O piloto de 9 treinos foi executado e está registrado na
+[Etapa 2D](../analysis/internal-fold-pilot.md), encerrada como resultado
+exploratório negativo. Com os runs da seed 42 do piloto, o critério não pode
+ser satisfeito por B0 nem por B1 em nenhuma dobra, e a recomendação é não
+executar os 36 treinos restantes da avaliação. O protocolo, o critério e os
+comandos acima continuam inalterados.
 
 ## Limitações
 
