@@ -14,8 +14,9 @@ features, checkpoints, treino, métricas nem decisões experimentais. O split
 `test` já estava exposto; `val` e `test` são contabilizados e numerados
 separadamente.
 
-Esta página não registra achados visuais. Eles só existem depois que alguém
-inspecionar as folhas e preencher a planilha.
+A revisão das 15 folhas foi concluída depois da preparação; a
+[consolidação](#revisao-concluida) separa a leitura cega preliminar das
+observações humanas feitas após o desmascaramento.
 
 ## Critérios de seleção
 
@@ -174,6 +175,83 @@ As saídas não são versionadas:
 | `key/review_key.csv` | `3781b238b4060ffe6bfe34a6a7aca50f760c0ba8ae00cc25c602c199d64a4983` |
 | `worksheet/review_worksheet.csv` | `8bd376a45062478d2fb80c0e2d515df28e4ea1b111d85bf1427e8b62afb98b8e` |
 | `worksheet/review_frames.csv` | `592ca9b798061581e981ff505a1697372b01f99b000b8f8e89ab2d5635d7091f` |
+
+## Revisão concluída { #revisao-concluida }
+
+Consolidação exploratória e não canônica de `test`, registrada em
+2026-10-15. Os arquivos locais da revisão ficam em
+`runs/local/other_walk_review_set/le2i_cs_seeds_42_46/human_review/` e não
+são versionados, assim como folhas, quadros e vídeos.
+
+### Procedência e conferência
+
+| Arquivo | SHA-256 |
+| --- | --- |
+| `key/review_key.csv` (chave, igual à da execução registrada) | `3781b238b4060ffe6bfe34a6a7aca50f760c0ba8ae00cc25c602c199d64a4983` |
+| `human_review/.../etapa3B_revisao_humana_final.csv` | `bab8e5d070f23d4c1214d08019670d2d4bdc9d66e2fb2bc9fcf724aa59a04469` |
+
+- O CSV final tem exatamente os 15 `review_id` da chave, sem repetição.
+- As 51 colunas da chave (papel, split, vídeo, `k_end`, pureza, contexto
+  da Etapa 3A, votos por braço) reaparecem no CSV com valores idênticos,
+  item a item.
+- O CSV acrescenta dois blocos de colunas, que não se misturam:
+  - `visual_*`: leitura preliminar das folhas por um modelo de IA
+    (`visual_reviewer` = ChatGPT), registrada como feita antes do
+    desmascaramento. Ela não foi refeita nem conferida aqui.
+  - `human_*`: relatos do usuário, todos com
+    `human_blinding_status` = relato posterior à disponibilização da chave,
+    isto é, **não cegos**. `human_annotation_ambiguity` ficou em branco nos
+    15 itens.
+- `human_apparent_walking = partial` significa passos curtos ou
+  deslocamento pontual relatados, não caminhada contínua demonstrada; `no`
+  significa ausência de caminhada relatada. A anotação `other` não foi
+  corrigida nem reinterpretada.
+
+### Observações humanas após o desmascaramento
+
+| Caminhada relatada | Erros persistentes | Controles corretos | Total |
+| --- | ---: | ---: | ---: |
+| `partial` (passos curtos) | 5 (3 misturadas, 2 puras) | 5 (misturadas) | 10 |
+| `no` | 4 (puras) | 1 (pura) | 5 |
+| **Total** | **9** | **6** | **15** |
+
+- **Quatro erros persistentes `other→walk` ocorrem em janelas puras de
+  `other` sem caminhada relatada:** `test-04` (`coffee_room_02/video_68`,
+  pegar algo na geladeira; sem pose no quadro final), `test-05`
+  (`lecture_room/video_16`, pegar uma jaqueta de uma cadeira), `test-08`
+  (`lecture_room/video_23`, abaixar-se para pegar algo do chão) e `test-09`
+  (`lecture_room/video_16`, fechar uma porta). Nesses quatro, os 24 quadros
+  da janela têm o rótulo `other`, e todos os braços previram `walk` em pelo
+  menos 4 de 5 seeds.
+- `test-12`, o único controle puro, também não tem caminhada relatada
+  (pegar uma jaqueta de uma cadeira, atividade parecida com a de
+  `test-05`), mas os dois itens não foram pareados de forma controlada.
+- Os outros dez itens descrevem interação com objetos, portas ou móveis
+  com passos curtos. Os cinco controles desse grupo são janelas
+  misturadas, em que a mudança anotada de `walk` para `other` acontece
+  dentro da janela.
+- A leitura preliminar da IA e o relato humano coincidem em
+  `apparent_walking` em 13 dos 15 itens. Divergem `test-09` (IA `partial`,
+  humano `no`) e `test-14` (IA `yes`, humano `partial`).
+
+### O que a revisão sustenta e o que não sustenta
+
+- **Observado:** a confusão `other→walk` persiste também em janelas puras de
+  `other` em que o revisor não relata caminhada. Ela não depende só de
+  fronteira de trecho ou de mistura de rótulos na janela.
+- **Não sustentado:** qual sinal de entrada ou regra de decisão produz a
+  predição `walk`, erro de anotação, prevalência em `test` ou em outros
+  ambientes, e qualquer diferença entre braços.
+- A amostra foi escolhida a partir de erros persistentes e controles em dois
+  ambientes de um `test` já exposto. A pureza está desbalanceada (6 de 9
+  erros puros contra 1 de 6 controles), e itens do mesmo vídeo, seeds e
+  janelas sobrepostas não são observações independentes. Não há cálculo de
+  significância nem estimativa de taxa.
+- Os relatos humanos vieram depois do desmascaramento e não confirmam de
+  forma cega e independente a leitura preliminar.
+- Estes casos motivam a [Etapa 3C](other-walk-train-composition.md), que só
+  usa `train`. Eles não são alvo de otimização: nenhuma escolha de modelo,
+  janela, limiar ou treino se apoia neles.
 
 ## Limitações
 

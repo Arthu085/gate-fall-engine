@@ -65,6 +65,7 @@ jobs:
           uv run python -m gatefall.eval.analysis.multiseed_error_consolidation selftest
           uv run python -m gatefall.eval.analysis.window_context_diagnosis selftest
           uv run python -m gatefall.eval.analysis.other_walk_review_set selftest
+          uv run python -m gatefall.eval.analysis.other_walk_train_composition selftest
           uv run python -m gatefall.eval.analysis.internal_fold_feasibility selftest
           uv run python -m gatefall.train.internal_folds selftest
           uv run python -m gatefall.eval.analysis.internal_fold_retained_audit selftest
