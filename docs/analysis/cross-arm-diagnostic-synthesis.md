@@ -18,16 +18,19 @@ janela com `eval_stride` 1. Le2i-CS e Le2i-CV nunca são agregados.
   de 49% a 57% dos erros de `test`, e `other→walk` leva 37% a 41% do suporte
   de `other`. `walk` é o destino de 31% a 39% de todos os erros `[D1]`.
 - **Mais da metade do `standing` de `test` não tem pose detectada.** Das 43
-  janelas, 23 terminam no prefixo de um único vídeo antes da primeira
-  detecção, e todas são preditas como `walk` nos 25 runs (cinco braços ×
-  cinco seeds) `[D1]` `[D3]`. Isso limita a revocação de `standing` em `test`
+  janelas, 23 terminam no prefixo de `home_01/video_15` antes da primeira
+  detecção, sem pose em nenhum dos 24 quadros, e todas são preditas como
+  `walk` nos 25 runs (cinco braços × cinco seeds) `[D1]` `[D3]`. Isso limita a revocação de `standing` em `test`
   a no máximo 20/43 em qualquer braço com o comportamento atual.
-- **O suporte de avaliação não mede bem as duas classes mais custosas.**
+- **O suporte de avaliação cobre pouco as duas classes mais custosas.**
   `standing` de `test` vem de 3 vídeos, todos do mesmo sujeito; `other` de
   `val` tem 34 janelas de 3 vídeos, contra 860 em `test` `[D2]`.
 - **Os padrões específicos de fusão são menores que os compartilhados.**
-  B0/B1 quase não predizem `standing` em `val`, e o gate não produz padrão de
-  erro próprio: B1 se comporta como B0 `[D1]` `[E14]` `[E18]`.
+  B0/B1 quase não predizem `standing` em `val`. Nos diagnósticos agregados
+  por classe, B1 tem padrões de erro próximos aos de B0 e C1, aos de C0; essas
+  comparações não isolam um padrão de erro atribuível ao gate, mas também
+  não medem a relação entre gate e erro janela a janela `[D1]` `[E14]`
+  `[E18]`.
 - **A explicação de `other→walk` continua em aberto.** A investigação
   recomendada é uma atribuição, por janela e sem treino, do contexto desses
   erros ([seção própria](#investigacao-recomendada)).
@@ -78,12 +81,16 @@ Observações verificadas:
 | Superpredição de `standing` em `test` de Le2i-CS: 223 janelas preditas para 43 verdadeiras; das 219 incorretas, 64% são `other` | A | `[D1]` | Verificado |
 | Deslocamento para `other` em `test` de Le2i-CV e colapso para `walk` em `Lecture_room` nas dobras internas | B0, B1 | `[E16]` `[E21]` | Verificado; causa não atribuída (Etapa 2G) |
 | Revocação de `standing` 0 em `test` de Le2i-CV nas cinco seeds | B0, B1 | `[D1]` | Verificado |
-| Gate perto de 0,50 em todas as condições; B1 − B0 contém zero na seed 42 | B1 | `[E14]` `[E18]` | Nenhum padrão de erro próprio de B1 |
-| Gate reage à pose, mas também cai com a degradação do SAM 3; C1 − C0 é misto entre `val` e `test` | C1 | `[E6]` `[E18]` | Nenhum padrão de erro próprio de C1 |
+| `g_pose` médio perto de 0,50 em todas as condições de degradação; intervalos pareados B1 − B0 contêm zero na seed 42; frações por classe em `test` próximas às de B0 | B1 | `[D1]` `[E14]` `[E18]` | Nenhum padrão próprio detectado nas métricas agregadas; não mostra que B1 calcule a mesma função que B0 |
+| `g_pose` médio reage à pose, mas também cai com a degradação do SAM 3; C1 − C0 é misto entre `val` e `test`; frações por classe próximas às de C0 | C1 | `[D1]` `[E6]` `[E18]` | Nenhum padrão próprio detectado nas métricas agregadas |
 
-Nenhum padrão específico de fusão ou de gate tem peso comparável ao de
-`other→walk` e de `standing` no déficit de Le2i-CS. O ganho médio dos braços
-de fusão sobre A não altera os erros dominantes `[E6]` `[E7]`.
+Nas métricas agregadas examinadas, nenhum padrão específico de fusão ou de
+gate tem peso comparável ao de `other→walk` e de `standing` no déficit de
+Le2i-CS, e o ganho médio dos braços de fusão sobre A não altera os erros
+dominantes `[E6]` `[E7]`. A ausência de padrão próprio do gate vale só para
+esses agregados: o gate foi medido como média sob degradação, em Le2i-CS e
+na seed 42, e não há medida da concordância janela a janela entre B1 e B0
+nem da relação entre o valor do gate e os erros `[E18]` `[E19]`.
 
 ## Limitações de suporte e composição
 
@@ -102,10 +109,13 @@ stride 1; trechos são sequências contíguas do mesmo rótulo na grade `[D2]`:
 - **`standing` de `test` é um caso, não uma classe.** As 43 janelas vêm de
   três trechos menores que a janela de 2,4 s, todos do sujeito 7, e 29 delas
   ficam no início do vídeo, com replicação de borda `[D2]`. A pose é
-  detectada em 46,5% desses quadros, contra 100% em `train` e `val` `[D3]`.
-- **`val` não mede `other`.** São 34 janelas de trechos com mediana de
-  0,9 s, sem `Coffee_room_01`. O erro que domina `test` não tem como
-  aparecer no split de desenvolvimento `[D2]`.
+  detectada no quadro final de 20 das 43 janelas (46,5%). Nos quadros
+  `standing` de `train` e `val`, a detecção é de 673/673 e 96/96 `[D3]`.
+- **`val` cobre pouco `other`.** São 34 janelas de três trechos com mediana
+  de 0,9 s, em três vídeos de `Home_01` e `Home_02`, sem `Coffee_room_01`.
+  Com esse suporte, o split de desenvolvimento dá uma estimativa limitada e
+  pouco representativa do erro que domina `test`, que tem 860 janelas em 17
+  vídeos `[D2]`.
 - **`other` de `test` concentra-se em um par (ambiente, sujeito).**
   `Lecture_room` do sujeito 7 tem 491 das 860 janelas (57%), e o maior vídeo
   isolado, `office/video_25`, tem 139 (16%) `[D2]`.
@@ -115,9 +125,10 @@ stride 1; trechos são sequências contíguas do mesmo rótulo na grade `[D2]`:
 - **Le2i-CV confunde fatores.** Ambiente, câmera, resolução, fps e
   qualidade de pose mudam juntos, e os sujeitos se sobrepõem `[E2]`. O mesmo
   `home_01/video_15` também está no `test` de Le2i-CV.
-- **Contexto de pose.** No `test` de Le2i-CS, a detecção também é menor em
-  `fall` (84,8%) e `fallen` (75,8%) que em `train` (91,1% e 90,6%) `[D3]`.
-  Nada aqui mede o efeito disso nos alarmes.
+- **Contexto de pose.** No `test` de Le2i-CS, a detecção também é menor nos
+  quadros `fall` (386/455, 84,8%) e `fallen` (335/442, 75,8%) que nos de
+  `train` (1815/1993, 91,1%, e 2250/2483, 90,6%) `[D3]`. Nada aqui mede o
+  efeito disso nos alarmes.
 
 ## Explicações plausíveis
 
@@ -128,7 +139,7 @@ Nenhuma delas é uma causa estabelecida.
 | Janelas de `standing` sem pose são lidas como `walk` porque o único prefixo rotulado do treino é `walk` | 23/43 janelas, 25/25 runs, prefixo de treino com 28 quadros `walk` `[D1]` `[D3]` | Os braços de fusão também erram, apesar da entrada visual; os quadros de vídeo não foram inspecionados | Observação verificada; mecanismo plausível |
 | Trechos curtos e rótulo pelo último quadro misturam o estado com o movimento anterior | Trechos de `standing` curtos em todos os splits; `standing→walk` em todos os braços `[D2]` | Em `test`, `fall` e `sit_down` têm mais da metade das janelas com o rótulo final em minoria e, mesmo assim, F1 de 0,70 e 0,66 no braço A `[D2]` `[E6]` | Plausível, enfraquecida |
 | `other` é heterogêneo e parte dele se parece com caminhada | `other→walk` em todos os braços e seeds, concentrado em `Lecture_room` `[E16]` | Nenhuma leitura do conteúdo dos segmentos `other`; a definição da classe não está documentada no repositório | Não testada |
-| Contexto de janela explica `other→walk` | 48% dos trechos `other` de `train` são menores que 2,4 s `[D2]` | Nenhuma atribuição de erros por contexto | Não testada; [investigação recomendada](#investigacao-recomendada) |
+| `other→walk` se associa a janelas de contexto misturado | 48% dos trechos `other` de `train` são menores que 2,4 s `[D2]` | Nenhuma atribuição de erros por contexto | Não testada; [investigação recomendada](#investigacao-recomendada) |
 | A fusão visual suprime classes de estado minoritárias | B0/B1 quase não predizem `standing` em `val` `[D1]` | B0/B1 acertam mais `coffee_room_02/video_68`; um sujeito em `val` | Não testada |
 | O deslocamento de B0/B1 em Le2i-CV vem da entrada visual | Ver Etapas 2A–2G `[E19]` | Encerrada sem causa atribuída | Fora do escopo desta síntese |
 
@@ -136,7 +147,7 @@ Nenhuma delas é uma causa estabelecida.
 
 | Checagem | Pergunta respondida | Valor esperado | Custo |
 | --- | --- | --- | --- |
-| Atribuição de contexto dos erros `other→walk` | O erro dominante é de fronteira de janela ou de conteúdo? | Alto: separa limitação de métrica de confusão de conteúdo nos cinco braços | Reexecução validada existente e uma saída por janela |
+| Atribuição de contexto dos erros `other→walk` | O erro dominante se concentra em janelas de fronteira ou persiste no meio dos trechos? | Alto: indica se a próxima leitura deve priorizar o contrato de janela ou o conteúdo e os rótulos, nos cinco braços | Reexecução validada existente e uma saída por janela |
 | Leitura manual de segmentos `other` em `Lecture_room` e `office/video_25` | O que a classe residual contém onde mais erra? | Alto, mas depende do resultado anterior para escolher os trechos | Manual; inspeção de vídeo |
 | Inspeção dos quadros 0–22 de `home_01/video_15` | A pessoa está visível e de pé sem detecção? | Baixo: um vídeo, 23 janelas; não muda nenhuma decisão | Baixo |
 | Falsos alarmes por rótulo verdadeiro no gatilho | Quais classes geram os alarmes falsos? | Médio para eventos; não explica a Macro-F1 | Baixo |
@@ -156,13 +167,16 @@ Le2i-CS.
   quadro. Resumir `other→walk` por essas variáveis; `standing` e
   `sitting→stand_up` entram só como comparação.
 - **Leitura:** se `other→walk` se concentra em janelas misturadas ou de
-  fronteira em todos os braços, o erro dominante é uma propriedade do
-  contrato de janela e deve ser descrito como limitação da métrica. Se
-  persiste em janelas puras, no meio do trecho, a pergunta passa a ser de
-  conteúdo ou de rótulo, e a leitura manual de segmentos é o passo seguinte.
+  fronteira em todos os braços, isso sustenta uma associação entre o erro e
+  o contexto da janela, que deve ser descrita como possível limitação da
+  métrica. Não estabelece que o janelamento cause o erro: fronteiras também
+  coincidem com transições de ação, posição no vídeo e decisões de
+  anotação. Se o erro persiste em janelas puras, no meio do trecho, a
+  associação com o contexto fica fraca, e a leitura manual de segmentos é o
+  passo seguinte.
 - **Limites:** não treina, não muda o contrato de janela nem a receita, não
-  seleciona nada e não pode ser confirmada pelo `test` já exposto. Um
-  resultado de fronteira não autoriza mudar o janelamento congelado.
+  seleciona nada e não pode ser confirmada pelo `test` já exposto. Uma
+  associação com a fronteira não autoriza mudar o janelamento congelado.
 - **O que desloca:** ocupa o lugar de qualquer nova investigação de B0/B1,
   já encerrada na Etapa 2G, e não acrescenta braço, dataset, backbone nem
   métrica.
@@ -176,7 +190,51 @@ conferir a cópia usada. Os cálculos não foram publicados como ferramenta.
 | --- | --- | --- |
 | D1 | Somas e frações da `confusion_matrix` de cada seed por split e por vídeo, depois média entre seeds: revocação, janelas preditas por classe, destino das janelas verdadeiras e parcela dos erros com `other` ou `walk` | `runs/local/multiseed_error_consolidation/stratified_seeds_42_46/stratified_error_diagnosis.json` (SHA-256 `aa5034a42e531d68ac10e5a8996ba8aa4ef4184cad05dcd104faafe157d669e2`), relatório de 50 runs da [consolidação multi-seed](multiseed-error-consolidation.md) |
 | D2 | Janelas por `build_window_index` (stride 4 em `train`, 1 em `val`/`test`), vídeos, trechos contíguos por rótulo e fração da janela com o rótulo final por `window_frame_indices` | `data/processed/le2i/frames.parquet` (SHA-256 `2a563bb04d507f19732baf3bcda7aba7e51ba54b826aa3b0054f74cb67631a61`); o suporte de `train` coincide com `final.train.support` de `runs/reference/le2i/baseline_a/metrics.json` |
-| D3 | `person_found` por quadro e primeiro quadro detectado (`load_person_found`, `first_observed_index`) | `data/features/le2i/pose/` |
+| D3 | `person_found` por quadro e primeiro quadro detectado (`load_person_found`, `first_observed_index`), cruzados com o rótulo de cada quadro da grade de D2 | HDF5 de pose por vídeo em `data/features/le2i/pose/<ambiente>/<vídeo>.h5` ([cobertura de pose](#cobertura-de-pose)) |
+
+### Cobertura de pose { #cobertura-de-pose }
+
+O achado de `home_01/video_15` vem de
+`data/features/le2i/pose/home_01/video_15.h5` (SHA-256
+`a2333fb95f8d00b2d49843f95095240d58d55feb5ae40101089eb0826959d9c8`). O
+arquivo tem 99 linhas, igual ao `K` do vídeo na grade; `person_found` é falso
+nos quadros 0–26 e verdadeiro no 27, e os quadros `standing` do vídeo são
+0–22. Toda janela que termina nesses quadros cobre só quadros 0–22, por
+isso nenhuma tem pose em qualquer posição.
+
+As demais taxas de detecção usam os 190 HDF5 de pose. O SHA-256 do conjunto
+é `3dc21a8fabce213917d3df649590dfd27fa2398d9c5738e90a2f2c4f1e22052e`,
+reproduzível na raiz do repositório com:
+
+```bash
+find data/features/le2i/pose -name '*.h5' | LC_ALL=C sort | xargs sha256sum | sha256sum
+```
+
+Agregação: cada quadro da grade de `frames.parquet` recebe o `person_found`
+do mesmo índice no HDF5 do vídeo (o comprimento de cada `person_found` é
+conferido contra `K`). A taxa de uma classe em um split é o número de
+quadros dessa classe com `person_found` verdadeiro dividido pelo número de
+quadros dessa classe, somados entre vídeos, sem média por vídeo:
+
+| Classe | Split | Quadros com pose / quadros da classe |
+| --- | --- | ---: |
+| `standing` | `train` | 673 / 673 |
+| `standing` | `val` | 96 / 96 |
+| `standing` | `test` | 20 / 43 |
+| `fall` | `train` | 1815 / 1993 |
+| `fall` | `test` | 386 / 455 |
+| `fallen` | `train` | 2250 / 2483 |
+| `fallen` | `test` | 335 / 442 |
+
+Em `val` e `test`, todo quadro rotulado é o fim de exatamente uma janela com
+`eval_stride` 1, então a taxa por quadro é também a taxa no quadro final das
+janelas avaliadas. Em `train`, as taxas contam todos os quadros rotulados da
+grade, não só os fins de janela em stride 4 usados no treino.
+
+O prefixo sem pose de um vídeo são os quadros com índice menor que
+`first_observed_index`. As contagens de rótulo no prefixo de `train` (28
+`walk`, 1 `sitting`, 985 `IGNORE_LABEL`) somam esses quadros em todos os
+vídeos do split.
 
 As predições de D1 vêm de reexecuções validadas, que reconciliam com
 `metrics.json` mas não provam identidade janela a janela com as predições
