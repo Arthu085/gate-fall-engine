@@ -21,7 +21,7 @@ otimização: nenhuma regra abaixo usa `test`.
 | Unidade ou descritor | Definição |
 | --- | --- |
 | Trecho | Sequência contígua máxima de quadros da grade (10 fps) com o mesmo rótulo, `IGNORE_LABEL` inclusive, como na [Etapa 3A](window-context-diagnosis.md); só trechos `other` e `walk` são descritos |
-| Trecho curto | Menos de `WINDOW_FRAMES` (24) quadros; não gera janela pura |
+| Trecho curto | Menos de `WINDOW_FRAMES` (24) quadros. Um trecho curto interior não gera janela pura; um trecho curto no início do vídeo pode gerar, porque a replicação de borda repete o quadro 0, que pertence ao próprio trecho |
 | Janela de treino | Linha de `build_window_index` em `TRAIN_STRIDE` (4) com rótulo `other` ou `walk` no quadro final, como no treino dos braços; o contexto (pureza, distância ao início do trecho, trecho anterior, replicação de borda, pose no quadro final) vem de `video_context` da Etapa 3A |
 | Pose disponível | `person_found` do HDF5 bruto, sem imputação: pose no quadro final, fração dos 24 índices de `window_frame_indices` com pose (replicados inclusive) e confiança média dos keypoints detectados |
 | Deslocamento da bbox | Distância entre os centros da bbox no primeiro índice da janela e no quadro final, dividida pela altura mediana da bbox nos quadros detectados desse intervalo; indefinido sem pose em uma das extremidades |
@@ -117,8 +117,8 @@ deslocamento baixo, contra 49% em `walk`.
   dentro da janela é `walk`.
 - Movimentos curtos aparecem nos dois rótulos: 19% das janelas `other`
   puras têm deslocamento de 0,25 ou mais, e 32% das janelas `walk` puras
-  têm deslocamento baixo. Quase metade dos trechos `other` é curta demais
-  para gerar janela pura.
+  têm deslocamento baixo. Quase metade dos trechos `other` é curta; fora
+  do início do vídeo, um trecho curto não gera janela pura.
 
 **Hipóteses não testadas aqui:**
 
@@ -175,12 +175,14 @@ entradas), `other_walk_train_composition.md`, `other_walk_train_segments.csv`
 treino por linha).
 
 `selftest` usa só dados sintéticos e cobre limites e vizinhos dos trechos,
-trechos curtos, alinhamento exato com `build_window_index`, replicação de
-borda, fração de detecção, deslocamento exato e indefinido, K de pose e
-`frame_index` inconsistentes, conservação, leitura só de `train` (a pose de
-`val` e `test` nunca é aberta e os rótulos de `val` e `test` não alteram o
-relatório), limiares e elegibilidade das regras, determinismo, preservação
-sem `--force`, entradas inalteradas e proteção da saída.
+trechos curtos (o inicial, com janelas puras replicadas pela borda, e o
+interior, sem janela pura), alinhamento exato com `build_window_index` e
+`window_frame_indices`, replicação de borda, fração de detecção,
+deslocamento exato e indefinido, K de pose e `frame_index` inconsistentes,
+conservação, leitura só de `train` (a pose de `val` e `test` nunca é aberta
+e os rótulos de `val` e `test` não alteram o relatório), limiares e
+elegibilidade das regras, determinismo, preservação sem `--force`, entradas
+inalteradas e proteção da saída.
 
 ### Execução registrada (não canônica)
 

@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from gatefall.config import IGNORE_LABEL, TRAIN_STRIDE
-from gatefall.data.windowing import build_window_index
+from gatefall.data.windowing import build_window_index, window_frame_indices
 from gatefall.eval.analysis.other_walk_train_composition import (
     COMPOSITION_JSON_FILE,
     COMPOSITION_SEGMENTS_FILE,
@@ -30,7 +30,7 @@ from gatefall.eval.analysis.other_walk_train_composition import (
 )
 from gatefall.eval.analysis.selftests.fixtures import _check
 from gatefall.eval.analysis.selftests.stratified_error_diagnosis import _raises, _tree_hashes
-from gatefall.eval.analysis.window_context_diagnosis import MIXED, POSE_DETECTED, POSE_MISSING, PURE
+from gatefall.eval.analysis.window_context_diagnosis import MIXED, PADDED, POSE_DETECTED, POSE_MISSING, PURE
 from gatefall.pose.loading import PoseArrays, pose_path
 from gatefall.runs import REFERENCE_RUN_ROOT, REPOSITORY_ROOT
 
@@ -109,6 +109,45 @@ def _selftest_segments() -> bool:
         and (before_fall["following_label"], before_fall["segment_end"]) == ("fall", 61)
         and set(segments["video_id"]) == {"enva/v1", "enva/v2"},
     )
+
+
+def _selftest_short_segments() -> bool:
+    # Dois trechos `other` de 10 quadros: o inicial gera janelas puras porque o
+    # clip de window_frame_indices replica o quadro 0, que também é `other`; o
+    # interior tem `walk` antes e nenhuma janela pura.
+    labels = [OTHER] * 10 + [WALK] * 30 + [OTHER] * 10 + [WALK] * 30
+    frames = pd.DataFrame([
+        {"video_id": "envc/v5", "split": "train", "env": "EnvC", "subject": 5,
+         "frame_index": frame_index, "label": label}
+        for frame_index, label in enumerate(labels)
+    ])
+    n_frames = len(labels)
+    pose = PoseArrays(keypoints=np.full((n_frames, 17, 3), 0.5, dtype=np.float32),
+                      bbox=np.tile(np.array([0.0, 0.0, 20.0, BOX_HEIGHT], dtype=np.float32), (n_frames, 1)),
+                      person_found=np.ones(n_frames, dtype=bool), k=n_frames, width=320, height=240)
+    segments, windows = train_tables(frames, lambda _video_id: pose)
+    rows = {row["segment_start"]: row for row in segments.to_dict("records")}
+    initial, interior = rows[0], rows[40]
+    label_array = np.asarray(labels)
+    index = build_window_index(frames, stride=TRAIN_STRIDE)
+
+    def expected(segment: dict) -> tuple[int, int]:
+        k_ends = [int(k) for k in index["k_end"] if segment["segment_start"] <= k <= segment["segment_end"]]
+        pure = [k for k in k_ends if bool((label_array[window_frame_indices(k, n_frames)] == label_array[k]).all())]
+        return len(k_ends), len(pure)
+
+    initial_windows = windows[windows["k_end"] <= initial["segment_end"]]
+    return all([
+        _check("trechos curtos: o inicial gera janelas puras replicadas pela borda, o interior não",
+               (initial["short"], initial["preceding_label"], initial["n_train_windows"],
+                initial["n_pure_train_windows"]) == (True, "video_start", 3, 3)
+               and (interior["short"], interior["preceding_label"], interior["n_train_windows"],
+                    interior["n_pure_train_windows"]) == (True, "walk", 3, 0)
+               and set(initial_windows["purity"]) == {PURE} and set(initial_windows["edge_padding"]) == {PADDED}),
+        _check("trechos curtos: contagens iguais a build_window_index e window_frame_indices",
+               all((segment["n_train_windows"], segment["n_pure_train_windows"]) == expected(segment)
+                   for segment in segments.to_dict("records"))),
+    ])
 
 
 def _selftest_alignment() -> bool:
@@ -327,6 +366,7 @@ def _selftest_end_to_end_read_only() -> bool:
 
 SELFTESTS: tuple[Callable[[], bool], ...] = (
     _selftest_segments,
+    _selftest_short_segments,
     _selftest_alignment,
     _selftest_conservation,
     _selftest_train_only,

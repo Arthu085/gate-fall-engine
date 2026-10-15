@@ -66,7 +66,9 @@ COMPOSITION_SUMMARY_FILE = "other_walk_train_composition.md"
 COMPOSITION_WINDOWS_FILE = "other_walk_train_windows.csv"
 COMPOSITION_SEGMENTS_FILE = "other_walk_train_segments.csv"
 
-# Trecho com menos de WINDOW_FRAMES quadros não gera janela pura.
+# Trecho interior com menos de WINDOW_FRAMES quadros não gera janela pura; um
+# trecho curto no início do vídeo pode gerar, porque a replicação de borda de
+# window_frame_indices repete o quadro 0, que pertence ao próprio trecho.
 SHORT_SEGMENT_FRAMES = WINDOW_FRAMES
 # Deslocamento em alturas medianas da bbox. O primeiro intervalo define o
 # deslocamento baixo das regras de decisão.
