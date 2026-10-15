@@ -38,13 +38,16 @@ qualidade e `zeros_like` do tensor visual.
   Macro-F1 restrita vai de 0,096 para 0,167 (B0) e de 0,086 para 0,147 (B1),
   ainda muito abaixo de A (0,447).
 - **Nas salas de café, a mesma intervenção destrói o desempenho.** A
-  Macro-F1 restrita cai de 0,524–0,712 para 0,124–0,265, e as predições
+  Macro-F1 restrita cai de 0,492–0,712 para 0,124–0,265, e as predições
   migram para `walk`. B0 e B1 dependem da entrada visual também onde não há
   colapso.
 - **Isto é sensibilidade observada, não causa.** O resultado não estabelece
   atalho de cena nem mudança de domínio como causa do colapso, e a
   neutralização não é uma melhoria validada (ver
   [interpretação](#o-que-isto-nao-estabelece)).
+
+A decisão consolidada das Etapas 2D–2F está no
+[encerramento da Etapa 2G](intervention-decision.md#encerramento-da-investigacao-de-b0b1-etapa-2g).
 
 ## O que é reaproveitado
 
