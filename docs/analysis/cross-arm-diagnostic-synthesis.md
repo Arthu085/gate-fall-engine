@@ -186,7 +186,11 @@ Executada como [Etapa 3A](window-context-diagnosis.md): em `test`,
 próxima à das janelas misturadas.
 A leitura manual seguinte é preparada na [Etapa 3B](other-walk-review-set.md):
 um conjunto cego de trechos com erro persistente e controles corretos em
-`Lecture_room` e `Coffee_room_02`, ainda sem achados visuais.
+`Lecture_room` e `Coffee_room_02`. Na [revisão concluída](other-walk-review-set.md#revisao-concluida),
+quatro erros persistentes ficam em janelas puras de `other` sem caminhada
+relatada, por relato humano não cego. A [Etapa 3C](other-walk-train-composition.md)
+compara `other` e `walk` só em `train` e não encontra razão sustentada para
+modificar o modelo.
 
 ## Números derivados { #numeros-derivados }
 
