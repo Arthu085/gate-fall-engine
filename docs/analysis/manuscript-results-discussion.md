@@ -11,14 +11,19 @@
 
 ## Regras de leitura
 
-**Braços.** Os cinco braços congelados compartilham janela, splits, TCN
-causal dilatada, otimização, 30 épocas, checkpoint da última época e
-protocolo de alarme. Só o vetor de entrada por timestep muda, e cada seed é
-treinada sob essa mesma receita `[E1]`.
+**Braços.** Os cinco braços congelados seguem a mesma receita de treino
+(janela, splits, otimização, perda, 30 épocas e checkpoint da última época),
+a mesma configuração de TCN causal dilatada como backbone temporal e o mesmo
+protocolo de alarme. Eles diferem nas fontes de entrada, nas projeções e no
+mecanismo de fusão: A entrega a pose padronizada diretamente à TCN; B0, B1,
+C0 e C1 projetam cada fonte para 128 canais (`Linear → LayerNorm → ReLU`) e
+combinam as projeções por concatenação (B0, C0) ou por gate escalar seguido
+de concatenação (B1, C1), entregando 256 canais à TCN. Cada seed é treinada
+sob essa mesma receita `[E1]`.
 
 | Braço | Entrada por timestep | Fusão |
 | --- | --- | --- |
-| A | Pose (134-d) | — |
+| A | Pose (134-d) | Sem projeção nem fusão; a pose entra direto na TCN |
 | B0 | Pose + DINOv3 (1536-d) | Concatenação das projeções de 128-d |
 | B1 | Pose + DINOv3 + `[q_pose, q_visual]` | Gate escalar `g_t = sigmoid(Linear([q_pose, q_visual]))`; `g_t` pondera a pose e `1 − g_t`, o visual |
 | C0 | Pose + descritor SAM 3 `V_t` (10-d) | Concatenação das projeções de 128-d |
@@ -291,10 +296,12 @@ e nenhuma decisão congelada mudou `[E19]`.
    para 0,022 em B1), mas a Macro-F1 em `Lecture_room` sobe só para 0,167 e
    0,147, ainda abaixo de A. Nas salas de café, a mesma troca derruba a
    Macro-F1 de 0,492–0,712 para 0,124–0,265 `[E23]`.
-6. **Etapa 2G, encerramento.** A evidência não justifica dropout visual,
-   neutralização na inferência, mudança de arquitetura nem mais seeds. A
-   falha de B0/B1 no teste do Le2i-CV segue registrada como limitação de
-   generalização sem causa atribuída `[E19]`.
+6. **Etapa 2G, encerramento da decisão.** A Etapa 2G encerra a decisão
+   sobre intervenções de modelo com a evidência disponível: ela não justifica
+   dropout visual, neutralização na inferência, mudança de arquitetura nem
+   mais seeds. Ela não resolve a causa da falha de B0/B1 no teste do
+   Le2i-CV; essa pergunta continua em aberto, e a falha segue registrada como
+   limitação de generalização sem causa atribuída `[E19]`.
 
 A neutralização mostra que as predições são sensíveis à entrada visual. Ela
 não é uma melhoria validada: a entrada neutralizada é constante e fora da
@@ -335,7 +342,7 @@ cópia usada.
 
 | ID | Afirmação | Fonte |
 | --- | --- | --- |
-| E1 | Arquitetura dos braços, receita idêntica, gate escalar, qualidade como proxy | `train/baseline-b0.md`, `train/baseline-b1.md` (Gate adaptativo), `train/baseline-c0.md`, `train/baseline-c1.md` |
+| E1 | Arquitetura dos braços, receita idêntica, gate escalar, qualidade como proxy | `train/baseline-a.md`, `train/baseline-b0.md`, `train/baseline-b1.md` (Gate adaptativo), `train/baseline-c0.md`, `train/baseline-c1.md` |
 | E2 | Composição de Le2i-CV, fatores confundidos, sobreposição de sujeitos, classes ausentes do treino, Le2i-CS não é entre domínios | `analysis/le2i-cv-generalization.md` |
 | E3 | Semântica do desvio entre seeds, teste descritivo, nenhuma seleção | `analysis/multiseed-summary.md` (Resultado da execução real — B0, B1, C0 e C1) |
 | E4 | Referências canônicas da seed 42, apenas Le2i-CS | `reference/le2i-runs.md`; `analysis/classification-diagnosis.md` (Entradas) |
