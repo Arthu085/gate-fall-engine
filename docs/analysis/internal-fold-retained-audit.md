@@ -103,9 +103,14 @@ antes e conferido depois.
 | `Coffee_room_02` | 22 | 0 | 0,794 | 0,657 | 16,63 | 0,073 |
 | `Lecture_room` | 27 | 0 | 0,641 | 0,487 | 17,54 | 0,075 |
 
-Medianas por vídeo. Os HDF5 de DINOv3 têm o mesmo modelo
-(`dinov3_vitb16`), pesos, pré-processamento e resolução de entrada (320×240)
-nos três ambientes.
+Medianas por vídeo. Os HDF5 de DINOv3 dos três ambientes têm a mesma
+proveniência: modelo (`dinov3_vitb16`), pesos, commit do repositório e
+pré-processamento (`resize_height` e `resize_width` iguais a 224, mais a
+normalização do ImageNet; ver [features DINOv3](../data/dinov3-features.md#pre-processamento)).
+Os atributos `width`, `height` e `fps` dos mesmos HDF5 registram 320×240 a
+25 fps nos 97 vídeos. Essa é a resolução do quadro decodificado do vídeo de
+origem, não a de entrada do DINOv3, que recebe o quadro redimensionado para
+224×224.
 
 As janelas rotuladas do retido são 5731, 5176 e 5688 nas dobras
 `Coffee_room_01`, `Coffee_room_02` e `Lecture_room`, iguais a `folds.json`.
