@@ -53,8 +53,16 @@ uv run python -m gatefall.eval.analysis.multiseed_summary summarize [--dataset {
 checagens sintéticas, sem dataset real nem GPU. `summarize` exige
 pelo menos dois `--run-dir` (a flag é repetível), valida cada run
 integralmente e escreve `multiseed_summary.json`/`.csv` em `--output-dir`.
-O suporte a `le2i-cv` não representa um resultado multi-seed: os novos runs
-B0/B1/C0/C1 de CV têm somente a seed 42 até agora.
+No `le2i-cv`, os cinco braços têm runs locais concluídos com as seeds
+42–46: a seed 42 em `runs/local/le2i_cv/baseline_<arma>/`, as seeds 43–46 em
+`runs/local/le2i_cv/multiseed/baseline_<arma>/seed_<seed>/` e os sumários em
+`runs/local/le2i_cv/multiseed_summaries/baseline_<arma>/`. Esses runs e
+sumários não são versionados nem canônicos: não existe
+`runs/reference/le2i_cv/`, e as referências versionadas cobrem só o Le2i-CS
+(ver [Referências finais do Le2i](../reference/le2i-runs.md)). Os agregados
+do Le2i-CV estão registrados no
+[diagnóstico de erros de classificação](classification-diagnosis.md#resultado-da-execucao-real)
+e na [consolidação multi-seed dos erros](multiseed-error-consolidation.md).
 
 Sem `--force`, se algum dos dois arquivos já existir, o comando é pulado e a
 mensagem de skip nomeia exatamente o(s) arquivo(s) encontrado(s).
