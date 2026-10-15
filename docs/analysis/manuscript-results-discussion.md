@@ -51,8 +51,9 @@ separados:
    resultados e não foi escolhida pelo teste. Não existe referência canônica
    de Le2i-CV `[E4]`.
 3. **Diagnósticos e investigações exploratórios.** Consolidação de erros,
-   dobras internas, auditoria e neutralização visual são não canônicos e não
-   alteram nenhuma decisão congelada `[E5]`.
+   dobras internas, auditoria, neutralização visual e Etapas 3A–3C são não
+   canônicos e não alteram nenhuma decisão congelada `[E5]` `[E27]` `[E28]`
+   `[E29]`.
 4. **Experimentos externos.** Os experimentos de física e movimento de outro
    repositório ficam fora dos resultados do GateFall
    ([seção própria](#experimentos-externos-de-fisica-e-movimento)).
@@ -222,7 +223,9 @@ O texto não deve afirmar superioridade estatística.
 Os braços de fusão quase memorizam o treino `[E6]` `[E7]`, e os erros
 dominantes (`other→walk`, `standing→walk`, `sitting→stand_up`) são
 compartilhados por todos os braços. Isso sugere uma origem no conteúdo ou nos
-rótulos, não no backbone, mas a hipótese não foi testada `[E7]` `[E19]`.
+rótulos, não no backbone, mas a hipótese não foi testada `[E7]` `[E19]`. As
+Etapas 3A–3C descrevem `other→walk` sem atribuir causa
+([seção própria](#investigacao-other-walk)).
 
 ### Limitações do gate adaptativo (B1 e C1)
 
@@ -310,6 +313,66 @@ o gate de B1 e nunca foi avaliada em `val` ou `test` oficiais `[E19]` `[E23]`.
 Nada nas Etapas 2D–2F explica a falha no teste oficial, porque as dobras são
 todas 320×240 a 25 fps e não testam resolução nem fps `[E19]`.
 
+### Investigação de `other→walk` (Etapas 3A–3C) { #investigacao-other-walk }
+
+Investigação exploratória e não canônica do erro dominante de Le2i-CS,
+recomendada pela síntese diagnóstica entre braços `[E26]`. Nenhuma etapa
+treinou, reextraiu features, ajustou limiar, selecionou ou promoveu
+artefato. A evidência tem três naturezas, que o texto final deve manter
+separadas:
+
+| Etapa | Natureza da evidência | Split | Unidade |
+| --- | --- | --- | --- |
+| 3A, contexto de janela | Observação descritiva no `test` já exposto, com as predições da reexecução validada | `val` e `test` | Janela, média entre as seeds 42–46 |
+| 3B, revisão de trechos | Anotação humana não cega, feita após o desmascaramento, sobre uma amostra selecionada do `test` exposto | `test` | 15 trechos |
+| 3C, composição do treino | Medição só em `train`, com regras de decisão fixadas antes da execução | `train` | Janela e sujeito |
+
+1. **Etapa 3A, contexto de janela.** Em `test`, `other→walk` persiste em
+   janelas puras de `other`. Nos cinco braços, a taxa média de erro é de 35%
+   a 44% nas 274 janelas puras, de 35% a 43% nas 586 misturadas e de 37% a
+   51% nas 229 janelas a 23 ou mais quadros do início do trecho, inteiramente
+   dentro dele. Pela leitura definida na síntese, a associação com o contexto
+   da janela é fraca. Em `val`, as 34 janelas `other` são todas misturadas, e
+   a pergunta não pode ser respondida ali `[E26]` `[E27]`.
+2. **Etapa 3B, revisão humana.** Foram selecionados de forma determinística
+   9 trechos com erro persistente (todos os braços preveem `walk` em pelo
+   menos 4 de 5 seeds) e 6 controles corretos, em `Lecture_room` e
+   `Coffee_room_02` do `test`. Após o desmascaramento, o revisor não relatou
+   caminhada em quatro erros persistentes, todos em janelas puras de `other`:
+   pegar algo na geladeira, pegar uma jaqueta de uma cadeira, abaixar-se para
+   pegar algo do chão e fechar uma porta. Nos outros cinco erros, relatou
+   passos curtos, não caminhada contínua. A leitura preliminar das folhas,
+   feita por um modelo de IA antes do desmascaramento, não entra como
+   evidência `[E28]`.
+3. **Etapa 3C, composição do treino.** Só com `train` (seis sujeitos),
+   nenhuma das três regras pré-declaradas foi sustentada: `other` não tem
+   menos janelas puras que `walk` (64% contra 50%), a fração de janelas puras
+   com deslocamento baixo da bbox é maior em `other` (81%) que em `walk`
+   (32%), e a pose no quadro final está disponível em
+   quase todas as janelas dos dois rótulos (100% e 98%). O veredito
+   pré-declarado é `no_model_modification` `[E29]`.
+
+A investigação termina com `no_model_modification`: nenhuma mudança de
+modelo, treino, janelamento, rótulos ou alarmes foi feita `[E29]`. Ela não
+identifica qual sinal de entrada ou regra de decisão produz a predição
+`walk`, não estabelece erro de anotação e não mede a prevalência desses
+casos em `test` nem em outros ambientes `[E28]` `[E29]`.
+
+- Os quatro casos sem caminhada relatada vêm de uma amostra escolhida a
+  partir de erros persistentes em dois ambientes, com pureza desbalanceada
+  entre erros e controles (6 de 9 puros contra 1 de 6) e itens do mesmo
+  vídeo. São relatos não cegos, sem estimativa de taxa nem teste de
+  significância `[E28]`.
+- As regras da Etapa 3C são convenções, a consistência entre seis sujeitos é
+  descritiva, e nenhum valor do treino foi comparado com as janelas de
+  `test` `[E29]`.
+- Os casos da Etapa 3B não são alvo de otimização. Uma intervenção futura só
+  caberia com nova pergunta pré-declarada, aplicada igualmente a A, B e C e
+  avaliada sem o `test` já exposto `[E28]` `[E29]`.
+
+O manuscrito deve descrever `other→walk` como erro compartilhado e
+persistente em janelas puras, sem causa atribuída.
+
 ### Experimentos externos de física e movimento
 
 Os experimentos do repositório derivado `rsramos30/gate-fall-motion-physics`
@@ -367,6 +430,10 @@ cópia usada.
 | E23 | Contrafactual de neutralização visual (Etapa 2F) | `analysis/visual-neutralization-counterfactual.md` |
 | E24 | Experimentos externos de física e movimento | `analysis/intervention-decision.md` (Experimentos externos de física e movimento) |
 | E25 | Determinismo na mesma máquina, sem garantia entre máquinas | `analysis/multiseed-summary.md` (Resultado da execução real); `reference/le2i-runs.md` (Conferência e reprodução) |
+| E26 | Investigação recomendada para `other→walk` e leitura do contexto da janela | `analysis/cross-arm-diagnostic-synthesis.md` (Investigação recomendada) |
+| E27 | Contexto de janela dos erros `other→walk` em `val` e no `test` exposto (Etapa 3A) | `analysis/window-context-diagnosis.md` (Conclusão; Resultado da execução real) |
+| E28 | Seleção dos trechos e revisão humana não cega no `test` exposto (Etapa 3B) | `analysis/other-walk-review-set.md` (Cobertura da execução real; Revisão concluída) |
+| E29 | Composição de `other` e `walk` só em `train`, regras e veredito `no_model_modification` (Etapa 3C) | `analysis/other-walk-train-composition.md` (Regras de decisão; Resultados observados; Interpretação) |
 
 Os sumários locais de E15 foram produzidos pelo
 [sumário multi-seed](multiseed-summary.md), que valida configuração,
