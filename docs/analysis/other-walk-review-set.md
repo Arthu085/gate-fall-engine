@@ -29,6 +29,18 @@ inspecionar as folhas e preencher a planilha.
 | Limite | No máximo 8 trechos por (split, ambiente, papel), na ordem do representante |
 | Identificador | `review_id` = `<split>-NN`, na ordem do SHA-256 de `<split>/<video_id>/<k_end>`, que não depende do papel |
 
+Antes da seleção, o CSV da Etapa 3A é conferido por inteiro. Ele precisa
+ter exatamente uma coluna `pred_<braço>_seed<seed>` para cada braço (A, B0,
+B1, C0, C1) e cada seed de 42 a 46; seed ausente, seed fora desse conjunto,
+coluna repetida ou seed repetida com outra grafia (por exemplo,
+`seed042`) faz o comando falhar, de modo que um conjunto parcial de seeds
+nunca satisfaz o critério de 4 de 5. Toda predição precisa ser um rótulo do
+Le2i. As janelas do CSV são reconciliadas com as janelas rotuladas de `val`
+e `test` que `build_window_index` reconstrói de `frames.parquet` com
+`EVAL_STRIDE`, como na Etapa 3A: janela ausente, repetida ou inexistente,
+split inesperado e `true_label`, ambiente ou sujeito divergentes fazem o
+comando falhar sem gravar nada.
+
 Em cada item selecionado, a janela é reconstruída a partir de
 `frames.parquet` com `window_frame_indices`, como na Etapa 3A, e conferida
 contra o CSV: `split`, ambiente e sujeito, rótulo `other` no quadro final,
@@ -137,8 +149,11 @@ sobreposto, limite por grupo, ambientes fora da prioridade, `val` e `test`
 separados, independência da ordem de linhas e colunas), a planilha cega, o
 alinhamento exato dos quadros com um vídeo AVI gerado pelo FFmpeg e
 decodificado por `decode_frames`, inclusive com replicação de borda,
-divergências entre o CSV e `frames.parquet`, entradas ausentes, SHA-256 de
-vídeo divergente do manifesto e a proteção da saída.
+divergências entre o CSV e `frames.parquet`, a integridade da entrada
+(seeds ausentes, extras ou repetidas, coluna repetida, braço desconhecido,
+predição fora dos rótulos, tabela truncada, janela repetida ou inexistente,
+split inesperado, rótulo verdadeiro ou sujeito divergentes), entradas
+ausentes, SHA-256 de vídeo divergente do manifesto e a proteção da saída.
 
 ### Execução registrada (não canônica)
 
@@ -147,8 +162,10 @@ vídeo divergente do manifesto e a proteção da saída.
 dados do checkout principal; por isso, as chaves de `input_sha256` do JSON
 são caminhos absolutos. Os SHA-256 de `runs/reference/`,
 `data/processed/le2i` e da saída da Etapa 3A foram iguais antes e depois.
-Duas execuções produziram arquivos de texto idênticos. As saídas não são
-versionadas:
+Duas execuções produziram arquivos de texto idênticos. Depois da inclusão
+das validações de integridade da entrada, uma nova execução sobre as mesmas
+entradas produziu os mesmos 15 itens e os mesmos 21 arquivos, byte a byte.
+As saídas não são versionadas:
 
 | Arquivo | SHA-256 |
 | --- | --- |

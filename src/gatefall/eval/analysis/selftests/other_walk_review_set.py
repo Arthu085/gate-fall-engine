@@ -302,7 +302,7 @@ def _selftest_exact_frame_alignment() -> bool:
         relabeled_sources = _sources(root / "relabeled", relabeled, windows)
         tampered_fails = _raises(ValueError, lambda: plan_review_set(tampered_sources), "rótulo final divergem")
         shifted_fails = _raises(ValueError, lambda: plan_review_set(shifted_sources), "não corresponde")
-        relabeled_fails = _raises(ValueError, lambda: plan_review_set(relabeled_sources), "não é other")
+        relabeled_fails = _raises(ValueError, lambda: plan_review_set(relabeled_sources), "true_label diverge")
 
     expected_src = [_src_index(max(0, k)) for k in range(10 - 23, 11)]
     return all([
@@ -325,6 +325,60 @@ def _selftest_exact_frame_alignment() -> bool:
                shifted_fails),
         _check("alinhamento: rótulo do quadro final divergente falha",
                relabeled_fails),
+    ])
+
+
+def _with_column(windows: pd.DataFrame, name: str, source: str) -> pd.DataFrame:
+    return pd.concat([windows, windows[[source]].set_axis([name], axis=1)], axis=1)
+
+
+def _selftest_input_integrity() -> bool:
+    windows = _windows()
+    frames = _frames()
+    invalid_label = windows.copy()
+    invalid_label.loc[invalid_label.index[0], "pred_C0_seed44"] = "running"
+    empty_label = windows.copy()
+    empty_label.loc[invalid_label.index[0], "pred_B0_seed43"] = ""
+    relabeled = windows.copy()
+    relabeled.loc[(relabeled["video_id"] == "EnvO/v4") & (relabeled["k_end"] == 0), "true_label"] = "other"
+    resubjected = windows.copy()
+    resubjected.loc[resubjected["video_id"] == "EnvC/v3", "subject"] = 9
+    unexpected_split = windows.copy()
+    unexpected_split.loc[unexpected_split["video_id"] == "EnvV/v5", "split"] = "train"
+    extra_window = pd.concat([windows, windows.iloc[[0]].assign(k_end=500)], ignore_index=True)
+    variants: dict[str, tuple[pd.DataFrame, str]] = {
+        "seed ausente em um braço": (windows.drop(columns="pred_B1_seed46"), "sem as colunas de predição"),
+        "seed fora de 42–46": (_with_column(windows, "pred_A_seed47", "pred_A_seed46"), "seed inesperada"),
+        "seed repetida com zero à esquerda": (_with_column(windows, "pred_A_seed042", "pred_A_seed42"), "repetido"),
+        "coluna de predição repetida": (_with_column(windows, "pred_C1_seed45", "pred_C1_seed45"),
+                                        "colunas repetidas"),
+        "braço desconhecido": (_with_column(windows, "pred_D_seed42", "pred_A_seed42"), "inesperada"),
+        "rótulo de predição inválido": (invalid_label, "rótulos inválidos"),
+        "rótulo de predição vazio": (empty_label, "rótulos inválidos"),
+        "tabela truncada no fim": (windows.iloc[:-1], "ausentes do CSV"),
+        "split val removido": (cast(pd.DataFrame, windows[windows["split"] != "val"]), "ausentes do CSV"),
+        "janela repetida": (pd.concat([windows, windows.iloc[[3]]], ignore_index=True), "repetido"),
+        "janela inexistente em frames.parquet": (extra_window, "sem janela rotulada"),
+        "split inesperado": (unexpected_split, "splits inesperados"),
+        "rótulo verdadeiro divergente": (relabeled, "true_label diverge"),
+        "sujeito divergente": (resubjected, "subject diverge"),
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        outcomes = {}
+        for index, (name, (variant, message)) in enumerate(variants.items()):
+            sources = _sources(root / f"in{index}", frames, variant)
+            with patch.object(other_walk_review_set, "LOCAL_OUTPUT_ROOT", root):
+                outcomes[name] = _raises(ValueError, lambda sources=sources, index=index: run_review_set(
+                    sources, root / f"out{index}", decode_fn=_fake_decode), message)
+        nothing_written = not any((root / f"out{index}").exists() for index in range(len(variants)))
+        complete = plan_review_set(_sources(root / "complete", frames, windows))
+    return all([
+        *(_check(f"entrada: {name} falha", raised) for name, raised in outcomes.items()),
+        _check("entrada: nenhuma saída gravada nas falhas de integridade", nothing_written),
+        _check("entrada: tabela completa com as cinco seeds por braço é aceita",
+               _selection(complete) == EXPECTED_SELECTION
+               and all(len(columns) == N_SEEDS for columns in complete.columns.values())),
     ])
 
 
@@ -403,6 +457,7 @@ def _selftest_protected_outputs() -> bool:
 SELFTESTS: tuple[Callable[[], bool], ...] = (
     _selftest_deterministic_selection,
     _selftest_exact_frame_alignment,
+    _selftest_input_integrity,
     _selftest_missing_sources,
     _selftest_protected_outputs,
 )

@@ -15,6 +15,7 @@ separado. Nenhum conteúdo de vídeo é rotulado automaticamente.
 """
 
 import argparse
+import csv
 import hashlib
 import io
 import json
@@ -32,10 +33,11 @@ from PIL import Image
 
 from gatefall.config import EVAL_STRIDE, TARGET_FPS, WINDOW_FRAMES
 from gatefall.data.video_io import decode_frames
-from gatefall.data.windowing import window_frame_indices
+from gatefall.data.windowing import build_window_index, window_frame_indices
 from gatefall.datasets import get_dataset
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.eval.analysis.classification_diagnosis import (
+    EXPECTED_SEEDS,
     check_output_dir,
     display_path,
     snapshot_inputs,
@@ -75,6 +77,8 @@ LOCAL_OUTPUT_ROOT = REPOSITORY_ROOT / "runs" / "local"
 
 PREDICTION_COLUMN = re.compile(r"^pred_(?P<arm>[A-Z][A-Z0-9]*)_seed(?P<seed>\d+)$")
 SEGMENT_KEY: tuple[str, ...] = ("split", "video_id", "segment_start", "segment_end")
+WINDOW_KEY: tuple[str, ...] = ("split", "video_id", "k_end")
+WINDOW_IDENTITY: tuple[str, ...] = ("env", "subject", "true_label")
 
 REVIEW_FIELDS: dict[str, str] = {
     "reviewer": "texto livre",
@@ -142,34 +146,97 @@ class ReviewSources:
 
 
 def prediction_columns(columns: Sequence[str]) -> dict[str, list[str]]:
-    by_arm: dict[str, list[tuple[int, str]]] = {arm: [] for arm in ARMS}
+    duplicated = sorted({column for column in columns if list(columns).count(column) > 1})
+    if duplicated:
+        raise ValueError(f"window_context_windows.csv com colunas repetidas: {duplicated}")
+    seen: dict[tuple[str, int], str] = {}
     for column in columns:
         if not column.startswith("pred_"):
             continue
         match = PREDICTION_COLUMN.match(column)
-        if match is None or match["arm"] not in by_arm:
+        if match is None or match["arm"] not in ARMS:
             raise ValueError(f"coluna de predição inesperada: {column!r}")
-        by_arm[match["arm"]].append((int(match["seed"]), column))
-    missing = [arm for arm, entries in by_arm.items() if not entries]
+        arm, seed = match["arm"], int(match["seed"])
+        if (arm, seed) in seen:
+            raise ValueError(f"braço {arm} com seed {seed} repetido: {seen[(arm, seed)]!r} e {column!r}")
+        if match["seed"] != str(seed):
+            raise ValueError(f"coluna de predição com seed fora da forma canônica: {column!r}")
+        if seed not in EXPECTED_SEEDS:
+            raise ValueError(f"coluna de predição com seed inesperada: {column!r}; esperadas {list(EXPECTED_SEEDS)}")
+        seen[(arm, seed)] = column
+    missing = [f"pred_{arm}_seed{seed}" for arm in ARMS for seed in EXPECTED_SEEDS if (arm, seed) not in seen]
     if missing:
-        raise ValueError(f"window_context_windows.csv sem predições dos braços {missing}")
-    return {arm: [column for _seed, column in sorted(entries)] for arm, entries in by_arm.items()}
+        raise ValueError(f"window_context_windows.csv sem as colunas de predição {missing}")
+    return {arm: [seen[(arm, seed)] for seed in EXPECTED_SEEDS] for arm in ARMS}
+
+
+def _csv_header(path: Path) -> list[str]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        return next(csv.reader(handle), [])
+
+
+def validate_predictions(windows: pd.DataFrame, columns: dict[str, list[str]], path: Path) -> None:
+    for column in (column for arm in ARMS for column in columns[arm]):
+        invalid = sorted(set(windows[column].astype(str)) - set(LE2I_LABEL_NAMES))
+        if invalid:
+            raise ValueError(f"{path}: {column} com rótulos inválidos {invalid}; válidos {list(LE2I_LABEL_NAMES)}")
 
 
 def load_windows(path: Path) -> tuple[pd.DataFrame, dict[str, list[str]]]:
     if not path.is_file():
         raise FileNotFoundError(f"window_context_windows.csv da Etapa 3A não encontrado: {path}")
+    columns = prediction_columns(_csv_header(path))
     windows = pd.read_csv(path, keep_default_na=False)
     absent = [column for column in WINDOW_COLUMNS if column not in windows.columns]
     if absent:
         raise ValueError(f"{path}: colunas ausentes {absent}")
-    columns = prediction_columns(list(windows.columns))
     unknown_splits = sorted(set(windows["split"].astype(str)) - set(SPLITS))
     if unknown_splits:
         raise ValueError(f"{path}: splits inesperados {unknown_splits}")
-    if windows.duplicated(["split", "video_id", "k_end"]).any():
+    if windows.duplicated(list(WINDOW_KEY)).any():
         raise ValueError(f"{path}: (split, video_id, k_end) repetido")
+    validate_predictions(windows, columns, path)
     return windows, columns
+
+
+def expected_windows(frames: pd.DataFrame) -> pd.DataFrame:
+    in_splits = cast(pd.DataFrame, frames[frames["split"].isin(SPLITS)])
+    index = build_window_index(in_splits, EVAL_STRIDE, drop_ignored=True)
+    return pd.DataFrame({
+        "split": index["split"].astype(str),
+        "video_id": index["video_id"].astype(str),
+        "k_end": index["k_end"].astype(np.int64),
+        "env": index["env"].astype(str),
+        "subject": index["subject"].astype(np.int64),
+        "true_label": [label_name(int(label)) for label in index["label"]],
+    })
+
+
+def _sample(table: pd.DataFrame) -> list[tuple[str, str, int]]:
+    rows = cast(pd.DataFrame, table.sort_values(list(WINDOW_KEY))).head(5)
+    return [(str(split), str(video_id), int(k_end)) for split, video_id, k_end in rows[list(WINDOW_KEY)].to_numpy()]
+
+
+def reconcile_windows(windows: pd.DataFrame, frames: pd.DataFrame, path: Path) -> None:
+    observed = pd.DataFrame({
+        "split": windows["split"].astype(str),
+        "video_id": windows["video_id"].astype(str),
+        "k_end": windows["k_end"].astype(np.int64),
+        **{field: windows[field].astype(str) for field in ("env", "true_label")},
+        "subject": windows["subject"].astype(np.int64),
+    })
+    joined = observed.merge(expected_windows(frames), on=list(WINDOW_KEY), how="outer",
+                            suffixes=("", "_frames"), indicator=True)
+    for side, description in (("right_only", "ausentes do CSV"), ("left_only", "sem janela rotulada em frames.parquet")):
+        unmatched = cast(pd.DataFrame, joined[joined["_merge"] == side])
+        if not unmatched.empty:
+            raise ValueError(f"{path}: {len(unmatched)} janela(s) rotulada(s) de val/test {description}: "
+                             f"{_sample(unmatched)}")
+    for field in WINDOW_IDENTITY:
+        diverging = cast(pd.DataFrame, joined[joined[field] != joined[f"{field}_frames"]])
+        if not diverging.empty:
+            raise ValueError(f"{path}: {field} diverge de frames.parquet em {len(diverging)} janela(s): "
+                             f"{_sample(diverging)}")
 
 
 def persistence_table(windows: pd.DataFrame, columns: dict[str, list[str]]) -> pd.DataFrame:
@@ -641,6 +708,7 @@ def plan_review_set(sources: ReviewSources) -> ReviewPlan:
     if not sources.frames_path.is_file():
         raise FileNotFoundError(f"frames.parquet não encontrado: {sources.frames_path}")
     frames = pd.read_parquet(sources.frames_path)
+    reconcile_windows(windows, frames, sources.windows_csv)
     table = persistence_table(windows, columns)
     items, exclusions = select_items(table)
     reviews: list[tuple[str, Record, pd.DataFrame]] = []
