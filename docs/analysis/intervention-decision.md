@@ -19,14 +19,16 @@ seria escolhida, direta ou indiretamente, pelo `test`. Os erros sistemáticos
 que aparecem em `val` são compartilhados por todas as armas ou têm suporte
 pequeno demais para orientar uma intervenção específica de B0/B1.
 
-O único próximo passo justificável é o candidato 1 abaixo, um instrumento de
-validação que não muda nenhum modelo. O candidato 2 só deve ser considerado se
-o candidato 1 reproduzir o deslocamento para `other` em dados de
-desenvolvimento.
+Na Etapa 2A, o único próximo passo justificável era o candidato 1 abaixo, um
+instrumento de validação que não muda nenhum modelo. O candidato 2 só seria
+considerado se o candidato 1 reproduzisse o deslocamento para `other` em
+dados de desenvolvimento.
 
-A [Etapa 2G](#encerramento-da-investigacao-de-b0b1-etapa-2g) encerra a
-investigação com as Etapas 2D–2F e mantém a decisão: nenhuma mudança de
-modelo é justificada.
+O candidato 1 foi concluído depois, com resultado negativo na
+[Etapa 2D](internal-fold-pilot.md). A
+[Etapa 2G](#encerramento-da-investigacao-de-b0b1-etapa-2g) consolida esse
+resultado com as Etapas 2E e 2F, encerra a investigação e mantém a decisão:
+nenhuma mudança de modelo é justificada.
 
 ## Fontes
 
@@ -307,19 +309,23 @@ atribuída.
    e A não colapsa ([diagnóstico](internal-fold-pilot.md#diagnostico-de-lecture_room)).
    O colapso não é o deslocamento para `other` do `test` oficial e não
    satisfaz o critério.
-3. **A integridade das features foi verificada.** A
-   [auditoria da Etapa 2E](internal-fold-retained-audit.md#conclusao) não
-   encontra defeito nos arrays de pose, DINOv3 e qualidade dos 97 vídeos do
+3. **As checagens de integridade não encontram defeito no escopo testado.**
+   A [auditoria da Etapa 2E](internal-fold-retained-audit.md#conclusao) não
+   encontra defeito de forma, valores finitos, quadros zerados, variação
+   temporal ou faixa nos arrays de pose, DINOv3 e qualidade dos 97 vídeos do
    `train` oficial. As janelas batem com `folds.json`, e a reinferência dos
-   nove runs reproduz a matriz de `metrics.json`. Um defeito técnico nas
-   features ou no alinhamento não explica o colapso.
-4. **Há deslocamento de distribuição só no DINOv3.** Com as estatísticas da
-   dobra, todos os vídeos de `Lecture_room` ficam acima de todos os vídeos
-   de desenvolvimento na RMS do z médio DINOv3, enquanto a pose padronizada
-   fica na faixa do desenvolvimento. As duas salas de café são quase
-   indistinguíveis no DINOv3, o que estreita o desvio-padrão ajustado na
-   dobra `Lecture_room`. O deslocamento coincide com o colapso. É uma
-   descrição, não uma causa.
+   nove runs reproduz a matriz de `metrics.json`. As checagens não
+   inspecionam os quadros de vídeo de origem e não excluem causas não
+   examinadas.
+4. **O deslocamento extremo das features padronizadas aparece no DINOv3.**
+   Com as estatísticas da dobra, todos os vídeos de `Lecture_room` ficam
+   acima de todos os vídeos de desenvolvimento na RMS do z médio DINOv3,
+   enquanto a pose padronizada fica na faixa do desenvolvimento. O ambiente
+   também tem confiança de keypoints e `q_pose` menores. As duas salas de
+   café são quase indistinguíveis no DINOv3, e o desvio-padrão DINOv3
+   ajustado na dobra `Lecture_room`, cujo desenvolvimento tem só essas duas
+   salas, é menor que nas outras dobras. O deslocamento coincide com o
+   colapso. São descrições, sem relação causal estabelecida.
 5. **As predições são sensíveis à entrada visual.** No
    [contrafactual da Etapa 2F](visual-neutralization-counterfactual.md#conclusao),
    substituir o DINOv3 padronizado pela média da dobra desfaz o colapso para
