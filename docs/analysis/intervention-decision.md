@@ -1,4 +1,4 @@
-# Análise — Decisão sobre intervenções no modelo (Etapa 2A)
+# Análise — Decisão sobre intervenções no modelo (Etapas 2A e 2G)
 
 Este documento registra uma decisão **exploratória e não canônica**: se a
 evidência de desenvolvimento (`train` e `val`) justifica alguma melhoria
@@ -23,6 +23,10 @@ O único próximo passo justificável é o candidato 1 abaixo, um instrumento de
 validação que não muda nenhum modelo. O candidato 2 só deve ser considerado se
 o candidato 1 reproduzir o deslocamento para `other` em dados de
 desenvolvimento.
+
+A [Etapa 2G](#encerramento-da-investigacao-de-b0b1-etapa-2g) encerra a
+investigação com as Etapas 2D–2F e mantém a decisão: nenhuma mudança de
+modelo é justificada.
 
 ## Fontes
 
@@ -251,6 +255,10 @@ confirmar de forma independente a generalização.
   muda a receita e exige reabrir formalmente essa decisão. Ela desloca, não
   acrescenta: a variante ocuparia o lugar de B0/B1 nessa ablação e não
   vira uma sexta arma.
+- **Resultado:** não executado. A condição não ocorreu na
+  [Etapa 2D](internal-fold-pilot.md), e a
+  [Etapa 2G](#encerramento-da-investigacao-de-b0b1-etapa-2g) não encontra
+  outro sinal de desenvolvimento que o justifique.
 
 ## Resultado de não prosseguir
 
@@ -261,6 +269,93 @@ caso: o candidato 1 não reproduz o deslocamento, e o candidato 2 não é
 executado. O resultado de B0/B1 em Le2i-CV fica descrito como
 limitação de generalização entre ambientes, sem causa atribuída, ao lado dos
 erros compartilhados `standing→walk`, `sitting→stand_up` e `other→walk`.
+
+## Encerramento da investigação de B0/B1 (Etapa 2G)
+
+Esta seção encerra a investigação exploratória de melhoria de B0/B1 aberta
+nesta página, consolidando as Etapas 2D, 2E e 2F. É só documentação: não há
+novo experimento, script, mudança de modelo, promoção de referência nem
+avaliação em `val` ou `test` oficiais. Os números completos ficam nas páginas
+de cada etapa.
+
+### Decisão final
+
+**A evidência de desenvolvimento atual não justifica:**
+
+- dropout de modalidade visual no treino (candidato 2);
+- adotar a neutralização visual na inferência;
+- mudar as arquiteturas de B0 ou B1;
+- executar mais seeds, seja os 36 treinos restantes das dobras internas,
+  seja repetições do contrafactual.
+
+As decisões congeladas continuam valendo: receita idêntica entre A, B e C,
+checkpoint da última época, protocolo de alarme `N=3`, `R=5,0 s`, splits
+oficiais, runs canônicos e `runs/reference/`. Nenhum artefato das Etapas
+2D–2F é promovido. A falha de B0/B1 no `test` oficial do Le2i-CV continua
+registrada como limitação de generalização entre ambientes, sem causa
+atribuída.
+
+### Observações
+
+1. **O critério original é negativo.** O
+   [piloto da Etapa 2D](internal-fold-pilot.md#decisao) não reproduz o
+   deslocamento para `other`: nas três dobras, B0 e B1 predizem `other` com
+   fração menor que A, e o critério do candidato 1 não pode ser satisfeito
+   com as cinco seeds. A pergunta pré-registrada fica respondida.
+2. **Aparece outro modo de falha, não pré-registrado.** No `Lecture_room`
+   retido, B0 e B1 colapsam para `walk` em quase todas as janelas e vídeos,
+   e A não colapsa ([diagnóstico](internal-fold-pilot.md#diagnostico-de-lecture_room)).
+   O colapso não é o deslocamento para `other` do `test` oficial e não
+   satisfaz o critério.
+3. **A integridade das features foi verificada.** A
+   [auditoria da Etapa 2E](internal-fold-retained-audit.md#conclusao) não
+   encontra defeito nos arrays de pose, DINOv3 e qualidade dos 97 vídeos do
+   `train` oficial. As janelas batem com `folds.json`, e a reinferência dos
+   nove runs reproduz a matriz de `metrics.json`. Um defeito técnico nas
+   features ou no alinhamento não explica o colapso.
+4. **Há deslocamento de distribuição só no DINOv3.** Com as estatísticas da
+   dobra, todos os vídeos de `Lecture_room` ficam acima de todos os vídeos
+   de desenvolvimento na RMS do z médio DINOv3, enquanto a pose padronizada
+   fica na faixa do desenvolvimento. As duas salas de café são quase
+   indistinguíveis no DINOv3, o que estreita o desvio-padrão ajustado na
+   dobra `Lecture_room`. O deslocamento coincide com o colapso. É uma
+   descrição, não uma causa.
+5. **As predições são sensíveis à entrada visual.** No
+   [contrafactual da Etapa 2F](visual-neutralization-counterfactual.md#conclusao),
+   substituir o DINOv3 padronizado pela média da dobra desfaz o colapso para
+   `walk` em `Lecture_room`, mas a Macro-F1 restrita continua muito abaixo
+   da de A. Nas salas de café, a mesma intervenção derruba o desempenho de
+   B0 e B1. As duas armas dependem da entrada visual também onde não há
+   colapso.
+
+### Por que a neutralização não é uma melhoria
+
+O contrafactual estabelece sensibilidade das predições, não a causa do
+colapso nem uma melhoria validada. A entrada neutralizada é constante e fora
+da distribuição do treino, então a resposta pode refletir essa entrada
+inédita e não a remoção de informação de cena. Ela piora as duas salas de
+café, não supera A em `Lecture_room`, não neutraliza o gate de B1 e não foi
+selecionada nem avaliada em `val` ou `test` oficiais. Na prática, ela
+descarta a informação visual, e A já é a referência sem entrada visual.
+
+### Hipóteses não resolvidas
+
+Atalho de cena, mudança de entrada visual com recaída na classe mais
+frequente do treino, variância visual estreita no desenvolvimento,
+composição da dobra e variação de seed seguem compatíveis com as
+observações. Nenhuma foi separada das demais, e nenhuma é um resultado (ver
+as hipóteses da [Etapa 2E](internal-fold-retained-audit.md#hipoteses-nao-resolvidas)).
+
+### Limitações do encerramento
+
+- Uma seed por arma, três ambientes retidos e uma única intervenção fixa.
+- Todo o `train` oficial é 320×240 a 25 fps. As dobras não testam a
+  resolução mista nem o fps do `test` oficial do Le2i-CV.
+- Nada das Etapas 2D–2F explica a falha do `test` oficial. A distância das
+  features DINOv3 de `val`/`test` às de `train`, listada em
+  [evidência ausente](#evidencia-ausente), continua não medida.
+- O `test` oficial já exposto não pode confirmar de forma independente
+  nenhuma intervenção derivada desta investigação.
 
 ## Limitações
 

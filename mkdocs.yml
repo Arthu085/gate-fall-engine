@@ -78,7 +78,7 @@ nav:
       - Diagnóstico de erros de classificação: analysis/classification-diagnosis.md
       - Diagnóstico estratificado de erros: analysis/stratified-error-diagnosis.md
       - Consolidação multi-seed dos erros: analysis/multiseed-error-consolidation.md
-      - Decisão sobre intervenções (Etapa 2A): analysis/intervention-decision.md
+      - Decisão sobre intervenções (Etapas 2A e 2G): analysis/intervention-decision.md
       - Viabilidade das dobras internas do Le2i-CV (Etapa 2B): analysis/internal-fold-feasibility.md
       - Piloto das dobras internas do Le2i-CV (Etapa 2D): analysis/internal-fold-pilot.md
       - Auditoria dos ambientes retidos (Etapa 2E): analysis/internal-fold-retained-audit.md
