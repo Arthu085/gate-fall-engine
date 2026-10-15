@@ -136,8 +136,10 @@ def _manifest_metadata_mismatches(frames: pd.DataFrame, manifest: pd.DataFrame) 
     )
 
 
-def validate_official_train_partition(frames: pd.DataFrame, manifest: pd.DataFrame) -> None:
-    expected = EXPECTED_OFFICIAL_TRAIN
+def validate_official_train_partition(
+    frames: pd.DataFrame, manifest: pd.DataFrame, expected: dict[str, object] | None = None
+) -> None:
+    expected = EXPECTED_OFFICIAL_TRAIN if expected is None else expected
     environments = tuple(sorted(str(env) for env in frames["env"].unique()))
     if environments != expected["environments"]:
         raise ValueError(
