@@ -194,8 +194,9 @@ Nada nesta etapa separa as leituras abaixo. Elas não são resultados.
 
 Separar a primeira leitura das demais exigiria uma intervenção na inferência,
 como substituir a entrada visual de `Lecture_room` no checkpoint congelado.
-Ela não foi executada. Seria uma etapa nova, que exige aprovação explícita e
-precisa declarar o que desloca.
+Ela não foi executada nesta etapa. A
+[Etapa 2F](visual-neutralization-counterfactual.md) executa uma intervenção
+desse tipo e registra a sensibilidade observada, sem atribuir causa.
 
 ## Saídas
 
