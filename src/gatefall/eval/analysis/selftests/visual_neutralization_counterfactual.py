@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -31,7 +32,13 @@ from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM
 from gatefall.runs import REFERENCE_RUN_ROOT
 from gatefall.train.internal_folds.cli import _official_train, run_prepare, run_train
-from gatefall.train.internal_folds.folds import RETAINED_SPLIT, build_fold_partitions, fold_run_dir, stats_dir
+from gatefall.train.internal_folds.folds import (
+    FOLDS_FILE,
+    RETAINED_SPLIT,
+    build_fold_partitions,
+    fold_run_dir,
+    stats_dir,
+)
 from gatefall.train.internal_folds.selftests.fixtures import (
     OFFICIAL_HELD_OUT_VIDEOS,
     QUALITY,
@@ -237,6 +244,22 @@ def _changing_loaders(loaders: FeatureLoaders, calls: dict[str, int]) -> Feature
     return FeatureLoaders(pose=loaders.pose, visual=visual, quality=loaders.quality)
 
 
+def _tampering_loaders(loaders: FeatureLoaders, target: Path) -> FeatureLoaders:
+    # A segunda leitura de um vídeo só acontece na verificação final das
+    # features; é nela que um arquivo de entrada é adulterado, depois do
+    # relatório calculado e antes da verificação dos SHA-256 das entradas.
+    calls: dict[str, int] = {}
+
+    def visual(video_id: str) -> np.ndarray:
+        calls[video_id] = calls.get(video_id, 0) + 1
+        if calls[video_id] == 2:
+            with target.open("ab") as stream:
+                stream.write(b" ")
+        return loaders.visual(video_id)
+
+    return FeatureLoaders(pose=loaders.pose, visual=visual, quality=loaders.quality)
+
+
 def _selftest_end_to_end() -> bool:
     with synthetic_workspace() as (root, frames_path, manifest_path):
         run_prepare(root, frames_path, manifest_path, force=False, loaders=RecordingLoaders().loaders(),
@@ -333,19 +356,39 @@ def _selftest_end_to_end() -> bool:
                                                                    quality=QUALITY, device="cpu"), "se sobrepõe")
             for target in (root / "counterfactual", REFERENCE_RUN_ROOT / "counterfactual", frames_path.parent)
         )
-        changing = raises(
-            RuntimeError,
-            lambda: run_analysis(root, frames_path, manifest_path, root.parent / "changing",
-                                 loaders=_changing_loaders(RecordingLoaders().loaders(), {}), quality=QUALITY,
-                                 device="cpu"),
-            "features mudaram",
-        )
+        def unpublished(target: Path, loaders: FeatureLoaders, fragment: str, force: bool) -> bool:
+            listing = sorted(path.name for path in target.iterdir()) if target.exists() else []
+            failed = raises(RuntimeError, lambda: run_analysis(root, frames_path, manifest_path, target, force=force,
+                                                               loaders=loaders, quality=QUALITY, device="cpu"),
+                            fragment)
+            return failed and listing == (sorted(path.name for path in target.iterdir()) if target.exists() else [])
+
+        folds_path = root / FOLDS_FILE
+        folds_bytes = folds_path.read_bytes()
+        try:
+            features_fresh = unpublished(root.parent / "changing_features",
+                                         _changing_loaders(RecordingLoaders().loaders(), {}), "features mudaram", False)
+            features_forced = unpublished(output_dir, _changing_loaders(RecordingLoaders().loaders(), {}),
+                                          "features mudaram", True)
+            inputs_fresh = unpublished(root.parent / "changing_inputs",
+                                       _tampering_loaders(RecordingLoaders().loaders(), folds_path),
+                                       "artefatos de entrada mudaram", False)
+            folds_path.write_bytes(folds_bytes)
+            inputs_forced = unpublished(output_dir, _tampering_loaders(RecordingLoaders().loaders(), folds_path),
+                                        "artefatos de entrada mudaram", True)
+        finally:
+            folds_path.write_bytes(folds_bytes)
+        preserved = [path.read_bytes() for path in outputs] == first
         guard_ok = _check(
-            "o contrafactual recusa saída dentro das dobras, das referências ou das entradas e acusa features que "
-            "mudam entre a leitura e a verificação final",
-            refused and changing,
+            "o contrafactual recusa saída dentro das dobras, das referências ou das entradas",
+            refused,
         )
-        return clean_ok and fold_ok and guard_ok
+        integrity_ok = _check(
+            "features ou arquivos de entrada alterados antes da verificação final falham sem publicar relatório "
+            "novo nem sobrescrever o relatório existente, mesmo com --force",
+            features_fresh and features_forced and inputs_fresh and inputs_forced and preserved,
+        )
+        return clean_ok and fold_ok and guard_ok and integrity_ok
 
 
 def run_selftest() -> bool:

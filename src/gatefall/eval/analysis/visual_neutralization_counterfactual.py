@@ -684,18 +684,14 @@ def run_analysis(
         return False
     loaders = loaders or feature_loaders()
     report, snapshot, digests = build_report(root, frames_path, manifest_path, loaders, quality, device)
-    written = write_text_outputs(
-        output_dir,
-        {
-            targets[0]: json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
-            targets[1]: render_summary(report),
-            targets[2]: pd.DataFrame(video_rows(report), columns=VIDEO_COLUMNS).to_csv(index=False),
-        },
-        force,
-    )
-    verify_inputs_unchanged(snapshot)
+    outputs = {
+        targets[0]: json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+        targets[1]: render_summary(report),
+        targets[2]: pd.DataFrame(video_rows(report), columns=VIDEO_COLUMNS).to_csv(index=False),
+    }
     verify_features_unchanged(loaders, digests)
-    return written
+    verify_inputs_unchanged(snapshot)
+    return write_text_outputs(output_dir, outputs, force)
 
 
 def main() -> None:

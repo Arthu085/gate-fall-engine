@@ -154,12 +154,15 @@ carimbo de tempo, e a mesma entrada gera as mesmas saídas.
   das dobras, de `runs/reference/`, dos runs locais oficiais, de `src/`, de
   `data/` ou dos diretórios das entradas. Sem `--force`, uma saída existente
   é preservada antes de qualquer cálculo.
+- O SHA-256 dos arrays de pose, DINOv3 e qualidade de cada vídeo lido vai
+  para `feature_sha256` e é recalculado com uma nova leitura depois do
+  cálculo do relatório.
 - O SHA-256 de frames, manifesto, `folds.json`, estatísticas por dobra e
   `config.yaml`, `metrics.json`, `checkpoint.pt` e `fold_run.json` de cada run
-  é conferido depois da gravação.
-- O SHA-256 dos arrays de pose, DINOv3 e qualidade de cada vídeo lido vai
-  para `feature_sha256` e é recalculado com uma nova leitura no fim; qualquer
-  diferença falha a execução.
+  é conferido em seguida.
+- As duas verificações rodam antes da gravação. Qualquer diferença falha a
+  execução sem publicar relatório, e uma saída existente fica intacta mesmo
+  com `--force`.
 
 ## Como executar
 
@@ -177,8 +180,9 @@ DINOv3, a preservação de pose, qualidade, identidades e rótulos pelos
 preditores validados, o pareamento das janelas, o isolamento por dobra, a
 recusa de neutralizar A, a leitura restrita ao `train`, saídas idênticas ao
 repetir, a preservação dos runs e da saída existente, a recusa de saída
-protegida e a detecção de features alteradas. `analyze` requer o piloto já
-treinado; GPU é recomendada.
+protegida e a falha sem publicação, nem sobrescrita com `--force`, quando
+features ou arquivos de entrada mudam antes da verificação final. `analyze`
+requer o piloto já treinado; GPU é recomendada.
 
 ## Limitações
 
