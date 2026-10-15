@@ -83,6 +83,7 @@ nav:
       - Piloto das dobras internas do Le2i-CV (Etapa 2D): analysis/internal-fold-pilot.md
       - Auditoria dos ambientes retidos (Etapa 2E): analysis/internal-fold-retained-audit.md
       - Contrafactual de neutralização visual (Etapa 2F): analysis/visual-neutralization-counterfactual.md
+      - Rascunho do manuscrito (Resultados e Discussão): analysis/manuscript-results-discussion.md
   - Referência:
       - Referência de comandos: reference/commands.md
       - Referências finais do Le2i: reference/le2i-runs.md
