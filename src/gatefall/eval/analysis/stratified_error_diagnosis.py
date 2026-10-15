@@ -27,6 +27,7 @@ diferentes.
 import argparse
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -274,13 +275,13 @@ def coverage(table: pd.DataFrame, levels: dict[str, list[dict]]) -> dict:
     }
 
 
-def analyze_split(
+def analyze_split_with_table(
     frames: pd.DataFrame,
     evaluate_split: Callable[[str], tuple[int, Predictions]],
     split: str,
     stored_block: object,
     context: str,
-) -> dict:
+) -> tuple[pd.DataFrame, dict]:
     stored = diagnose_split(stored_block, LE2I_LABEL_NAMES, context)
     windows = window_metadata(frames, split, context)
     usable_windows, predictions = evaluate_split(split)
@@ -291,12 +292,22 @@ def analyze_split(
     table = align_predictions(windows, predictions, context)
     overall = subgroup_metrics(table)
     levels = stratify(table)
-    return {
+    return table, {
         "overall": overall,
         "coverage": coverage(table, levels),
         "reconciliation": reconcile(levels, overall, stored, context),
         "levels": levels,
     }
+
+
+def analyze_split(
+    frames: pd.DataFrame,
+    evaluate_split: Callable[[str], tuple[int, Predictions]],
+    split: str,
+    stored_block: object,
+    context: str,
+) -> dict:
+    return analyze_split_with_table(frames, evaluate_split, split, stored_block, context)[1]
 
 
 def _frames_path(dataset: str) -> Path:
@@ -314,7 +325,14 @@ def run_input_files(item: DiagnosisInput) -> list[Path]:
     return [*(item.path / name for name in REQUIRED_RUN_FILES), _frames_path(item.dataset)]
 
 
-def analyze_run(item: DiagnosisInput) -> dict:
+@dataclass(frozen=True)
+class ValidatedRun:
+    context: str
+    header: dict
+    final: dict
+
+
+def validate_run(item: DiagnosisInput) -> ValidatedRun:
     context = f"{PROTOCOL_NAMES[item.dataset]}/{item.arm} ({item.path})"
     config = _read_yaml(item.path / "config.yaml")
     metrics = _read_json(item.path / "metrics.json")
@@ -326,13 +344,7 @@ def analyze_run(item: DiagnosisInput) -> dict:
     final = metrics.get("final")
     if not isinstance(final, dict) or any(split not in final for split in SPLITS):
         raise ValueError(f"{context}: metrics.json sem final.{'/'.join(SPLITS)}")
-
-    frames, evaluate_split = load_evaluation(item.arm, item.dataset, item.path).prepare()
-    splits = {
-        split: analyze_split(frames, evaluate_split, split, final[split], f"{context} [{split}]")
-        for split in SPLITS
-    }
-    return {
+    header = {
         "dataset": item.dataset,
         "protocol": PROTOCOL_NAMES[item.dataset],
         "arm": item.arm,
@@ -341,8 +353,18 @@ def analyze_run(item: DiagnosisInput) -> dict:
         "source": display_path(item.path),
         "checkpoint_sha256": checkpoint_sha256,
         "input_sha256": input_sha256,
-        "splits": splits,
     }
+    return ValidatedRun(context=context, header=header, final=final)
+
+
+def analyze_run(item: DiagnosisInput) -> dict:
+    run = validate_run(item)
+    frames, evaluate_split = load_evaluation(item.arm, item.dataset, item.path).prepare()
+    splits = {
+        split: analyze_split(frames, evaluate_split, split, run.final[split], f"{run.context} [{split}]")
+        for split in SPLITS
+    }
+    return {**run.header, "splits": splits}
 
 
 def _fmt(value: float | None) -> str:
