@@ -181,6 +181,10 @@ Le2i-CS.
   já encerrada na Etapa 2G, e não acrescenta braço, dataset, backbone nem
   métrica.
 
+Executada como [Etapa 3A](window-context-diagnosis.md): em `test`,
+`other→walk` persiste em janelas puras, no meio dos trechos, com taxa
+próxima à das janelas misturadas.
+
 ## Números derivados { #numeros-derivados }
 
 Os relatórios e dados abaixo são locais e não versionados; o SHA-256 permite
