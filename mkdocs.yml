@@ -86,6 +86,7 @@ nav:
       - Rascunho do manuscrito (Resultados e Discussão): analysis/manuscript-results-discussion.md
       - Síntese diagnóstica entre braços: analysis/cross-arm-diagnostic-synthesis.md
       - Contexto de janela dos erros other→walk (Etapa 3A): analysis/window-context-diagnosis.md
+      - Conjunto de revisão dos erros other→walk (Etapa 3B): analysis/other-walk-review-set.md
   - Referência:
       - Referência de comandos: reference/commands.md
       - Referências finais do Le2i: reference/le2i-runs.md

@@ -184,6 +184,9 @@ Le2i-CS.
 Executada como [Etapa 3A](window-context-diagnosis.md): em `test`,
 `other→walk` persiste em janelas puras, no meio dos trechos, com taxa
 próxima à das janelas misturadas.
+A leitura manual seguinte é preparada na [Etapa 3B](other-walk-review-set.md):
+um conjunto cego de trechos com erro persistente e controles corretos em
+`Lecture_room` e `Coffee_room_02`, ainda sem achados visuais.
 
 ## Números derivados { #numeros-derivados }
 
