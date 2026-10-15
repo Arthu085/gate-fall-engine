@@ -175,7 +175,7 @@ def validate_fold_run_document(run_dir: Path, document: dict[str, object]) -> No
         )
 
 
-def _publish_fold_run_document(run_dir: Path, document: dict[str, object]) -> None:
+def publish_fold_run_document(run_dir: Path, document: dict[str, object]) -> None:
     path = run_dir / FOLD_RUN_FILE
     temporary = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex}")
     data = {**document, "artifacts_sha256": _artifact_hashes(run_dir)}
@@ -186,7 +186,7 @@ def _publish_fold_run_document(run_dir: Path, document: dict[str, object]) -> No
         temporary.unlink(missing_ok=True)
 
 
-def _guard_existing_run(run_dir: Path, document: dict[str, object], force: bool) -> None:
+def guard_existing_fold_run(run_dir: Path, document: dict[str, object], force: bool) -> None:
     # Sem esta guarda, o engine pularia um run canônico completo e o
     # fold_run.json seria criado depois, sem que o run tenha sido treinado
     # nesta dobra. Runs parciais seguem para o engine, que os recusa.
@@ -214,7 +214,7 @@ def train_fold_run(
         seed,
         stats.files,
     )
-    _guard_existing_run(run_dir, document, force)
+    guard_existing_fold_run(run_dir, document, force)
     development, retained = _sides(partition, arm, loaders)
     frames = partition.frames
     if isinstance(config, TrainConfig):
@@ -269,4 +269,4 @@ def train_fold_run(
             label_names=LE2I_LABEL_NAMES,
         )
     if metrics is not None:
-        _publish_fold_run_document(run_dir, document)
+        publish_fold_run_document(run_dir, document)

@@ -123,7 +123,8 @@ treinar:
 
 - `gatefall.train.internal_folds` só implementa as dobras por ambiente do
   Le2i-CV. Um modo por sujeito no Le2i-CS é um protocolo novo e desloca a
-  próxima etapa exploratória de treino.
+  próxima etapa exploratória de treino. A linha de base desse modo, sem
+  aumento, está na [Etapa 4B](../train/subject-folds.md).
 - `PoseWindowDataset` guarda em cache a matriz de features de cada vídeo,
   montada uma vez por `build_pose_features_from_arrays`. Uma queda de pose
   simulada precisa alterar `person_found` e os keypoints em `PoseArrays`
@@ -174,7 +175,8 @@ As limitações que acompanham o veredito:
 - As dobras são por sujeito, não por cena: ambientes e câmeras aparecem dos
   dois lados.
 - A identidade global dos IDs brutos não é verificável.
-- O pipeline ainda não tem modo por sujeito nem ponto de aumento na pose.
+- O pipeline ainda não tem ponto de aumento na pose. O modo por sujeito foi
+  implementado depois, na [Etapa 4B](../train/subject-folds.md).
 
 ## Garantias de somente leitura
 
