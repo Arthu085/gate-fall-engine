@@ -50,8 +50,8 @@ LIMITATIONS = [
     "Três dobras de tamanhos muito diferentes e uma seed de treino: a variação entre seeds não é estimada, e o "
     "sorteio por época usa um único fluxo aleatório por dobra. Os deltas não são agregados entre dobras.",
     "Desequilíbrio entre sujeitos: sujeitos com poucas janelas são repetidos muitas vezes por época, e sujeitos "
-    "dominantes têm parte das janelas nunca sorteada; o efeito mistura menos domínio de poucos sujeitos com mais "
-    "sobreajuste aos vídeos dos sujeitos pequenos.",
+    "dominantes ficam com parte das janelas fora de cada época; o efeito mistura menos domínio de poucos sujeitos "
+    "com mais sobreajuste aos vídeos dos sujeitos pequenos.",
     "A amostragem por sujeito muda também a distribuição de classes vista no treino; os pesos de classe continuam "
     "os do treino limpo completo, como no controle, e não compensam essa mudança.",
     "Janelas sobrepostas: no treino (stride 4) sorteios repetidos de janelas vizinhas reforçam a redundância, e no "
