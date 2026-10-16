@@ -209,7 +209,8 @@ foram iguais antes e depois. As saídas não são versionadas:
 - Três dobras de tamanhos muito diferentes e uma seed. A variação entre
   seeds não é estimada, e deltas desta ordem podem vir só dela.
 - O retido é avaliado limpo: o resumo mede o efeito do aumento em dados
-  reais, não a robustez a perdas simuladas no retido.
+  reais, não a robustez a perdas simuladas no retido. Essa robustez é medida
+  à parte, sem retreino, na [Etapa 4D](../analysis/subject-fold-dropout-robustness.md).
 - A intervenção simula só lacunas curtas de três quadros, com probabilidade
   fixa. Ela não reproduz a distribuição real das perdas de detecção, que se
   concentram em `fall` e em Home_01.
