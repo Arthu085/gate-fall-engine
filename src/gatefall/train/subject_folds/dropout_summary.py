@@ -69,7 +69,7 @@ def evaluate_decision(deltas: list[float]) -> dict[str, object]:
     }
 
 
-def _paired_entry(control: dict, treatment: dict) -> dict[str, object]:
+def paired_entry(control: dict, treatment: dict) -> dict[str, object]:
     if treatment["retained_support"] != control["retained_support"]:
         raise RuntimeError(f"{treatment['run_dir']}: suporte do retido diverge do controle {control['run_dir']}")
     control_classes = cast(dict[str, dict], control["retained_per_class"])
@@ -138,7 +138,7 @@ def build_dropout_summary(root: Path) -> dict[str, object]:
             "retained_windows_eval_stride": fold["retained_windows_eval_stride"],
             "n_retained_videos": len(fold["retained_video_ids"]),
             "pairs": [
-                _paired_entry(
+                paired_entry(
                     run_entry(root, document, fold, arm, seed),
                     run_entry(root, document, fold, arm, seed, DETECTION_DROPOUT_VARIANT),
                 )

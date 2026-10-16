@@ -31,6 +31,7 @@ from gatefall.train.subject_folds.folds import (
     SEEDS,
     SELECTION_POLICY,
     STAGE,
+    SUBJECT_BALANCED_VARIANT,
     fold_run_dir,
     read_folds_document,
     stats_dir,
@@ -41,6 +42,8 @@ from gatefall.train.subject_folds.training import (
     detection_dropout_run_document,
     fold_run_document,
     resolve_fold_config,
+    subject_balanced_run_document,
+    validate_sampling_record,
 )
 
 SUMMARY_JSON_FILE = "subject_fold_summary.json"
@@ -116,8 +119,14 @@ def expected_run_document(
     )
     if variant == BASELINE_VARIANT:
         return control_document
-    control_sidecar = fold_run_dir(root, fold["fold"], arm, seed) / FOLD_RUN_FILE
-    return detection_dropout_run_document(control_document, sha256_file(control_sidecar))
+    control_sha256 = sha256_file(fold_run_dir(root, fold["fold"], arm, seed) / FOLD_RUN_FILE)
+    if variant == SUBJECT_BALANCED_VARIANT:
+        sidecar = fold_run_dir(root, fold["fold"], arm, seed, variant) / FOLD_RUN_FILE
+        sampling = _read_json(sidecar).get("sampling") if sidecar.is_file() else None
+        return subject_balanced_run_document(
+            control_document, control_sha256, validate_sampling_record(sampling, fold, seed, sidecar)
+        )
+    return detection_dropout_run_document(control_document, control_sha256)
 
 
 def run_entry(

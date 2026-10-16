@@ -1,8 +1,14 @@
 from gatefall.train.subject_folds.selftests.detection_dropout import run_detection_dropout_selftest
 from gatefall.train.subject_folds.selftests.folds import run_folds_selftest
+from gatefall.train.subject_folds.selftests.subject_balanced_sampling import run_subject_balanced_selftest
 from gatefall.train.subject_folds.selftests.training import run_training_selftest
 
 
 def run_selftest() -> bool:
-    results = [run_folds_selftest(), run_training_selftest(), run_detection_dropout_selftest()]
+    results = [
+        run_folds_selftest(),
+        run_training_selftest(),
+        run_detection_dropout_selftest(),
+        run_subject_balanced_selftest(),
+    ]
     return all(results)

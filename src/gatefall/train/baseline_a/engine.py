@@ -10,7 +10,7 @@ from typing import Protocol, cast
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Sampler
 
 from gatefall.features.standardization import StandardizationStats, apply_standardization
 from gatefall.hashing import sha256_file
@@ -111,7 +111,15 @@ def run_training(
     run_dir: Path,
     force: bool,
     label_names: tuple[str, ...],
+    train_sampler: Sampler[int] | None = None,
 ) -> dict | None:
+    """Treina e avalia a TCN; `train_sampler` opcional troca só a amostragem das épocas de treino.
+
+    Sem `train_sampler`, o treino embaralha com o gerador da seed e `final.train`
+    reaproveita esse loader. Com ele, o loader de treino usa o sampler (e o
+    mesmo gerador da seed) e `final.train` é medido num loader sequencial sobre
+    todas as janelas limpas do treino, nunca pelo sampler.
+    """
     validate_local_run_dir(run_dir)
     required = REQUIRED_TRAINING_ARTIFACTS
     present = [name for name in required if (run_dir / name).is_file()]
@@ -145,13 +153,24 @@ def run_training(
 
     generator = torch.Generator()
     generator.manual_seed(config.seed)
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=config.batch_size,
-        shuffle=True,
-        generator=generator,
-        num_workers=0,
-    )
+    if train_sampler is None:
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=config.batch_size,
+            shuffle=True,
+            generator=generator,
+            num_workers=0,
+        )
+        train_eval_loader = train_loader
+    else:
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=config.batch_size,
+            sampler=train_sampler,
+            generator=generator,
+            num_workers=0,
+        )
+        train_eval_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=False, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=0)
     test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False, num_workers=0)
 
@@ -206,7 +225,7 @@ def run_training(
         )
 
     final = {
-        "train": _evaluate_split(model, train_loader, device, config.num_classes, label_names),
+        "train": _evaluate_split(model, train_eval_loader, device, config.num_classes, label_names),
         "val": _evaluate_split(model, val_loader, device, config.num_classes, label_names),
         "test": _evaluate_split(model, test_loader, device, config.num_classes, label_names),
     }

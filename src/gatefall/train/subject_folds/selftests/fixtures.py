@@ -1,18 +1,26 @@
 import contextlib
+import hashlib
+import random
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import torch
+from torch.utils.data import DataLoader
 
 from gatefall.config import EVAL_STRIDE
+from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index
 from gatefall.eval.analysis import subject_fold_feasibility
 from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features_from_arrays
 from gatefall.pose.loading import PoseArrays
+from gatefall.train.baseline_a import engine
+from gatefall.train.shared.tcn import TCNClassifier
+from gatefall.train.subject_folds import training
 from gatefall.train.subject_folds.cli import PoseInputs
 
 W, F, FN, SD, ST, SU, SG, OT = 0, 1, 2, 3, 4, 7, 8, 9
@@ -182,3 +190,81 @@ class RawRecordingPose(RecordingPose):
             return synthetic_raw_pose(video_id)
 
         return PoseInputs(loader=loader, sha256=self.sha256, raw_loader=raw_loader)
+
+
+RngStates = tuple[tuple[Any, ...], torch.Tensor, object]
+
+
+def rng_states() -> RngStates:
+    return cast(tuple[Any, ...], np.random.get_state()), torch.get_rng_state().clone(), random.getstate()
+
+
+def same_rng_states(before: RngStates, after: RngStates) -> bool:
+    (numpy_before, torch_before, python_before), (numpy_after, torch_after, python_after) = before, after
+    return (
+        numpy_before[0] == numpy_after[0]
+        and np.array_equal(numpy_before[1], numpy_after[1])
+        and numpy_before[2:] == numpy_after[2:]
+        and torch.equal(torch_before, torch_after)
+        and python_before == python_after
+    )
+
+
+class IndexRecorder:
+    def __init__(self, source: PoseWindowDataset, log: list[int]) -> None:
+        self._source = source
+        self._log = log
+
+    def __len__(self) -> int:
+        return len(self._source)
+
+    def label_at(self, index: int) -> int:
+        return self._source.label_at(index)
+
+    def __getitem__(self, index: int) -> tuple[np.ndarray, int, tuple[str, int]]:
+        self._log.append(index)
+        return self._source[index]
+
+
+class TrainingCapture:
+    """Registra, por run, a ordem de leitura do treino, as fontes, os loaders do engine e o estado inicial do modelo."""
+
+    def __init__(self) -> None:
+        self.runs: list[dict[str, Any]] = []
+
+    def __enter__(self) -> "TrainingCapture":
+        real_run_training = training.run_training
+        runs = self.runs
+
+        def capturing(**kwargs: Any) -> dict | None:
+            order: list[int] = []
+            train_source = kwargs["train_source"]
+            runs.append({"train": train_source, "val": kwargs["val_source"], "test": kwargs["test_source"],
+                         "sampler": kwargs.get("train_sampler"), "order": order, "init": None, "loaders": []})
+            return real_run_training(**{**kwargs, "train_source": IndexRecorder(train_source, order)})
+
+        class RecordingTCN(TCNClassifier):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                digest = hashlib.sha256()
+                for tensor in self.state_dict().values():
+                    digest.update(tensor.detach().cpu().numpy().tobytes())
+                runs[-1]["init"] = digest.hexdigest()
+
+        class RecordingDataLoader(DataLoader):
+            def __init__(self, dataset: Any, **kwargs: Any) -> None:
+                super().__init__(dataset, **kwargs)
+                runs[-1]["loaders"].append(kwargs)
+
+        self._patches = [
+            patch.object(training, "run_training", capturing),
+            patch.object(engine, "TCNClassifier", RecordingTCN),
+            patch.object(engine, "DataLoader", RecordingDataLoader),
+        ]
+        for active in self._patches:
+            active.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        for active in self._patches:
+            active.stop()
