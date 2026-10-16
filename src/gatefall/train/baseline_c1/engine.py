@@ -11,6 +11,7 @@ from gatefall.train.shared.gated_engine import _GatedFusionWindowSource, run_gat
 from gatefall.train.baseline_c1.artifacts import validate_c1_training_run
 from gatefall.train.baseline_c1.config import C1TrainConfig
 from gatefall.train.shared.gated_model import GatedFusionClassifier
+from gatefall.train.shared.imbalance import ImbalanceRecipe
 
 
 def run_c1_training(
@@ -23,6 +24,7 @@ def run_c1_training(
     run_dir: Path,
     force: bool,
     label_names: tuple[str, ...],
+    imbalance_recipe: ImbalanceRecipe | None = None,
 ) -> dict | None:
     return run_gated_training(
         train_source,
@@ -36,4 +38,5 @@ def run_c1_training(
         label_names,
         model_type=GatedFusionClassifier,
         validate_run=cast(Callable[..., GatedTrainConfig], validate_c1_training_run),
+        imbalance_recipe=imbalance_recipe,
     )

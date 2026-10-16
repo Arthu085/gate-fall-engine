@@ -9,6 +9,7 @@ from gatefall.train.baseline_b1.artifacts import validate_b1_training_run
 from gatefall.train.baseline_b1.config import B1TrainConfig
 from gatefall.train.baseline_b1.model import B1AdaptiveGateClassifier
 from gatefall.train.shared.gated_engine import _GatedFusionWindowSource, run_gated_training
+from gatefall.train.shared.imbalance import ImbalanceRecipe
 
 
 def run_b1_training(
@@ -22,6 +23,7 @@ def run_b1_training(
     force: bool,
     label_names: tuple[str, ...],
     validate_run: Callable[..., B1TrainConfig] = validate_b1_training_run,
+    imbalance_recipe: ImbalanceRecipe | None = None,
 ) -> dict | None:
     return run_gated_training(
         train_source,
@@ -35,4 +37,5 @@ def run_b1_training(
         label_names,
         model_type=B1AdaptiveGateClassifier,
         validate_run=validate_run,
+        imbalance_recipe=imbalance_recipe,
     )

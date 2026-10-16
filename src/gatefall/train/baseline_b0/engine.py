@@ -19,6 +19,7 @@ from gatefall.train.shared.concat_engine import (
 from gatefall.train.shared.concat_engine import (
     _StandardizedFusionTorchDataset as SharedFusionTorchDataset,
 )
+from gatefall.train.shared.imbalance import ImbalanceRecipe
 
 
 _FusionWindowSource = FusionWindowSource
@@ -44,6 +45,7 @@ def run_b0_training(
     run_dir: Path,
     force: bool,
     label_names: tuple[str, ...],
+    imbalance_recipe: ImbalanceRecipe | None = None,
 ) -> dict | None:
     return run_concat_training(
         train_source, val_source, test_source, pose_stats, visual_stats,
@@ -52,4 +54,5 @@ def run_b0_training(
         model_factory=B0FusionClassifier,
         save_config=save_config,
         validate_run=validate_b0_training_run,
+        imbalance_recipe=imbalance_recipe,
     )

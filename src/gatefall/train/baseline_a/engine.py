@@ -18,6 +18,7 @@ from gatefall.runs import validate_local_run_dir
 from gatefall.train.baseline_a.artifacts import REQUIRED_TRAINING_ARTIFACTS, validate_training_run
 from gatefall.train.baseline_a.config import TrainConfig, save_config
 from gatefall.train.shared.determinism import configure_determinism
+from gatefall.train.shared.imbalance import ImbalanceRecipe, class_weights, training_loss, validate_imbalance_run_dir
 from gatefall.train.shared.metrics import (
     RESTRICTED_CLASSES,
     classification_summary,
@@ -112,6 +113,7 @@ def run_training(
     force: bool,
     label_names: tuple[str, ...],
     train_sampler: Sampler[int] | None = None,
+    imbalance_recipe: ImbalanceRecipe | None = None,
 ) -> dict | None:
     """Treina e avalia a TCN; `train_sampler` opcional troca só a amostragem das épocas de treino.
 
@@ -120,6 +122,8 @@ def run_training(
     mesmo gerador da seed) e `final.train` é medido num loader sequencial sobre
     todas as janelas limpas do treino, nunca pelo sampler.
     """
+    if imbalance_recipe is not None:
+        validate_imbalance_run_dir(run_dir)
     validate_local_run_dir(run_dir)
     required = REQUIRED_TRAINING_ARTIFACTS
     present = [name for name in required if (run_dir / name).is_file()]
@@ -185,7 +189,10 @@ def run_training(
 
     train_labels = _collect_labels(train_source)
     if config.class_weighted:
-        weights = _class_weights(train_labels, config.num_classes).to(device)
+        weights = (
+            _class_weights(train_labels, config.num_classes) if imbalance_recipe is None
+            else class_weights(train_labels, config.num_classes, imbalance_recipe)
+        ).to(device)
         criterion = nn.CrossEntropyLoss(weight=weights)
     else:
         criterion = nn.CrossEntropyLoss()
@@ -205,7 +212,13 @@ def run_training(
             y = y.to(device)
             optimizer.zero_grad()
             logits = model(x)
-            loss = criterion(logits, y)
+            if imbalance_recipe is None:
+                loss = criterion(logits, y)
+            else:
+                loss = training_loss(
+                    logits, y, criterion, imbalance_recipe,
+                    label_names.index("other"), label_names.index("walk"),
+                )
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip_norm)
             optimizer.step()

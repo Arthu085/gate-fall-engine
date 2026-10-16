@@ -24,6 +24,7 @@ from gatefall.train.shared.concat_artifacts import (
 )
 from gatefall.train.shared.concat_model import ConcatFusionClassifier
 from gatefall.train.shared.determinism import configure_determinism
+from gatefall.train.shared.imbalance import ImbalanceRecipe, class_weights, training_loss, validate_imbalance_run_dir
 from gatefall.train.shared.metrics import (
     RESTRICTED_CLASSES,
     classification_summary,
@@ -136,7 +137,10 @@ def run_concat_training(
     model_factory: Callable[..., ConcatFusionClassifier],
     save_config: Callable[..., bool],
     validate_run: Callable[..., ConfigT],
+    imbalance_recipe: ImbalanceRecipe | None = None,
 ) -> dict | None:
+    if imbalance_recipe is not None:
+        validate_imbalance_run_dir(run_dir)
     validate_local_run_dir(run_dir)
     required = REQUIRED_CONCAT_TRAINING_ARTIFACTS
     present = [name for name in required if (run_dir / name).is_file()]
@@ -194,7 +198,10 @@ def run_concat_training(
 
     train_labels = _collect_labels(train_source)
     if config.class_weighted:
-        weights = _class_weights(train_labels, config.num_classes).to(device)
+        weights = (
+            _class_weights(train_labels, config.num_classes) if imbalance_recipe is None
+            else class_weights(train_labels, config.num_classes, imbalance_recipe)
+        ).to(device)
         criterion = nn.CrossEntropyLoss(weight=weights)
     else:
         criterion = nn.CrossEntropyLoss()
@@ -215,7 +222,13 @@ def run_concat_training(
             y = y.to(device)
             optimizer.zero_grad()
             logits = model(x_pose, x_visual)
-            loss = criterion(logits, y)
+            if imbalance_recipe is None:
+                loss = criterion(logits, y)
+            else:
+                loss = training_loss(
+                    logits, y, criterion, imbalance_recipe,
+                    label_names.index("other"), label_names.index("walk"),
+                )
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip_norm)
             optimizer.step()

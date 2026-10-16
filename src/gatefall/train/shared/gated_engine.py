@@ -26,6 +26,7 @@ from gatefall.train.shared.gated_artifacts import REQUIRED_GATED_TRAINING_ARTIFA
 from gatefall.train.shared.gated_config import GatedTrainConfig, save_config
 from gatefall.train.shared.gated_model import GatedFusionClassifier
 from gatefall.train.shared.determinism import configure_determinism
+from gatefall.train.shared.imbalance import ImbalanceRecipe, class_weights, training_loss, validate_imbalance_run_dir
 from gatefall.train.shared.run_paths import guard_not_foreign_arm_run_dir
 from gatefall.train.shared.metrics import (
     RESTRICTED_CLASSES,
@@ -149,7 +150,10 @@ def run_gated_training(
     label_names: tuple[str, ...],
     model_type: type[GatedFusionClassifier],
     validate_run: Callable[..., GatedTrainConfig],
+    imbalance_recipe: ImbalanceRecipe | None = None,
 ) -> dict | None:
+    if imbalance_recipe is not None:
+        validate_imbalance_run_dir(run_dir)
     validate_local_run_dir(run_dir)
     guard_not_foreign_arm_run_dir(run_dir, config.arm)
     required = REQUIRED_GATED_TRAINING_ARTIFACTS
@@ -209,7 +213,10 @@ def run_gated_training(
 
     train_labels = _collect_labels(train_source)
     if config.class_weighted:
-        weights = _class_weights(train_labels, config.num_classes).to(device)
+        weights = (
+            _class_weights(train_labels, config.num_classes) if imbalance_recipe is None
+            else class_weights(train_labels, config.num_classes, imbalance_recipe)
+        ).to(device)
         criterion = nn.CrossEntropyLoss(weight=weights)
     else:
         criterion = nn.CrossEntropyLoss()
@@ -231,7 +238,13 @@ def run_gated_training(
             y = y.to(device)
             optimizer.zero_grad()
             logits = model(x_pose, x_visual, x_quality)
-            loss = criterion(logits, y)
+            if imbalance_recipe is None:
+                loss = criterion(logits, y)
+            else:
+                loss = training_loss(
+                    logits, y, criterion, imbalance_recipe,
+                    label_names.index("other"), label_names.index("walk"),
+                )
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip_norm)
             optimizer.step()
