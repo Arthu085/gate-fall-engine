@@ -110,7 +110,6 @@ PREDICTED_FOR: dict[str, str] = dict(FOCUS_PAIRS)
 
 ERROR = "error"
 CONTROL = "correct_control"
-ROLES: tuple[str, ...] = (ERROR, CONTROL)
 # Erros selecionados por estrato (evidência, dobra, sujeito, classe verdadeira, categoria).
 MAX_ERRORS_PER_STRATUM = 2
 VIDEO_MATCH = "video"
