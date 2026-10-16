@@ -51,9 +51,9 @@ separados:
    resultados e não foi escolhida pelo teste. Não existe referência canônica
    de Le2i-CV `[E4]`.
 3. **Diagnósticos e investigações exploratórios.** Consolidação de erros,
-   dobras internas, auditoria, neutralização visual e Etapas 3A–3C e 4A–4D
-   são não canônicos e não alteram nenhuma decisão congelada `[E5]` `[E27]`
-   `[E28]` `[E29]` `[E34]`.
+   dobras internas, auditoria, neutralização visual e Etapas 3A–3C, 4A–4D e
+   5A são não canônicos e não alteram nenhuma decisão congelada `[E5]`
+   `[E27]` `[E28]` `[E29]` `[E34]` `[E36]`.
 4. **Experimentos externos.** Os experimentos de física e movimento de outro
    repositório ficam fora dos resultados do GateFall
    ([seção própria](#experimentos-externos-de-fisica-e-movimento)).
@@ -424,6 +424,53 @@ não como ganho de desempenho ou de robustez.
 - O `test` oficial, já exposto, não entrou na seleção de modelo nem da
   intervenção `[E34]`.
 
+### Amostragem balanceada por sujeito (Etapa 5A) { #amostragem-balanceada-por-sujeito }
+
+Investigação exploratória e não canônica de uma segunda intervenção
+predeclarada no braço A do Le2i-CS, distinta da perda simulada de detecção:
+cada época de treino sorteia as janelas do treino de desenvolvimento com
+probabilidade igual por sujeito. Ela usa as mesmas três dobras e os mesmos
+controles limpos da Etapa 4B; `val` e `test` oficiais não foram lidos, e
+nenhum artefato foi promovido `[E35]` `[E36]`. Estes números ficam fora dos
+resultados canônicos de Le2i-CS e Le2i-CV acima e não são comparáveis com
+eles.
+
+Macro-F1 restrita no grupo retido e Δ F1 das classes de foco (balanceado
+menos controle), braço A, seed 42 e checkpoint da última época `[E35]`:
+
+| Dobra | Controle (4B) | Balanceado (5A) | Δ Macro-F1 | Δ `standing` | Δ `other` | Δ `fall` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `retain_s0` | 0,5584 | 0,5416 | −0,0168 | −0,048 | +0,012 | −0,000 |
+| `retain_s1` | 0,6576 | 0,6797 | +0,0221 | +0,138 | +0,031 | −0,010 |
+| `retain_s3-4-6-8` | 0,6157 | 0,6163 | +0,0006 | −0,009 | −0,016 | +0,015 |
+
+Como na seção anterior, cada linha é uma dobra; as linhas não são agregadas
+nem comparadas entre si `[E35]`.
+
+O critério congelado antes dos treinos exigia delta de pelo menos +0,03 em
+pelo menos duas das três dobras e nenhum delta abaixo de −0,02. Nenhuma
+dobra chega a +0,03, e o critério não foi atendido `[E35]`. Os deltas não têm
+direção consistente, e nenhuma classe de foco muda na mesma direção nas três
+dobras. O maior delta, de `standing` em `retain_s1`, vem de 70 janelas de
+cinco vídeos de um único sujeito `[E35]`. A investigação termina sem
+promover a amostragem balanceada por sujeito a nenhuma configuração
+canônica A/B/C `[E36]`.
+
+O manuscrito deve descrever a intervenção como resultado exploratório
+negativo nesta receita, sem ganho de generalização para sujeitos retidos
+demonstrado, e não como prova de que o balanceamento por sujeito não possa
+funcionar em outras condições `[E36]`.
+
+- Há uma seed de treino por dobra, sem estimativa da variação entre seeds
+  nem teste de significância `[E35]`.
+- As dobras são desbalanceadas: duas retêm um único sujeito, uma tem só dois
+  sujeitos de desenvolvimento, e sujeitos pequenos são repetidos várias vezes
+  por época `[E35]`.
+- A amostragem muda também a distribuição de classes vista no treino, sem
+  ajuste dos pesos de classe, então o efeito não isola o balanceamento por
+  sujeito `[E35]`.
+- As janelas são sobrepostas e não são observações independentes `[E35]`.
+
 ### Experimentos externos de física e movimento
 
 Os experimentos do repositório derivado `rsramos30/gate-fall-motion-physics`
@@ -490,6 +537,8 @@ cópia usada.
 | E32 | Intervenção `detection_dropout`, critério congelado e deltas pareados limpos (Etapa 4C) | `train/subject-fold-detection-dropout.md` (A intervenção; Critério exploratório congelado; Execução registrada (não canônica)) |
 | E33 | Robustez de inferência à perda simulada de detecção e diferença pareada das perdas (Etapa 4D) | `analysis/subject-fold-dropout-robustness.md` (Execução registrada (não canônica); Limitações) |
 | E34 | Encerramento das Etapas 4A–4D sem promoção de `detection_dropout`, `test` oficial fora da seleção | `analysis/intervention-decision.md` (Encerramento da intervenção de perda de detecção) |
+| E35 | Amostragem balanceada por sujeito, critério congelado, deltas pareados de Macro-F1 restrita e por classe, distribuição sorteada (Etapa 5A) | `train/subject-fold-subject-balanced-sampling.md` (A intervenção; Critério exploratório congelado; Execução registrada (não canônica); Limitações) |
+| E36 | Encerramento da Etapa 5A sem promoção da amostragem balanceada por sujeito, limitações e alcance do resultado negativo | `analysis/intervention-decision.md` (Encerramento da amostragem balanceada por sujeito) |
 
 Os sumários locais de E15 foram produzidos pelo
 [sumário multi-seed](multiseed-summary.md), que valida configuração,
