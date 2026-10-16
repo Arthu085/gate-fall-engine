@@ -69,6 +69,7 @@ jobs:
           uv run python -m gatefall.eval.analysis.subject_fold_feasibility selftest
           uv run python -m gatefall.eval.analysis.internal_fold_feasibility selftest
           uv run python -m gatefall.train.internal_folds selftest
+          uv run python -m gatefall.train.subject_folds selftest
           uv run python -m gatefall.eval.analysis.internal_fold_retained_audit selftest
           uv run python -m gatefall.eval.analysis.visual_neutralization_counterfactual selftest
           uv run python -m gatefall.eval.analysis.generalization_report selftest
