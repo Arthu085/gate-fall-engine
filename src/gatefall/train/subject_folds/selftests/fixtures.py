@@ -11,7 +11,8 @@ import pandas as pd
 from gatefall.config import EVAL_STRIDE
 from gatefall.data.windowing import build_window_index
 from gatefall.eval.analysis import subject_fold_feasibility
-from gatefall.pose.kinematics import POSE_FEATURE_DIM
+from gatefall.pose.kinematics import POSE_FEATURE_DIM, build_pose_features_from_arrays
+from gatefall.pose.loading import PoseArrays
 from gatefall.train.subject_folds.cli import PoseInputs
 
 W, F, FN, SD, ST, SU, SG, OT = 0, 1, 2, 3, 4, 7, 8, 9
@@ -42,6 +43,10 @@ SUBJECT_BY_VIDEO = {video_id: subject for video_id, _split, _env, subject in VID
 # sujeito retido fica visivelmente longe da média do treino de desenvolvimento.
 SUBJECT_OFFSET = {0: 500.0, 1: 2.0, 3: 0.0, 4: 1.0, 6: -1.0, 8: 3.0, 5: -900.0, 2: 900.0, 7: 900.0}
 SYNTHETIC_POSE_SHA256 = "0" * 64
+POSE_WIDTH, POSE_HEIGHT = 320, 240
+# Vídeo cuja primeira detecção ocorre no quadro 3, para cobrir o trecho
+# zerado antes da primeira observação.
+LATE_ACQUISITION_VIDEO = "EnvA/s0a"
 
 
 def _labels(index: int) -> list[int]:
@@ -77,6 +82,34 @@ def pose_features(video_id: str) -> np.ndarray:
     rng = np.random.default_rng(sum(ord(char) for char in video_id))
     offset = SUBJECT_OFFSET[SUBJECT_BY_VIDEO[video_id]]
     return (rng.normal(size=(N_FRAMES, POSE_FEATURE_DIM)) + offset).astype(np.float32)
+
+
+def synthetic_raw_pose(video_id: str) -> PoseArrays:
+    """Pose bruta no formato da extração: quadros sem detecção têm keypoints e bbox zerados."""
+    rng = np.random.default_rng(sum(ord(char) for char in video_id) + 17)
+    t = np.arange(N_FRAMES, dtype=np.float32)
+    x0 = 40.0 + 2.0 * t + rng.normal(scale=1.0, size=N_FRAMES)
+    y0 = 30.0 + 0.5 * t + rng.normal(scale=1.0, size=N_FRAMES)
+    width = 60.0 + rng.normal(scale=2.0, size=N_FRAMES)
+    height = 150.0 - 2.0 * t + rng.normal(scale=2.0, size=N_FRAMES)
+    bbox = np.stack([x0, y0, x0 + width, y0 + height], axis=1).astype(np.float32)
+    keypoints = np.zeros((N_FRAMES, 17, 3), dtype=np.float32)
+    keypoints[:, :, 0] = x0[:, None] + rng.uniform(size=(N_FRAMES, 17)) * width[:, None]
+    keypoints[:, :, 1] = y0[:, None] + rng.uniform(size=(N_FRAMES, 17)) * height[:, None]
+    keypoints[:, :, 2] = rng.uniform(0.4, 1.0, size=(N_FRAMES, 17))
+    person_found = rng.random(N_FRAMES) > 0.15
+    if video_id == LATE_ACQUISITION_VIDEO:
+        person_found[:3] = False
+        person_found[3:8] = True
+    keypoints[~person_found] = 0.0
+    bbox[~person_found] = 0.0
+    return PoseArrays(
+        keypoints=keypoints, bbox=bbox, person_found=person_found, k=N_FRAMES, width=POSE_WIDTH, height=POSE_HEIGHT
+    )
+
+
+def clean_pose_features(video_id: str) -> np.ndarray:
+    return build_pose_features_from_arrays(synthetic_raw_pose(video_id))[0]
 
 
 class RecordingPose:
@@ -130,3 +163,22 @@ def relabel(frames: pd.DataFrame, subjects: set[int], source: int, target: int) 
     mask = changed["subject"].isin(list(subjects)) & (changed["label"] == source)
     changed.loc[mask, "label"] = target
     return changed
+
+
+class RawRecordingPose(RecordingPose):
+    """Features limpas derivadas da pose bruta sintética, com registro separado das leituras de pose bruta."""
+
+    def __init__(self, sha256: str = SYNTHETIC_POSE_SHA256) -> None:
+        super().__init__(sha256)
+        self.raw_calls: list[str] = []
+
+    def inputs(self) -> PoseInputs:
+        def loader(video_id: str) -> np.ndarray:
+            self.calls.append(video_id)
+            return clean_pose_features(video_id)
+
+        def raw_loader(video_id: str) -> PoseArrays:
+            self.raw_calls.append(video_id)
+            return synthetic_raw_pose(video_id)
+
+        return PoseInputs(loader=loader, sha256=self.sha256, raw_loader=raw_loader)

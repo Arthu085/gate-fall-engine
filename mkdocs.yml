@@ -62,6 +62,7 @@ nav:
       - Braço C1 (gate adaptativo com SAM 3): train/baseline-c1.md
       - Dobras internas do Le2i-CV (Etapa 2C): train/internal-folds.md
       - Dobras por sujeito do Le2i-CS (Etapa 4B): train/subject-folds.md
+      - Perda simulada de detecção nas dobras por sujeito (Etapa 4C): train/subject-fold-detection-dropout.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md
   - Avaliação por eventos:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md

@@ -1,4 +1,5 @@
-"""Linha de base exploratória e não canônica do braço A nas dobras por sujeito do Le2i-CS (Etapa 4B)."""
+"""Braço A exploratório e não canônico nas dobras por sujeito do Le2i-CS: linha de base (Etapa 4B) e perda
+simulada de detecção (Etapa 4C)."""
 
 import argparse
 import json
@@ -15,11 +16,17 @@ from gatefall.eval.analysis.classification_diagnosis import display_path, snapsh
 from gatefall.eval.analysis.internal_fold_feasibility import read_train_partition, validate_official_train_partition
 from gatefall.eval.analysis.subject_fold_feasibility import EXPECTED_CS_TRAIN, validate_subject_identifiers
 from gatefall.pose.kinematics import build_pose_features
+from gatefall.pose.loading import PoseArrays, load_pose
 from gatefall.train.internal_folds.folds import FeatureLoader
+from gatefall.train.subject_folds.detection_dropout import RawPoseLoader
+from gatefall.train.subject_folds.dropout_summary import write_dropout_summary
 from gatefall.train.subject_folds.folds import (
     ARMS,
+    BASELINE_VARIANT,
+    DETECTION_DROPOUT_VARIANT,
     FOLDS_FILE,
     SEEDS,
+    VARIANTS,
     SUBJECT_FOLD_ROOT,
     SubjectFoldPartition,
     build_subject_fold_partitions,
@@ -34,8 +41,8 @@ from gatefall.train.subject_folds.folds import (
     validate_output_root,
 )
 from gatefall.train.subject_folds.stats import fit_fold_stats, load_fold_stats
-from gatefall.train.subject_folds.summary import write_summary
-from gatefall.train.subject_folds.training import fold_run_document, train_fold_run
+from gatefall.train.subject_folds.summary import control_fold_run_sha256, write_summary
+from gatefall.train.subject_folds.training import detection_dropout_run_document, fold_run_document, train_fold_run
 
 ADAPTER = Le2iDatasetAdapter(protocol="cs")
 
@@ -44,6 +51,7 @@ ADAPTER = Le2iDatasetAdapter(protocol="cs")
 class PoseInputs:
     loader: FeatureLoader
     sha256: str
+    raw_loader: RawPoseLoader | None = None
 
 
 def missing_prerequisites(
@@ -82,7 +90,10 @@ def real_pose_inputs(frames: pd.DataFrame, pose_root: Path) -> PoseInputs:
     def loader(video_id: str) -> np.ndarray:
         return build_pose_features(video_id, pose_root=pose_root)[0]
 
-    return PoseInputs(loader=loader, sha256=pose_features_sha256(video_ids, pose_root))
+    def raw_loader(video_id: str) -> PoseArrays:
+        return load_pose(video_id, pose_root=pose_root)
+
+    return PoseInputs(loader=loader, sha256=pose_features_sha256(video_ids, pose_root), raw_loader=raw_loader)
 
 
 def _write_folds_document(root: Path, document: dict[str, object]) -> None:
@@ -130,27 +141,40 @@ def run_train(
     seeds: list[int],
     force: bool,
     pose: PoseInputs | None = None,
+    variant: str = BASELINE_VARIANT,
 ) -> None:
+    """Treina a variante pedida; `detection_dropout` exige e valida antes os controles `baseline` das dobras."""
     validate_output_root(root, frames_path, manifest_path, pose_root)
     frames, snapshot, input_sha256 = _official_train(frames_path, manifest_path)
     pose = pose or real_pose_inputs(frames, pose_root)
-    partitions = build_subject_fold_partitions(frames)
+    all_partitions = build_subject_fold_partitions(frames)
     document = read_folds_document(root)
-    validate_folds_document(document, partitions, input_sha256, pose.sha256)
+    validate_folds_document(document, all_partitions, input_sha256, pose.sha256)
+    partitions = [partition for partition in all_partitions if partition.fold in folds]
     membership = str(document["membership_sha256"])
+    controls: dict[tuple[str, str, int], str] = {}
+    if variant == DETECTION_DROPOUT_VARIANT:
+        controls = {
+            (partition.fold, arm, seed): control_fold_run_sha256(root, document, partition.membership_record, arm, seed)
+            for partition in partitions
+            for arm in arms
+            for seed in seeds
+        }
     for partition in partitions:
-        if partition.fold not in folds:
-            continue
         record = partition.membership_record
         stats = load_fold_stats(record, stats_dir(root, partition.fold), input_sha256, pose.sha256)
         for arm in arms:
             for seed in seeds:
-                run_dir = fold_run_dir(root, partition.fold, arm, seed)
-                print(f"== {partition.fold} / {arm} / seed {seed} -> {run_dir}")
+                run_dir = fold_run_dir(root, partition.fold, arm, seed, variant)
+                print(f"== {partition.fold} / {arm} / seed {seed} / {variant} -> {run_dir}")
                 run_document = fold_run_document(
                     record, arm, seed, stats.sha256, input_sha256, pose.sha256, membership
                 )
-                train_fold_run(partition, seed, stats, pose.loader, run_document, run_dir, force)
+                if variant == DETECTION_DROPOUT_VARIANT:
+                    run_document = detection_dropout_run_document(run_document, controls[(partition.fold, arm, seed)])
+                train_fold_run(
+                    partition, seed, stats, pose.loader, run_document, run_dir, force, variant, pose.raw_loader
+                )
     verify_inputs_unchanged(snapshot)
 
 
@@ -161,6 +185,9 @@ def main() -> None:
     def add_root(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--output-root", type=Path, default=SUBJECT_FOLD_ROOT)
 
+    def add_variant(subparser: argparse.ArgumentParser) -> None:
+        subparser.add_argument("--variant", choices=VARIANTS, default=BASELINE_VARIANT)
+
     def add_inputs(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--frames", type=Path, default=ADAPTER.frames_path)
         subparser.add_argument("--manifest", type=Path, default=ADAPTER.manifest_path)
@@ -168,6 +195,7 @@ def main() -> None:
 
     plan_parser = subparsers.add_parser("plan", help="Lista, sem ler dados, os runs das dobras por sujeito")
     add_root(plan_parser)
+    add_variant(plan_parser)
 
     prepare_parser = subparsers.add_parser(
         "prepare", help="Fixa as dobras por sujeito e ajusta a estatística de pose de cada dobra"
@@ -183,30 +211,43 @@ def main() -> None:
     train_parser.add_argument("--arm", nargs="+", choices=ARMS, default=list(ARMS))
     train_parser.add_argument("--seed", nargs="+", type=int, choices=SEEDS, default=list(SEEDS))
     train_parser.add_argument("--force", action="store_true")
+    add_variant(train_parser)
 
     summarize_parser = subparsers.add_parser(
         "summarize", help="Valida os runs e relata macro-F1 restrita, F1 e suporte por classe de cada dobra"
     )
     add_root(summarize_parser)
     summarize_parser.add_argument("--force", action="store_true")
+    add_variant(summarize_parser)
 
     subparsers.add_parser("selftest", help="Roda checagens sintéticas das dobras por sujeito")
 
     args = parser.parse_args()
     if args.command == "plan":
         validate_output_root(args.output_root, ADAPTER.frames_path, ADAPTER.manifest_path, ADAPTER.pose_root)
-        print(json.dumps(run_plan(args.output_root), indent=2, ensure_ascii=False))
+        print(json.dumps(run_plan(args.output_root, args.variant), indent=2, ensure_ascii=False))
     elif args.command == "prepare":
         _require_prerequisites(args.frames, args.manifest, args.pose_root, require_gpu=False)
         run_prepare(args.output_root, args.frames, args.manifest, args.pose_root, args.force)
     elif args.command == "train":
         _require_prerequisites(args.frames, args.manifest, args.pose_root, require_gpu=True)
         run_train(
-            args.output_root, args.frames, args.manifest, args.pose_root, args.fold, args.arm, args.seed, args.force
+            args.output_root,
+            args.frames,
+            args.manifest,
+            args.pose_root,
+            args.fold,
+            args.arm,
+            args.seed,
+            args.force,
+            variant=args.variant,
         )
     elif args.command == "summarize":
         validate_output_root(args.output_root, ADAPTER.frames_path, ADAPTER.manifest_path, ADAPTER.pose_root)
-        write_summary(args.output_root, args.force)
+        if args.variant == DETECTION_DROPOUT_VARIANT:
+            write_dropout_summary(args.output_root, args.force)
+        else:
+            write_summary(args.output_root, args.force)
     elif args.command == "selftest":
         from gatefall.train.subject_folds.selftests import run_selftest
 

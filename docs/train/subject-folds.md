@@ -3,10 +3,9 @@
 `src/gatefall/train/subject_folds/` implementa a linha de base das dobras
 por sujeito propostas na [Etapa 4A](../analysis/subject-fold-feasibility.md):
 o braço A treinado com a receita congelada em três dobras do `train` oficial
-do Le2i-CS. Ela é o ponto de partida de uma comparação controlada futura de
-robustez de pose. Esta etapa **não** implementa aumento de pose: só fixa a
-linha de base limpa contra a qual o aumento será comparado, pareado por
-dobra, seed e receita.
+do Le2i-CS. Esta etapa **não** implementa aumento de pose: só fixa a linha
+de base limpa contra a qual o aumento é comparado, pareado por dobra, seed e
+receita, na [Etapa 4C](subject-fold-detection-dropout.md).
 
 O protocolo é **exploratório e não canônico**. Ele não muda as
 configurações A/B/C, os modelos, os splits oficiais, as features, as
