@@ -177,7 +177,7 @@ def _fmt(value: object) -> str:
 
 
 def _signed(value: object) -> str:
-    return f"{cast(float, value):+.3f}"
+    return f"{cast(float, value):+.4f}"
 
 
 def _render_decision(decision: dict[str, object]) -> list[str]:
