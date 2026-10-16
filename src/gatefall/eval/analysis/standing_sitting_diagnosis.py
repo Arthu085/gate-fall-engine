@@ -46,10 +46,9 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from gatefall.config import EVAL_STRIDE, IGNORE_LABEL, TRAIN_STRIDE, WINDOW_FRAMES
+from gatefall.config import EVAL_STRIDE, TRAIN_STRIDE, WINDOW_FRAMES
 from gatefall.data.pose_dataset import PoseWindowDataset
 from gatefall.data.windowing import build_window_index, window_end_indices
-from gatefall.datasets import get_dataset
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.eval.analysis.classification_diagnosis import (
     EXPECTED_SEEDS,
