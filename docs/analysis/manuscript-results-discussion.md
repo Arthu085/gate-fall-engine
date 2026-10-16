@@ -51,9 +51,9 @@ separados:
    resultados e não foi escolhida pelo teste. Não existe referência canônica
    de Le2i-CV `[E4]`.
 3. **Diagnósticos e investigações exploratórios.** Consolidação de erros,
-   dobras internas, auditoria, neutralização visual e Etapas 3A–3C são não
-   canônicos e não alteram nenhuma decisão congelada `[E5]` `[E27]` `[E28]`
-   `[E29]`.
+   dobras internas, auditoria, neutralização visual e Etapas 3A–3C e 4A–4D
+   são não canônicos e não alteram nenhuma decisão congelada `[E5]` `[E27]`
+   `[E28]` `[E29]` `[E34]`.
 4. **Experimentos externos.** Os experimentos de física e movimento de outro
    repositório ficam fora dos resultados do GateFall
    ([seção própria](#experimentos-externos-de-fisica-e-movimento)).
@@ -373,6 +373,57 @@ casos em `test` nem em outros ambientes `[E28]` `[E29]`.
 O manuscrito deve descrever `other→walk` como erro compartilhado e
 persistente em janelas puras, sem causa atribuída.
 
+### Dobras por sujeito e perda simulada de detecção (Etapas 4A–4D) { #dobras-por-sujeito }
+
+Investigação exploratória e não canônica de uma única intervenção
+predeclarada de robustez de pose no braço A do Le2i-CS. Ela usa só o `train`
+oficial, dividido em três dobras por sujeito bruto; `val` e `test` oficiais
+não foram lidos, e nenhum artefato foi promovido `[E30]` `[E34]`.
+
+Macro-F1 restrita no grupo retido, braço A, seed 42 e checkpoint da última
+época `[E31]` `[E32]` `[E33]`:
+
+| Dobra | Sujeitos retidos | Retido: vídeos / janelas | Controle limpo (4B) | Δ limpo, 4C − 4B | Perda 4B − perda 4C (4D) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `retain_s0` | 0 | 67 / 10243 | 0,5584 | +0,0026 | +0,0003 |
+| `retain_s1` | 1 | 31 / 3961 | 0,6576 | +0,0001 | +0,0031 |
+| `retain_s3-4-6-8` | 3, 4, 6, 8 | 35 / 6536 | 0,6157 | +0,0018 | −0,0006 |
+
+Cada linha é uma dobra, de tamanho muito diferente das outras. As linhas não
+são agregadas nem comparadas entre si, e nenhum valor é comparável com as
+tabelas de teste acima `[E30]` `[E31]`.
+
+1. **Etapas 4A e 4B, dobras e controles.** O `train` sustenta três dobras com
+   as oito classes restritas nos dois lados e nenhum vídeo compartilhado, com
+   veredito `feasible_with_limitations` `[E30]`. Os controles usam a receita
+   congelada e padronização ajustada só no desenvolvimento de cada dobra;
+   `standing` tem a menor F1 nas três `[E31]`.
+2. **Etapa 4C, intervenção.** No treino de desenvolvimento, cada janela
+   recebe com probabilidade 0,20 três quadros consecutivos de detecção
+   ausente, com as features de pose recalculadas pelo pipeline inalterado. O
+   critério congelado (delta positivo em pelo menos duas dobras e nenhum
+   abaixo de −0,02) foi atendido formalmente, mas os deltas ficam abaixo de
+   0,003. A leitura sustentada é que a intervenção não piorou o retido limpo,
+   não que o melhorou `[E32]`.
+3. **Etapa 4D, robustez na inferência.** Com a mesma família de perda no
+   retido, os dois modelos perdem no máximo 0,0061 de Macro-F1 restrita, e a
+   diferença pareada das perdas não tem direção consistente entre as dobras
+   `[E33]`.
+
+A investigação termina sem promover `detection_dropout` a nenhuma
+configuração canônica A/B/C `[E34]`. O manuscrito deve descrever a
+intervenção como resultado exploratório sem melhoria relevante demonstrada,
+não como ganho de desempenho ou de robustez.
+
+- Há uma seed de treino por dobra e uma única realização da máscara de
+  avaliação, sem teste de significância `[E32]` `[E33]`.
+- As dobras são desbalanceadas: o sujeito 0 tem 49% das janelas rotuladas do
+  `train`, e duas dobras retêm um único sujeito `[E30]`.
+- As janelas são sobrepostas, e a corrupção é uma única condição sintética,
+  que não reproduz a distribuição real das perdas de detecção `[E33]`.
+- O `test` oficial, já exposto, não entrou na seleção de modelo nem da
+  intervenção `[E34]`.
+
 ### Experimentos externos de física e movimento
 
 Os experimentos do repositório derivado `rsramos30/gate-fall-motion-physics`
@@ -434,6 +485,11 @@ cópia usada.
 | E27 | Contexto de janela dos erros `other→walk` em `val` e no `test` exposto (Etapa 3A) | `analysis/window-context-diagnosis.md` (Conclusão; Resultado da execução real) |
 | E28 | Seleção dos trechos e revisão humana não cega no `test` exposto (Etapa 3B) | `analysis/other-walk-review-set.md` (Cobertura da execução real; Revisão concluída) |
 | E29 | Composição de `other` e `walk` só em `train`, regras e veredito `no_model_modification` (Etapa 3C) | `analysis/other-walk-train-composition.md` (Regras de decisão; Resultados observados; Interpretação) |
+| E30 | Viabilidade das dobras por sujeito do Le2i-CS, esquema `pooled_minority_subjects`, desbalanço entre dobras e veredito `feasible_with_limitations` (Etapa 4A) | `analysis/subject-fold-feasibility.md` (Resultados observados; Veredito) |
+| E31 | Dobras congeladas, padronização por dobra e controles limpos do braço A, seed 42 (Etapa 4B) | `train/subject-folds.md` (Dobras congeladas; Execução registrada (não canônica)) |
+| E32 | Intervenção `detection_dropout`, critério congelado e deltas pareados limpos (Etapa 4C) | `train/subject-fold-detection-dropout.md` (A intervenção; Critério exploratório congelado; Execução registrada (não canônica)) |
+| E33 | Robustez de inferência à perda simulada de detecção e diferença pareada das perdas (Etapa 4D) | `analysis/subject-fold-dropout-robustness.md` (Execução registrada (não canônica); Limitações) |
+| E34 | Encerramento das Etapas 4A–4D sem promoção de `detection_dropout`, `test` oficial fora da seleção | `analysis/intervention-decision.md` (Encerramento da intervenção de perda de detecção) |
 
 Os sumários locais de E15 foram produzidos pelo
 [sumário multi-seed](multiseed-summary.md), que valida configuração,

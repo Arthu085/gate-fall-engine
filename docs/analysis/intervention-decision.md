@@ -1,4 +1,4 @@
-# Análise — Decisão sobre intervenções no modelo (Etapas 2A e 2G)
+# Análise — Decisão sobre intervenções no modelo (Etapas 2A, 2G e 4A–4D)
 
 Este documento registra uma decisão **exploratória e não canônica**: se a
 evidência de desenvolvimento (`train` e `val`) justifica alguma melhoria
@@ -29,6 +29,12 @@ O candidato 1 foi concluído depois, com resultado negativo na
 [Etapa 2G](#encerramento-da-investigacao-de-b0b1-etapa-2g) consolida esse
 resultado com as Etapas 2E e 2F, encerra a investigação e mantém a decisão:
 nenhuma mudança de modelo é justificada.
+
+As Etapas 4A–4D testaram depois uma única intervenção de robustez de pose no
+braço A, avaliada só em dobras por sujeito do `train` oficial do Le2i-CS. O
+[encerramento das Etapas 4A–4D](#encerramento-etapas-4a-4d) registra o
+resultado: `detection_dropout` não é promovido, e nenhum modelo canônico
+muda.
 
 ## Fontes
 
@@ -362,6 +368,91 @@ as hipóteses da [Etapa 2E](internal-fold-retained-audit.md#hipoteses-nao-resolv
   [evidência ausente](#evidencia-ausente), continua não medida.
 - O `test` oficial já exposto não pode confirmar de forma independente
   nenhuma intervenção derivada desta investigação.
+
+## Encerramento da intervenção de perda de detecção (Etapas 4A–4D) { #encerramento-etapas-4a-4d }
+
+Esta seção encerra a investigação exploratória das Etapas 4A–4D: uma
+tentativa controlada de melhorar a Macro-F1 restrita do braço A no Le2i-CS
+com uma única intervenção predeclarada de robustez de pose, avaliada só em
+dobras por sujeito do `train` oficial. É só documentação: não há novo
+experimento, treino, avaliação, seleção nem mudança de protocolo. As tabelas
+por classe, os hashes e os comandos ficam nas páginas de cada etapa:
+
+- [Etapa 4A, viabilidade das dobras por sujeito](subject-fold-feasibility.md);
+- [Etapa 4B, dobras congeladas e controles do braço A](../train/subject-folds.md);
+- [Etapa 4C, perda simulada de detecção no treino](../train/subject-fold-detection-dropout.md);
+- [Etapa 4D, robustez de inferência à perda de detecção](subject-fold-dropout-robustness.md).
+
+### Decisão final
+
+**`detection_dropout` não é promovido** a nenhuma configuração canônica A/B/C,
+e a intervenção exploratória fica encerrada. A evidência atual não justifica:
+
+- acrescentar a perda simulada de detecção à receita de treino. Pela
+  invariante 1, isso exigiria a mesma mudança em A, B e C e o retreino dos
+  três;
+- buscar um efeito com mais seeds, outras realizações da máscara, outras
+  probabilidades ou outras durações de lacuna;
+- avaliar a intervenção no `val` ou no `test` oficiais.
+
+As decisões congeladas continuam valendo: receita idêntica entre A, B e C,
+checkpoint da última época, splits oficiais, runs canônicos e
+`runs/reference/`. Os runs, estatísticas e relatórios das Etapas 4B–4D ficam
+em `runs/local/le2i/subject_folds/`, não versionado, e nenhum deles é
+promovido. O `test` oficial, já exposto, ficou fora de toda seleção de modelo
+e de intervenção e não foi lido por nenhuma das quatro etapas.
+
+### Observações
+
+1. **Três dobras por sujeito congeladas.** A
+   [Etapa 4A](subject-fold-feasibility.md#veredito) chegou a
+   `feasible_with_limitations` com o esquema `pooled_minority_subjects`. A
+   [Etapa 4B](../train/subject-folds.md#dobras-congeladas) congelou os grupos
+   retidos `retain_s0` (sujeito 0; 67 vídeos e 10243 janelas em stride 1),
+   `retain_s1` (sujeito 1; 31 e 3961) e `retain_s3-4-6-8` (sujeitos 3, 4, 6 e
+   8; 35 e 6536). Cada dobra ajusta a padronização de pose só no próprio
+   treino de desenvolvimento.
+2. **Controles limpos do braço A, seed 42.** Na
+   [execução da Etapa 4B](../train/subject-folds.md#execucao-registrada-nao-canonica),
+   a Macro-F1 restrita no retido é 0,5584, 0,6576 e 0,6157, nessa ordem de
+   dobras. `standing` tem a menor F1 nas três.
+3. **O critério da Etapa 4C foi atendido formalmente.** A
+   [regra congelada](../train/subject-fold-detection-dropout.md#criterio-exploratorio-congelado)
+   exige delta pareado de Macro-F1 restrita (aumentado menos controle)
+   positivo em pelo menos duas das três dobras e nenhum delta abaixo de
+   −0,02. Os deltas foram +0,0026, +0,0001 e +0,0018.
+4. **Atender o critério não mostra melhoria relevante.** Os três deltas
+   ficam abaixo de 0,003, e o de `retain_s1` só aparece na quarta casa
+   decimal. Com uma seed por dobra, deltas desta ordem podem vir só da
+   variação entre seeds, que não foi estimada. `standing` e `fall` não mudam
+   de forma consistente entre as dobras. A leitura sustentada é que a
+   intervenção não piorou o retido limpo, não que o melhorou
+   ([Etapa 4C](../train/subject-fold-detection-dropout.md#execucao-registrada-nao-canonica)).
+5. **A Etapa 4D não estabelece ganho consistente de robustez.** Na condição
+   degradada predeclarada, os dois modelos perdem no máximo 0,0061 de
+   Macro-F1 restrita. A diferença pareada das perdas (controle menos
+   aumentado) é +0,0003, +0,0031 e −0,0006: não passa de 0,0031 em módulo e
+   não tem direção consistente entre as dobras. O modelo da Etapa 4C foi
+   treinado com a mesma família de perda avaliada, então uma perda menor nele
+   indicaria robustez à condição treinada, não robustez geral
+   ([Etapa 4D](subject-fold-dropout-robustness.md#execucao-registrada-nao-canonica)).
+
+### Limitações do encerramento
+
+- Uma seed de treino (42) por dobra e modelo, e uma única realização da
+  máscara de avaliação na Etapa 4D. Nenhuma das duas variações é estimada.
+- As três dobras têm tamanhos muito diferentes: o sujeito 0 tem 49% das
+  janelas rotuladas do `train`, duas dobras retêm um único sujeito, e na
+  dobra agregada `standing` vem de dois vídeos de um único sujeito. As dobras
+  não são agregadas, comparadas entre si nem comparadas com o `test`
+  oficial ou com os agregados de cinco seeds, e não verificam o alvo de
+  0,800.
+- As janelas são sobrepostas e não são observações independentes.
+- Há uma única condição sintética de corrupção, com lacunas de três quadros
+  em 20% das janelas. Ela não reproduz a distribuição real das perdas de
+  detecção, lacunas mais longas, detecções erradas nem ruído de keypoints.
+- O critério da Etapa 4C é uma regra de decisão predeclarada, não um teste
+  de significância. Nenhuma afirmação de significância estatística é feita.
 
 ## Limitações
 
