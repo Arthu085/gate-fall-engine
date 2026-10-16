@@ -93,6 +93,7 @@ nav:
       - Composição de other e walk no treino (Etapa 3C): analysis/other-walk-train-composition.md
       - Viabilidade das dobras por sujeito do Le2i-CS (Etapa 4A): analysis/subject-fold-feasibility.md
       - Robustez de inferência à perda de detecção (Etapa 4D): analysis/subject-fold-dropout-robustness.md
+      - Erros standing→walk e sitting→stand_up (Etapa 6A): analysis/standing-sitting-diagnosis.md
   - Referência:
       - Referência de comandos: reference/commands.md
       - Referências finais do Le2i: reference/le2i-runs.md
