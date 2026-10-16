@@ -4,8 +4,9 @@
 por sujeito propostas na [Etapa 4A](../analysis/subject-fold-feasibility.md):
 o braço A treinado com a receita congelada em três dobras do `train` oficial
 do Le2i-CS. Esta etapa **não** implementa aumento de pose: só fixa a linha
-de base limpa contra a qual o aumento é comparado, pareado por dobra, seed e
-receita, na [Etapa 4C](subject-fold-detection-dropout.md).
+de base limpa contra a qual as intervenções são comparadas, pareadas por
+dobra, seed e receita, na [Etapa 4C](subject-fold-detection-dropout.md) e na
+[Etapa 5A](subject-fold-subject-balanced-sampling.md).
 
 O protocolo é **exploratório e não canônico**. Ele não muda as
 configurações A/B/C, os modelos, os splits oficiais, as features, as

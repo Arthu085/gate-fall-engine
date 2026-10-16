@@ -1,16 +1,12 @@
-import hashlib
 import json
-import random
 import shutil
 import tempfile
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import patch
 
 import numpy as np
-import torch
 import yaml
 
 from gatefall.config import TARGET_FPS, TRAIN_STRIDE, WINDOW_FRAMES
@@ -20,11 +16,9 @@ from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import build_pose_features_from_arrays, feature_blocks
 from gatefall.pose.loading import first_observed_index, load_pose
 from gatefall.pose.selftests.fixtures import _write_synthetic_pose
-from gatefall.train.baseline_a import engine
 from gatefall.train.internal_folds.folds import DEVELOPMENT_SPLIT
 from gatefall.train.internal_folds.selftests.fixtures import _check, raises
 from gatefall.train.internal_folds.training import FOLD_RUN_FILE
-from gatefall.train.shared.tcn import TCNClassifier
 from gatefall.train.subject_folds import training
 from gatefall.train.subject_folds.cli import run_prepare, run_train
 from gatefall.train.subject_folds.detection_dropout import (
@@ -61,8 +55,11 @@ from gatefall.train.subject_folds.selftests.fixtures import (
     OFFICIAL_HELD_OUT_VIDEOS,
     TRAIN_VIDEOS,
     RawRecordingPose,
+    TrainingCapture,
     clean_pose_features,
     official_train_frames,
+    rng_states,
+    same_rng_states,
     synthetic_raw_pose,
     synthetic_workspace,
 )
@@ -205,23 +202,6 @@ def _selftest_causal_consistency() -> bool:
     )
 
 
-def _rng_states() -> tuple[tuple[Any, ...], torch.Tensor, object]:
-    return cast(tuple[Any, ...], np.random.get_state()), torch.get_rng_state().clone(), random.getstate()
-
-
-def _same_rng_states(
-    before: tuple[tuple[Any, ...], torch.Tensor, object], after: tuple[tuple[Any, ...], torch.Tensor, object]
-) -> bool:
-    (numpy_before, torch_before, python_before), (numpy_after, torch_after, python_after) = before, after
-    return (
-        numpy_before[0] == numpy_after[0]
-        and np.array_equal(numpy_before[1], numpy_after[1])
-        and numpy_before[2:] == numpy_after[2:]
-        and torch.equal(torch_before, torch_after)
-        and python_before == python_after
-    )
-
-
 def _dropout_dataset(partition: SubjectFoldPartition, seed: int) -> DetectionDropoutWindowDataset:
     return DetectionDropoutWindowDataset(
         partition.frames, DEVELOPMENT_SPLIT, TRAIN_STRIDE, clean_pose_features, synthetic_raw_pose, seed
@@ -235,7 +215,7 @@ def _selftest_deterministic_augmentation() -> bool:
     backward = _dropout_dataset(partition, SEED)
     other_seed = _dropout_dataset(partition, SEED + 1)
     indices = list(range(len(clean)))
-    states = _rng_states()
+    states = rng_states()
     first: dict[tuple[int, int], np.ndarray] = {}
     second: dict[tuple[int, int], np.ndarray] = {}
     changed = 0
@@ -245,7 +225,7 @@ def _selftest_deterministic_augmentation() -> bool:
         for index in reversed(indices):
             second[(index, visit)] = backward[index][0]
         changed += sum(not np.array_equal(other_seed[index][0], first[(index, visit)]) for index in indices)
-    rng_isolated = _same_rng_states(states, _rng_states())
+    rng_isolated = same_rng_states(states, rng_states())
     order_independent = all(np.array_equal(first[key], second[key]) for key in first)
 
     windows_ok = True
@@ -300,60 +280,6 @@ def _selftest_decision_rule() -> bool:
         "o critério exige delta positivo em ao menos duas dobras e nenhum delta abaixo de -0,02, sem agregar dobras",
         not wrong,
     )
-
-
-class _IndexRecorder:
-    def __init__(self, source: PoseWindowDataset, log: list[int]) -> None:
-        self._source = source
-        self._log = log
-
-    def __len__(self) -> int:
-        return len(self._source)
-
-    def label_at(self, index: int) -> int:
-        return self._source.label_at(index)
-
-    def __getitem__(self, index: int) -> tuple[np.ndarray, int, tuple[str, int]]:
-        self._log.append(index)
-        return self._source[index]
-
-
-class _Capture:
-    """Registra, por run, a ordem de leitura do treino, as fontes de avaliação e o estado inicial do modelo."""
-
-    def __init__(self) -> None:
-        self.runs: list[dict[str, object]] = []
-
-    def __enter__(self) -> "_Capture":
-        real_run_training = training.run_training
-        runs = self.runs
-
-        def capturing(**kwargs: Any) -> dict | None:
-            order: list[int] = []
-            train_source = kwargs["train_source"]
-            runs.append({"train": train_source, "val": kwargs["val_source"], "test": kwargs["test_source"],
-                         "order": order, "init": None})
-            return real_run_training(**{**kwargs, "train_source": _IndexRecorder(train_source, order)})
-
-        class RecordingTCN(TCNClassifier):
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                super().__init__(*args, **kwargs)
-                digest = hashlib.sha256()
-                for tensor in self.state_dict().values():
-                    digest.update(tensor.detach().cpu().numpy().tobytes())
-                runs[-1]["init"] = digest.hexdigest()
-
-        self._patches = [
-            patch.object(training, "run_training", capturing),
-            patch.object(engine, "TCNClassifier", RecordingTCN),
-        ]
-        for active in self._patches:
-            active.start()
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        for active in self._patches:
-            active.stop()
 
 
 def _train(paths: tuple[Path, Path, Path, Path], folds: list[str], variant: str, force: bool = False,
@@ -427,7 +353,7 @@ def _inconsistent_control_check(paths: tuple[Path, Path, Path, Path], partitions
     )
 
 
-def _pairing_check(capture: _Capture, root: Path, partitions: list[SubjectFoldPartition]) -> bool:
+def _pairing_check(capture: TrainingCapture, root: Path, partitions: list[SubjectFoldPartition]) -> bool:
     baseline_runs, dropout_runs = capture.runs[: len(partitions)], capture.runs[len(partitions):]
     ok = len(dropout_runs) == len(partitions)
     for partition, control, treatment in zip(partitions, baseline_runs, dropout_runs):
@@ -606,7 +532,7 @@ def _selftest_dropout_workspace() -> list[bool]:
         folds = [partition.fold for partition in partitions]
         results = [_missing_control_check(paths, partitions)]
         recorders = [RawRecordingPose() for _ in partitions]
-        with _Capture() as capture:
+        with TrainingCapture() as capture:
             _train(paths, folds, BASELINE_VARIANT)
             write_summary(root, force=False)
             results.append(_inconsistent_control_check(paths, partitions))

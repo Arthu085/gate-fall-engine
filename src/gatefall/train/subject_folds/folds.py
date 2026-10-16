@@ -50,7 +50,8 @@ ARMS: tuple[str, ...] = ("A",)
 SEEDS: tuple[int, ...] = (42,)
 BASELINE_VARIANT = "baseline"
 DETECTION_DROPOUT_VARIANT = "detection_dropout"
-VARIANTS: tuple[str, ...] = (BASELINE_VARIANT, DETECTION_DROPOUT_VARIANT)
+SUBJECT_BALANCED_VARIANT = "subject_balanced"
+VARIANTS: tuple[str, ...] = (BASELINE_VARIANT, DETECTION_DROPOUT_VARIANT, SUBJECT_BALANCED_VARIANT)
 SELECTION_POLICY = (
     "Nenhuma seleção de modelo: receita congelada do braço A, checkpoint da última época e macro-F1 restrita "
     "relatada por dobra. Não há escore agregado entre dobras; val e test oficiais e o alvo de 0,800 não entram "

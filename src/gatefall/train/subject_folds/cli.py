@@ -1,5 +1,5 @@
-"""Braço A exploratório e não canônico nas dobras por sujeito do Le2i-CS: linha de base (Etapa 4B) e perda
-simulada de detecção (Etapa 4C)."""
+"""Braço A exploratório e não canônico nas dobras por sujeito do Le2i-CS: linha de base (Etapa 4B), perda
+simulada de detecção (Etapa 4C) e amostragem balanceada por sujeito (Etapa 5A)."""
 
 import argparse
 import json
@@ -26,6 +26,7 @@ from gatefall.train.subject_folds.folds import (
     DETECTION_DROPOUT_VARIANT,
     FOLDS_FILE,
     SEEDS,
+    SUBJECT_BALANCED_VARIANT,
     VARIANTS,
     SUBJECT_FOLD_ROOT,
     SubjectFoldPartition,
@@ -40,9 +41,16 @@ from gatefall.train.subject_folds.folds import (
     validate_folds_document,
     validate_output_root,
 )
+from gatefall.train.subject_folds.sampling_summary import write_sampling_summary
 from gatefall.train.subject_folds.stats import fit_fold_stats, load_fold_stats
 from gatefall.train.subject_folds.summary import control_fold_run_sha256, write_summary
-from gatefall.train.subject_folds.training import detection_dropout_run_document, fold_run_document, train_fold_run
+from gatefall.train.subject_folds.training import (
+    detection_dropout_run_document,
+    fold_run_document,
+    subject_balanced_run_document,
+    subject_balanced_sampling_record,
+    train_fold_run,
+)
 
 ADAPTER = Le2iDatasetAdapter(protocol="cs")
 
@@ -143,7 +151,7 @@ def run_train(
     pose: PoseInputs | None = None,
     variant: str = BASELINE_VARIANT,
 ) -> None:
-    """Treina a variante pedida; `detection_dropout` exige e valida antes os controles `baseline` das dobras."""
+    """Treina a variante pedida; as variantes não `baseline` exigem e validam antes os controles das dobras."""
     validate_output_root(root, frames_path, manifest_path, pose_root)
     frames, snapshot, input_sha256 = _official_train(frames_path, manifest_path)
     pose = pose or real_pose_inputs(frames, pose_root)
@@ -153,7 +161,7 @@ def run_train(
     partitions = [partition for partition in all_partitions if partition.fold in folds]
     membership = str(document["membership_sha256"])
     controls: dict[tuple[str, str, int], str] = {}
-    if variant == DETECTION_DROPOUT_VARIANT:
+    if variant != BASELINE_VARIANT:
         controls = {
             (partition.fold, arm, seed): control_fold_run_sha256(root, document, partition.membership_record, arm, seed)
             for partition in partitions
@@ -172,6 +180,12 @@ def run_train(
                 )
                 if variant == DETECTION_DROPOUT_VARIANT:
                     run_document = detection_dropout_run_document(run_document, controls[(partition.fold, arm, seed)])
+                elif variant == SUBJECT_BALANCED_VARIANT:
+                    run_document = subject_balanced_run_document(
+                        run_document,
+                        controls[(partition.fold, arm, seed)],
+                        subject_balanced_sampling_record(partition, seed),
+                    )
                 train_fold_run(
                     partition, seed, stats, pose.loader, run_document, run_dir, force, variant, pose.raw_loader
                 )
@@ -246,6 +260,8 @@ def main() -> None:
         validate_output_root(args.output_root, ADAPTER.frames_path, ADAPTER.manifest_path, ADAPTER.pose_root)
         if args.variant == DETECTION_DROPOUT_VARIANT:
             write_dropout_summary(args.output_root, args.force)
+        elif args.variant == SUBJECT_BALANCED_VARIANT:
+            write_sampling_summary(args.output_root, args.force)
         else:
             write_summary(args.output_root, args.force)
     elif args.command == "selftest":
