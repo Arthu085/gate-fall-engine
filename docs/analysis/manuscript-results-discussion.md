@@ -51,9 +51,9 @@ separados:
    resultados e não foi escolhida pelo teste. Não existe referência canônica
    de Le2i-CV `[E4]`.
 3. **Diagnósticos e investigações exploratórios.** Consolidação de erros,
-   dobras internas, auditoria, neutralização visual e Etapas 3A–3C, 4A–4D e
-   5A são não canônicos e não alteram nenhuma decisão congelada `[E5]`
-   `[E27]` `[E28]` `[E29]` `[E34]` `[E36]`.
+   dobras internas, auditoria, neutralização visual e Etapas 3A–3C, 4A–4D,
+   5A e 6A–6B são não canônicos e não alteram nenhuma decisão congelada
+   `[E5]` `[E27]` `[E28]` `[E29]` `[E34]` `[E36]` `[E37]` `[E38]`.
 4. **Experimentos externos.** Os experimentos de física e movimento de outro
    repositório ficam fora dos resultados do GateFall
    ([seção própria](#experimentos-externos-de-fisica-e-movimento)).
@@ -222,9 +222,9 @@ O texto não deve afirmar superioridade estatística.
 
 Os braços de fusão quase memorizam o treino `[E6]` `[E7]`, e os erros
 dominantes (`other→walk`, `standing→walk`, `sitting→stand_up`) são
-compartilhados por todos os braços. Isso sugere uma origem no conteúdo ou nos
-rótulos, não no backbone, mas a hipótese não foi testada `[E7]` `[E19]`. As
-Etapas 3A–3C descrevem `other→walk` sem atribuir causa
+compartilhados por todos os braços. Isso não identifica a causa nem prova
+erro nos rótulos `[E7]` `[E37]` `[E38]`. As Etapas 3A–3C descrevem
+`other→walk` sem atribuir causa
 ([seção própria](#investigacao-other-walk)).
 
 ### Limitações do gate adaptativo (B1 e C1)
@@ -471,6 +471,34 @@ funcionar em outras condições `[E36]`.
   sujeito `[E35]`.
 - As janelas são sobrepostas e não são observações independentes `[E35]`.
 
+### Erros `standing→walk` e `sitting→stand_up` (Etapas 6A–6B)
+
+O diagnóstico da Etapa 6A examinou os dois erros em desenvolvimento. No
+`val` oficial do Le2i-CS, analisou os cinco braços nas seeds 42–46; nas
+dobras por sujeito feitas apenas com `train`, analisou o braço A, seed 42.
+Os dois conjuntos são descritos separadamente e não foram agregados. A
+concentração dos erros em transições não foi consistente, e as regras
+predeclaradas resultaram em `unresolved_limitation` para ambos os pares
+`[E37]`.
+
+Na Etapa 6B, o ChatGPT julgou preliminarmente 54 janelas selecionadas:
+11 do `val` (7 erros, 4 controles) e 43 das dobras (23 erros, 20 controles).
+Os julgamentos foram registrados antes da entrega da chave, embora o revisor
+já conhecesse a cobertura geral da PR #125. Os 54 IDs corresponderam à
+chave. Entre 24 pares válidos, os sete pares `standing→walk` são todos das
+dobras: caminhada plausível apareceu em dois erros e dois controles, e
+ambiguidade de fronteira em três erros e um controle. Dos 17 pares
+`sitting→stand_up`, quatro são do `val` e 13 das dobras; nenhum item foi
+julgado visualmente plausível como `stand_up`, e alguns controles não tinham
+informação temporal suficiente. Seis erros não tinham par `[E38]`.
+
+A revisão por IA foi parcialmente mascarada, não representativa e não teve
+validação humana independente. As diferenças entre pares são descritivas,
+sem inferência causal ou significância estatística. Os erros permanecem uma
+limitação de generalização não resolvida: a leitura não prova anotações
+incorretas nem justifica retreino ou ajuste da receita congelada. O `test`
+oficial, já exposto, não entra em seleção de intervenção `[E37]` `[E38]`.
+
 ### Experimentos externos de física e movimento
 
 Os experimentos do repositório derivado `rsramos30/gate-fall-motion-physics`
@@ -539,6 +567,8 @@ cópia usada.
 | E34 | Encerramento das Etapas 4A–4D sem promoção de `detection_dropout`, `test` oficial fora da seleção | `analysis/intervention-decision.md` (Encerramento da intervenção de perda de detecção) |
 | E35 | Amostragem balanceada por sujeito, critério congelado, deltas pareados de Macro-F1 restrita e por classe, distribuição sorteada (Etapa 5A) | `train/subject-fold-subject-balanced-sampling.md` (A intervenção; Critério exploratório congelado; Execução registrada (não canônica); Limitações) |
 | E36 | Encerramento da Etapa 5A sem promoção da amostragem balanceada por sujeito, limitações e alcance do resultado negativo | `analysis/intervention-decision.md` (Encerramento da amostragem balanceada por sujeito) |
+| E37 | Diagnóstico dos erros `standing→walk` e `sitting→stand_up` em `val` e nas dobras, regras predeclaradas e veredito `unresolved_limitation` (Etapa 6A) | `analysis/standing-sitting-diagnosis.md` (Resultados observados; Interpretação) |
+| E38 | Seleção e revisão preliminar por IA de 54 itens, 24 pares, proveniência e encerramento sem intervenção (Etapa 6B) | `analysis/standing-sitting-review-set.md` (Cobertura da execução real; Revisão preliminar por IA concluída); `analysis/intervention-decision.md` (Encerramento dos erros `standing→walk` e `sitting→stand_up`) |
 
 Os sumários locais de E15 foram produzidos pelo
 [sumário multi-seed](multiseed-summary.md), que valida configuração,

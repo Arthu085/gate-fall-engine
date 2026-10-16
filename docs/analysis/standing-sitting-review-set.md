@@ -4,9 +4,10 @@
 visual dos dois erros de desenvolvimento examinados na
 [Etapa 6A](standing-sitting-diagnosis.md). A pergunta é se, nas observações
 existentes, os erros parecem ambiguidade visual da ação, ambiguidade temporal
-do rótulo ou falta de informação nos 24 quadros. A etapa só seleciona janelas
-e monta folhas para revisão humana cega. Ela não propõe nem implementa mudança
-de treino.
+do rótulo ou falta de informação nos 24 quadros. A ferramenta seleciona
+janelas e monta folhas para revisão mascarada. A leitura preliminar concluída
+por IA é registrada abaixo; não houve revisão humana independente. A etapa
+não propõe nem implementa mudança de treino.
 
 A preparação é **exploratória, não canônica e somente leitura**. Ela reusa as
 predições por janela já gravadas pela Etapa 6A e não refaz inferência. Também
@@ -15,8 +16,8 @@ checkpoints, referências canônicas nem a evidência da Etapa 6A. Os quadros
 vêm só de vídeos de `train` e `val`; o `test` oficial não é lido nem
 selecionado.
 
-!!! warning "Antes da revisão"
-    Quem vai preencher a planilha não deve ler as seções [Critérios de
+!!! warning "Antes de uma nova revisão"
+    Quem for preencher uma nova planilha não deve ler as seções [Critérios de
     seleção](#criterios-de-selecao) e [Cobertura da execução
     real](#cobertura-da-execucao-real) antes de concluir a revisão. A
     cobertura por estrato permite deduzir o papel de alguns itens.
@@ -235,8 +236,42 @@ não são versionadas:
 | `worksheet/review_worksheet.csv` | `056f82d672272fff250e400d4b1e2eaa3a98e7a36edc4f37719df77ed914719a` |
 | `worksheet/review_frames.csv` | `e488f9d94e5c8d6ddaa3526f609a24cde27ecd3a058bb2883d884fb38d5a4890` |
 
-**Revisão humana pendente.** Nenhuma folha foi anotada, e nenhum achado
-visual é relatado ou interpretado aqui.
+## Revisão preliminar por IA concluída
+
+O ChatGPT preencheu os julgamentos visuais dos 54 itens **antes de receber**
+`review_key.csv`. O revisor já conhecia a cobertura geral da PR #125; por
+isso, o mascaramento foi parcial, mesmo antes da abertura da chave. O
+cruzamento posterior conferiu os 54 `review_id`, sem faltas ou duplicatas:
+30 erros e 24 controles, dos quais 24 pares válidos. Trata-se de leitura
+preliminar por IA, exploratória, não canônica e não representativa, **sem
+validação humana independente**. Os arquivos locais de revisão, chave,
+comparação e imagens permanecem não versionados.
+
+| Arquivo local | SHA-256 |
+| --- | --- |
+| `revisao_visual_6B_ChatGPT.csv` (julgamentos antes do desmascaramento) | `7a137d5614998087310c1c57d34d99ea75582017454dd9b02569a8027c8d43a7` |
+| `key/review_key.csv` (chave entregue depois) | `ab41a1dc44ae6d32a7f539932b9b2acb77ee99a9bd02f3a78dc32229720710e1` |
+
+| Evidência | Itens | Erros / controles | Pares válidos | Erros sem par |
+| --- | ---: | ---: | ---: | ---: |
+| `val` oficial | 11 | 7 / 4 | 4, todos `sitting→stand_up` | 3, todos `standing→walk` |
+| Dobras por sujeito do `train` | 43 | 23 / 20 | 20: 7 `standing→walk` e 13 `sitting→stand_up` | 3 |
+
+Nos sete pares `standing→walk`, todos das dobras, a caminhada foi julgada
+visualmente plausível em dois erros e dois controles. Ambiguidade de
+fronteira foi registrada em três erros e um controle. Nos 17 pares
+`sitting→stand_up` (quatro do `val` e 13 das dobras), nenhum item foi julgado
+visualmente plausível como `stand_up`. Seis controles e dois erros desses
+pares receberam confiança insuficiente para julgar a ação; três controles
+insuficientes pertencem ao `val` e têm muitos quadros replicados.
+
+Os seis erros sem par ficam fora das comparações pareadas. Dos 24 controles
+pareados, seis vêm do mesmo vídeo do erro e 18 de outro vídeo do mesmo
+sujeito. A leitura não discrimina uma explicação causal única nem sustenta
+correção de anotações, mudança de janela ou intervenção de treino. As
+diferenças descritivas não são estimativas de prevalência nem evidência de
+significância estatística. O [encerramento das Etapas 6A–6B](intervention-decision.md#encerramento-etapas-6a-6b)
+mantém o veredito de limitação de generalização não resolvida.
 
 ## Limitações
 

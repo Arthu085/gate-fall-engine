@@ -1,4 +1,4 @@
-# Análise — Decisão sobre intervenções no modelo (Etapas 2A, 2G, 4A–4D e 5A)
+# Análise — Decisão sobre intervenções no modelo (Etapas 2A, 2G, 4A–4D, 5A e 6A–6B)
 
 Este documento registra uma decisão **exploratória e não canônica**: se a
 evidência de desenvolvimento (`train` e `val`) justifica alguma melhoria
@@ -41,6 +41,11 @@ intervenção distinta de amostragem balanceada por sujeito no treino do braço
 A. O [encerramento da Etapa 5A](#encerramento-etapa-5a) registra que o
 critério congelado não foi atendido: a amostragem não é promovida, e nenhum
 modelo canônico muda.
+
+As [Etapas 6A–6B](#encerramento-etapas-6a-6b) examinaram os erros
+`standing→walk` e `sitting→stand_up` em desenvolvimento. O diagnóstico e a
+revisão visual preliminar por IA não identificaram causa única nem
+justificaram intervenção ou correção de anotações.
 
 ## Fontes
 
@@ -117,8 +122,8 @@ O que esses números sustentam:
    a revocação de `standing`, de 0,02 a 0,85. Essa instabilidade é o único
    sinal de desenvolvimento ligado à falha de `test`, e ele é fraco.
 5. **Os erros dominantes de Le2i-CS `val` são compartilhados.**
-   `standing→walk` e `sitting→stand_up` dominam em todas as armas. Isso aponta
-   para o conteúdo ou os rótulos, não para o backbone, sem teste causal.
+   `standing→walk` e `sitting→stand_up` dominam em todas as armas. Essa
+   observação não identifica uma causa nem estabelece defeito de anotação.
 6. **O `val` de Le2i-CS satura os alarmes.** B0, B1, C0 e C1 têm
    sensibilidade 1,0 e FA/h 0 nas cinco seeds com 13 eventos. Esse split não
    discrimina efeito de intervenção em alarmes.
@@ -165,8 +170,8 @@ Nenhuma delas foi testada. `train`/`val` não as separam.
   [bootstrap agrupado](grouped-bootstrap.md) não estima variação entre
   sujeitos com um único sujeito, e as métricas por janela usam janelas
   sobrepostas.
-- Uma leitura de rótulo para `standing` e `other`, cujas confusões dominam o
-  déficit de todas as armas.
+- Uma revisão humana independente dos casos `standing` e `sitting` examinados
+  nas Etapas 6A–6B. A leitura preliminar por IA não valida os rótulos.
 
 ## Experimentos externos de física e movimento
 
@@ -550,6 +555,38 @@ ausência de ganho, não por uma piora que ultrapasse a tolerância
   sorteio. Ele não mostra que o balanceamento por sujeito não possa
   funcionar em outras condições, como outro esquema de dobras, mais sujeitos,
   outros braços ou outra intensidade de reamostragem.
+
+## Encerramento dos erros `standing→walk` e `sitting→stand_up` (Etapas 6A–6B) { #encerramento-etapas-6a-6b }
+
+O [diagnóstico da Etapa 6A](standing-sitting-diagnosis.md) examinou as
+predições de desenvolvimento, com o `val` oficial (A, B0, B1, C0 e C1,
+seeds 42–46) separado dos grupos retidos das dobras por sujeito do `train`
+oficial (braço A, seed 42). As regras predeclaradas não sustentaram uma causa
+comum para as confusões, e o veredito dos dois pares foi
+`unresolved_limitation`. As taxas do `val` não foram agregadas às das dobras;
+nenhuma predição do `test` foi usada nesta decisão.
+
+A [revisão da Etapa 6B](standing-sitting-review-set.md#revisao-preliminar-por-ia-concluida)
+leu 54 janelas selecionadas: 11 do `val` oficial (7 erros, 4 controles) e
+43 das dobras (23 erros, 20 controles). O ChatGPT registrou os julgamentos
+antes de receber a chave, mas já conhecia a cobertura geral da PR #125. Após
+o desmascaramento, os 54 IDs coincidiram com a chave; havia 24 pares
+válidos e seis erros sem controle. Nos sete pares `standing→walk`, todos das
+dobras, caminhada plausível apareceu em dois erros e dois controles, e
+ambiguidade de fronteira em três erros e um controle. Nos 17 pares
+`sitting→stand_up` (quatro do `val`, 13 das dobras), nenhum item foi julgado
+visualmente plausível como `stand_up`; alguns controles não tinham
+informação temporal suficiente para julgamento. A leitura é preliminar por
+IA, parcialmente mascarada, não representativa e sem validação humana
+independente. Essas diferenças não são testes de significância nem provas de
+causalidade ou de erro nos rótulos.
+
+**Decisão final:** encerrar a Etapa 6B sem intervenção. Os dois erros seguem
+como limitação de generalização não resolvida. A evidência não justifica
+retreino, ajuste de janela ou limiar, alteração de anotações ou promoção de
+artefatos. O alvo de Macro-F1 restrita ≥0,800 não foi verificado. Receita,
+splits, checkpoints, protocolo de alarme e resultados canônicos permanecem
+congelados; o `test` já exposto não pode selecionar uma correção.
 
 ## Limitações
 
