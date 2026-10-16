@@ -142,10 +142,12 @@ def validate_partition(partition: FoldPartition, official_train: pd.DataFrame) -
         raise ValueError(f"dobra {partition.fold} inválida: " + "; ".join(problems))
 
 
-def restricted_loader(loader: FeatureLoader, allowed_video_ids: Iterable[str], context: str) -> FeatureLoader:
+def restricted_loader[T](
+    loader: Callable[[str], T], allowed_video_ids: Iterable[str], context: str
+) -> Callable[[str], T]:
     allowed = frozenset(allowed_video_ids)
 
-    def guarded(video_id: str) -> np.ndarray:
+    def guarded(video_id: str) -> T:
         if video_id not in allowed:
             raise RuntimeError(f"{context}: leitura de feature fora do lado permitido da dobra: {video_id!r}")
         return loader(video_id)

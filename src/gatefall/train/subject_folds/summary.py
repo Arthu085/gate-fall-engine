@@ -19,10 +19,11 @@ from gatefall.eval.analysis.classification_diagnosis import display_path, write_
 from gatefall.eval.analysis.internal_fold_feasibility import OFFICIAL_TRAIN_SPLIT
 from gatefall.hashing import sha256_file
 from gatefall.train.baseline_a.artifacts import validate_training_run
-from gatefall.train.internal_folds.training import validate_fold_run_document
+from gatefall.train.internal_folds.training import FOLD_RUN_FILE, validate_fold_run_document
 from gatefall.train.shared.metrics import RESTRICTED_CLASSES
 from gatefall.train.subject_folds.folds import (
     ARMS,
+    BASELINE_VARIANT,
     CHECKPOINT_POLICY,
     EVALUATION_SPLIT_MAPPING,
     PROTOCOL,
@@ -36,7 +37,11 @@ from gatefall.train.subject_folds.folds import (
     summary_dir,
 )
 from gatefall.train.subject_folds.stats import load_fold_stats
-from gatefall.train.subject_folds.training import fold_run_document, resolve_fold_config
+from gatefall.train.subject_folds.training import (
+    detection_dropout_run_document,
+    fold_run_document,
+    resolve_fold_config,
+)
 
 SUMMARY_JSON_FILE = "subject_fold_summary.json"
 SUMMARY_MARKDOWN_FILE = "subject_fold_summary.md"
@@ -97,15 +102,33 @@ def fold_limitations(fold: dict) -> list[str]:
     return limitations
 
 
-def run_entry(root: Path, document: dict, fold: dict, arm: str, seed: int) -> dict[str, object]:
-    run_dir = fold_run_dir(root, fold["fold"], arm, seed)
+def expected_run_document(
+    root: Path, document: dict, fold: dict, arm: str, seed: int, stats_sha256: str, variant: str
+) -> dict[str, object]:
+    control_document = fold_run_document(
+        fold,
+        arm,
+        seed,
+        stats_sha256,
+        cast(dict[str, str], document["input_sha256"]),
+        cast(str, document["pose_features_sha256"]),
+        cast(str, document["membership_sha256"]),
+    )
+    if variant == BASELINE_VARIANT:
+        return control_document
+    control_sidecar = fold_run_dir(root, fold["fold"], arm, seed) / FOLD_RUN_FILE
+    return detection_dropout_run_document(control_document, sha256_file(control_sidecar))
+
+
+def run_entry(
+    root: Path, document: dict, fold: dict, arm: str, seed: int, variant: str = BASELINE_VARIANT
+) -> dict[str, object]:
+    run_dir = fold_run_dir(root, fold["fold"], arm, seed, variant)
     input_sha256 = cast(dict[str, str], document["input_sha256"])
     pose_sha256 = cast(str, document["pose_features_sha256"])
     stats = load_fold_stats(fold, stats_dir(root, fold["fold"]), input_sha256, pose_sha256)
-    config = resolve_fold_config(seed, stats.path, stats.sha256)
-    expected_document = fold_run_document(
-        fold, arm, seed, stats.sha256, input_sha256, pose_sha256, cast(str, document["membership_sha256"])
-    )
+    config = resolve_fold_config(seed, stats.path, stats.sha256, variant)
+    expected_document = expected_run_document(root, document, fold, arm, seed, stats.sha256, variant)
     try:
         validate_training_run(run_dir, expected_config=config)
         validate_fold_run_document(run_dir, expected_document)
@@ -137,6 +160,21 @@ def run_entry(root: Path, document: dict, fold: dict, arm: str, seed: int) -> di
         },
         "retained_support": support,
     }
+
+
+def control_fold_run_sha256(root: Path, document: dict, fold: dict, arm: str, seed: int) -> str:
+    """Valida o controle da Etapa 4B da dobra e devolve o SHA-256 do seu `fold_run.json`; nunca o treina."""
+    run_dir = fold_run_dir(root, fold["fold"], arm, seed)
+    if not run_dir.is_dir():
+        raise FileNotFoundError(
+            f"controle da Etapa 4B ausente em {display_path(run_dir)}; treine-o com `train --variant "
+            f"{BASELINE_VARIANT}` antes; a intervenção não treina nem substitui o controle"
+        )
+    try:
+        run_entry(root, document, fold, arm, seed)
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise RuntimeError(f"controle da Etapa 4B inválido em {display_path(run_dir)}: {exc}") from exc
+    return sha256_file(run_dir / FOLD_RUN_FILE)
 
 
 def build_summary(root: Path) -> dict[str, object]:

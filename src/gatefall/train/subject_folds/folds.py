@@ -48,6 +48,9 @@ FOLDS_FILE = "folds.json"
 RETAINED_SUBJECT_GROUPS: tuple[tuple[int, ...], ...] = ((0,), (1,), (3, 4, 6, 8))
 ARMS: tuple[str, ...] = ("A",)
 SEEDS: tuple[int, ...] = (42,)
+BASELINE_VARIANT = "baseline"
+DETECTION_DROPOUT_VARIANT = "detection_dropout"
+VARIANTS: tuple[str, ...] = (BASELINE_VARIANT, DETECTION_DROPOUT_VARIANT)
 SELECTION_POLICY = (
     "Nenhuma seleção de modelo: receita congelada do braço A, checkpoint da última época e macro-F1 restrita "
     "relatada por dobra. Não há escore agregado entre dobras; val e test oficiais e o alvo de 0,800 não entram "
@@ -221,14 +224,21 @@ def stats_dir(root: Path, fold: str) -> Path:
     return fold_dir(root, fold) / "stats"
 
 
-def fold_run_dir(root: Path, fold: str, arm: str, seed: int) -> Path:
+def variant_run_name(arm: str, variant: str) -> str:
+    if variant not in VARIANTS:
+        raise ValueError(f"variante não suportada nas dobras por sujeito: {variant!r}; opções: {', '.join(VARIANTS)}")
+    base = ARM_RUN_DIR_NAMES[arm]
+    return base if variant == BASELINE_VARIANT else f"{base}_{variant}"
+
+
+def fold_run_dir(root: Path, fold: str, arm: str, seed: int, variant: str = BASELINE_VARIANT) -> Path:
     if arm not in ARMS:
         raise ValueError(f"arma não suportada nas dobras por sujeito: {arm!r}; opções: {', '.join(ARMS)}")
     if seed not in SEEDS:
         raise ValueError(f"seed não suportada nas dobras por sujeito: {seed}; opções: {list(SEEDS)}")
     if fold not in fold_names():
         raise ValueError(f"dobra desconhecida: {fold!r}; opções: {', '.join(fold_names())}")
-    return fold_dir(root, fold) / "runs" / ARM_RUN_DIR_NAMES[arm] / f"seed_{seed}"
+    return fold_dir(root, fold) / "runs" / variant_run_name(arm, variant) / f"seed_{seed}"
 
 
 def summary_dir(root: Path) -> Path:
@@ -263,9 +273,15 @@ def validate_output_root(root: Path, frames_path: Path, manifest_path: Path, pos
         raise ValueError(f"--output-root {root} dentro do repositório precisa ficar em {SUBJECT_FOLD_ROOT}")
 
 
-def run_plan(root: Path) -> list[dict[str, object]]:
+def run_plan(root: Path, variant: str = BASELINE_VARIANT) -> list[dict[str, object]]:
     return [
-        {"fold": fold, "arm": arm, "seed": seed, "run_dir": display_path(fold_run_dir(root, fold, arm, seed))}
+        {
+            "fold": fold,
+            "arm": arm,
+            "seed": seed,
+            "variant": variant,
+            "run_dir": display_path(fold_run_dir(root, fold, arm, seed, variant)),
+        }
         for fold in fold_names()
         for arm in ARMS
         for seed in SEEDS
