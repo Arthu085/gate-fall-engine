@@ -34,8 +34,9 @@ confianças calibradas `[E1]`.
 
 **Protocolos.** Le2i-CS é a comparação principal: divide por sujeito, e o
 treino contém os seis ambientes do Le2i. Le2i-CV é uma análise separada de
-generalização entre ambientes dentro do Le2i: divide por ambiente e câmera,
-mas os sujeitos se sobrepõem entre splits. Os dois protocolos respondem
+transferência para ambientes não vistos dentro do Le2i: divide por ambiente
+e câmera, mas há IDs de sujeito sobrepostos entre splits, e esses IDs não
+são globalmente únicos entre ambientes. Os dois protocolos respondem
 perguntas diferentes e nunca são agregados nem comparados como ablação
 `[E2]`.
 
@@ -59,14 +60,17 @@ separados:
    ([seção própria](#experimentos-externos-de-fisica-e-movimento)).
 
 O split `test` é descritivo em todo o trabalho. Nenhum braço, seed, época,
-limiar ou protocolo foi escolhido por ele `[E3]`.
+limiar ou protocolo foi escolhido por ele `[E3]`. O alvo de Macro-F1
+restrita ≥0,800 não foi atingido pelos agregados de teste apresentados
+abaixo nem verificado pelas investigações exploratórias `[E6]` `[E36]`
+`[E38]`.
 
 ## Resultados
 
 ### Le2i-CS: classificação
 
-Macro-F1 restrita às oito classes de `RESTRICTED_CLASSES`, média ±
-desvio-padrão amostral entre cinco seeds `[E6]`:
+Macro-F1 restrita às oito classes de `RESTRICTED_CLASSES` (sem `lie_down`
+e `lying`), média ± desvio-padrão amostral entre cinco seeds `[E6]`:
 
 | Braço | Treino | Validação | Teste | Teste (mín–máx) |
 | --- | --- | --- | --- | --- |
@@ -92,11 +96,13 @@ desvio-padrão amostral entre cinco seeds `[E6]`:
 
 ### Le2i-CS: alarmes por evento
 
-Protocolo congelado `N=3`, `R=5,0 s` `[E8]`. A validação tem 13 eventos de um
-único sujeito; o teste tem 22 eventos de dois sujeitos `[E9]`. Média ±
-desvio-padrão entre cinco seeds, teste `[E6]`:
+Protocolo congelado `N=3`, `R=5,0 s` `[E8]`. A sensibilidade principal usa a
+janela de associação do evento, que inclui o período de graça; a coluna
+`fall` exige alarme durante o segmento `fall` `[E8]`.
+A validação tem 13 eventos de um único sujeito; o teste tem 22 eventos de
+dois sujeitos `[E9]`. Média ± desvio-padrão entre cinco seeds, teste `[E6]`:
 
-| Braço | Sensibilidade | Sensibilidade `fall` | FA/h (mín–máx) | Latência média (s) |
+| Braço | Sensibilidade (associação) | Sensibilidade `fall` | FA/h (mín–máx) | Latência média (s) |
 | --- | --- | --- | --- | --- |
 | A | 0,9182 ± 0,0593 | 0,8909 ± 0,0610 | 87,55 ± 21,44 (58,37–110,89) | 0,500 ± 0,000 |
 | B0 | 0,9455 ± 0,0498 | 0,9455 ± 0,0498 | 46,69 ± 8,25 (40,86–58,37) | 0,320 ± 0,045 |
@@ -163,12 +169,13 @@ Macro-F1 restrita, cinco seeds `[E7]` `[E15]`:
 | C0 | 0,5270 ± 0,0113 | 0,4042 ± 0,0199 | 0,3839–0,4314 | 0,5819 |
 | C1 | 0,5161 ± 0,0115 | 0,4131 ± 0,0176 | 0,3856–0,4291 | 0,5672 |
 
-Alarmes, cinco seeds; validação com 17 eventos e teste com 37 `[E10]` `[E15]`:
+Alarmes pela janela de associação, cinco seeds; validação com 17 eventos e
+teste com 37 `[E8]` `[E10]` `[E15]`:
 
 | Braço | Sensibilidade val | FA/h val | Sensibilidade teste | FA/h teste (mín–máx) | Latência média teste (s) |
 | --- | --- | --- | --- | --- | --- |
 | A | 0,835 ± 0,049 | 179,8 ± 32,7 | 0,870 ± 0,082 | 120,4 ± 29,2 (90,3–156,5) | 0,52 ± 0,04 |
-| B0 | 0,906 ± 0,089 | 73,0 ± 30,0 | 0,660 ± 0,071 | 137,2 ± 92,2 (18,1–258,8) | 1,10 ± 0,23 |
+| B0 | 0,906 ± 0,089 | 73,0 ± 30,0 | 0,659 ± 0,070 | 137,2 ± 92,2 (18,1–258,8) | 1,10 ± 0,23 |
 | B1 | 0,894 ± 0,064 | 81,7 ± 27,5 | 0,681 ± 0,073 | 116,8 ± 59,1 (24,1–186,6) | 0,96 ± 0,36 |
 | C0 | 0,918 ± 0,032 | 88,3 ± 16,1 | 0,627 ± 0,136 | 151,7 ± 27,0 (114,3–174,5) | 0,40 ± 0,00 |
 | C1 | 0,882 ± 0,042 | 102,4 ± 13,0 | 0,816 ± 0,052 | 87,9 ± 28,4 (54,2–114,3) | 0,44 ± 0,05 |
@@ -220,10 +227,11 @@ que A no Le2i-CS `[E6]`. É uma observação descritiva de cinco seeds sobre um
 teste de dois sujeitos e 22 eventos, sem teste de hipótese `[E3]` `[E14]`.
 O texto não deve afirmar superioridade estatística.
 
-Os braços de fusão quase memorizam o treino `[E6]` `[E7]`, e os erros
-dominantes (`other→walk`, `standing→walk`, `sitting→stand_up`) são
-compartilhados por todos os braços. Isso não identifica a causa nem prova
-erro nos rótulos `[E7]` `[E37]` `[E38]`. As Etapas 3A–3C descrevem
+Os braços de fusão alcançam Macro-F1 de treino entre 0,9779 e 0,9972,
+com lacunas treino − teste maiores que em A `[E6]` `[E7]`. Todos os braços
+compartilham `other→walk` no teste e `standing→walk` e
+`sitting→stand_up` na validação `[E7]`. Isso não identifica a causa nem
+prova erro nos rótulos `[E37]` `[E38]`. As Etapas 3A–3C descrevem
 `other→walk` sem atribuir causa
 ([seção própria](#investigacao-other-walk)).
 
@@ -237,23 +245,28 @@ erro nos rótulos `[E7]` `[E37]` `[E38]`. As Etapas 3A–3C descrevem
   e FA/h +23,3. Com dois sujeitos, isso significa só que os dois sujeitos e o
   conjunto têm delta do mesmo sinal `[E14]`.
 - **Gate pouco responsivo e direções inconsistentes.** O gate de B1 fica
-  perto de 0,50, compatível com B1 se comportar como B0 com ramos
-  reescalados. Nenhum dos dois gates responde nas duas direções esperadas.
+  perto de 0,50 nas condições medidas; isso não demonstra equivalência
+  funcional com B0. Nenhum dos dois gates responde nas duas direções
+  esperadas.
   A evidência não sustenta uma leitura de confiabilidade bidirecional dos
   gates escalares e, sozinha, não mostra que um gate vetorial seja
   necessário `[E18]` `[E19]`.
 - **Escopo.** Os proxies de qualidade não são confianças calibradas `[E1]`,
   e o gate não foi medido no Le2i-CV `[E19]`.
 
-O manuscrito deve descrever B1 e C1 como fusão adaptativa por proxies de
-qualidade que não produziu ganho consistente sobre a concatenação simples.
+B1 e C1 são fusões condicionadas por proxies de qualidade, sem ganho
+consistente sobre a concatenação simples. A resposta dos gates sob
+degradação não valida sua interpretação como estimadores de
+confiabilidade das modalidades `[E18]`.
 
 ### Limitações de generalização entre domínios
 
-A queda de Le2i-CV é evidência de generalização limitada a ambientes não
-vistos, mas o deslocamento de domínio é confundido: ambiente, câmera,
-resolução, fps e qualidade de pose variam juntos, e os sujeitos se sobrepõem
-entre splits `[E2]`. Nenhum desses fatores pode ser apontado como causa.
+O desempenho no teste de Le2i-CV mostra transferência limitada para os
+ambientes retidos neste conjunto. Ambiente, câmera, resolução, fps e
+qualidade de pose variam juntos; também há IDs de sujeito sobrepostos entre
+splits, sem identidade global única entre ambientes `[E2]`. Nenhum desses
+fatores pode ser isolado como causa, e o protocolo não mede generalização
+para um novo conjunto de dados.
 
 B0 e B1 mostram a maior queda e um deslocamento reprodutível para `other`,
 mas a intensidade varia muito entre seeds `[E16]`. As explicações
@@ -370,8 +383,8 @@ casos em `test` nem em outros ambientes `[E28]` `[E29]`.
   caberia com nova pergunta pré-declarada, aplicada igualmente a A, B e C e
   avaliada sem o `test` já exposto `[E28]` `[E29]`.
 
-O manuscrito deve descrever `other→walk` como erro compartilhado e
-persistente em janelas puras, sem causa atribuída.
+Assim, `other→walk` é um erro compartilhado que persiste em janelas puras,
+sem causa atribuída.
 
 ### Dobras por sujeito e perda simulada de detecção (Etapas 4A–4D) { #dobras-por-sujeito }
 
@@ -403,17 +416,16 @@ tabelas de teste acima `[E30]` `[E31]`.
    ausente, com as features de pose recalculadas pelo pipeline inalterado. O
    critério congelado (delta positivo em pelo menos duas dobras e nenhum
    abaixo de −0,02) foi atendido formalmente, mas os deltas ficam abaixo de
-   0,003. A leitura sustentada é que a intervenção não piorou o retido limpo,
-   não que o melhorou `[E32]`.
+   0,003. A intervenção não mostrou queda no retido limpo nessas três
+   execuções; isso não demonstra melhora relevante `[E32]`.
 3. **Etapa 4D, robustez na inferência.** Com a mesma família de perda no
    retido, os dois modelos perdem no máximo 0,0061 de Macro-F1 restrita, e a
    diferença pareada das perdas não tem direção consistente entre as dobras
    `[E33]`.
 
 A investigação termina sem promover `detection_dropout` a nenhuma
-configuração canônica A/B/C `[E34]`. O manuscrito deve descrever a
-intervenção como resultado exploratório sem melhoria relevante demonstrada,
-não como ganho de desempenho ou de robustez.
+configuração canônica A/B/C `[E34]`. A intervenção é um resultado
+exploratório sem melhoria relevante de desempenho ou robustez demonstrada.
 
 - Há uma seed de treino por dobra e uma única realização da máscara de
   avaliação, sem teste de significância `[E32]` `[E33]`.
@@ -456,10 +468,9 @@ cinco vídeos de um único sujeito `[E35]`. A investigação termina sem
 promover a amostragem balanceada por sujeito a nenhuma configuração
 canônica A/B/C `[E36]`.
 
-O manuscrito deve descrever a intervenção como resultado exploratório
-negativo nesta receita, sem ganho de generalização para sujeitos retidos
-demonstrado, e não como prova de que o balanceamento por sujeito não possa
-funcionar em outras condições `[E36]`.
+Nesta receita, a amostragem balanceada por sujeito é um resultado
+exploratório negativo, sem ganho de desempenho nos sujeitos retidos
+demonstrado. Isso não determina seu efeito em outras condições `[E36]`.
 
 - Há uma seed de treino por dobra, sem estimativa da variação entre seeds
   nem teste de significância `[E35]`.
@@ -473,31 +484,31 @@ funcionar em outras condições `[E36]`.
 
 ### Erros `standing→walk` e `sitting→stand_up` (Etapas 6A–6B)
 
-O diagnóstico da Etapa 6A examinou os dois erros em desenvolvimento. No
-`val` oficial do Le2i-CS, analisou os cinco braços nas seeds 42–46; nas
-dobras por sujeito feitas apenas com `train`, analisou o braço A, seed 42.
-Os dois conjuntos são descritos separadamente e não foram agregados. A
-concentração dos erros em transições não foi consistente, e as regras
-predeclaradas resultaram em `unresolved_limitation` para ambos os pares
-`[E37]`.
+O diagnóstico da Etapa 6A examinou os dois erros no `val` oficial do
+Le2i-CS (cinco braços, seeds 42–46) e, separadamente, nos grupos retidos de
+dobras por sujeito do `train` (braço A, seed 42). O treino quase não apresenta
+essas confusões, mas elas aparecem nos sujeitos fora do treino. Nem a
+concentração em transições nem a ausência de pose explicam os dois pares de
+forma consistente. As regras predeclaradas deram `unresolved_limitation`
+para ambos `[E37]`.
 
-Na Etapa 6B, o ChatGPT julgou preliminarmente 54 janelas selecionadas:
-11 do `val` (7 erros, 4 controles) e 43 das dobras (23 erros, 20 controles).
-Os julgamentos foram registrados antes da entrega da chave, embora o revisor
-já conhecesse a cobertura geral da PR #125. Os 54 IDs corresponderam à
-chave. Entre 24 pares válidos, os sete pares `standing→walk` são todos das
-dobras: caminhada plausível apareceu em dois erros e dois controles, e
-ambiguidade de fronteira em três erros e um controle. Dos 17 pares
-`sitting→stand_up`, quatro são do `val` e 13 das dobras; nenhum item foi
-julgado visualmente plausível como `stand_up`, e alguns controles não tinham
-informação temporal suficiente. Seis erros não tinham par `[E38]`.
+Na Etapa 6B, uma revisão visual preliminar por IA examinou 54 janelas
+selecionadas (11 do `val`, 43 das dobras): 30 erros, 24 controles, 24 pares
+válidos e seis erros sem par. Nos sete pares `standing→walk`, todos das
+dobras, caminhada plausível foi julgada em dois erros e dois controles. Nos
+17 pares `sitting→stand_up`, nenhum item foi julgado plausível como
+`stand_up`, e seis controles e dois erros tiveram confiança insuficiente
+para julgar a ação. A leitura foi parcialmente mascarada, sem validação
+humana independente, e a amostra não representa a frequência dos erros
+`[E38]`.
 
-A revisão por IA foi parcialmente mascarada, não representativa e não teve
-validação humana independente. As diferenças entre pares são descritivas,
-sem inferência causal ou significância estatística. Os erros permanecem uma
-limitação de generalização não resolvida: a leitura não prova anotações
-incorretas nem justifica retreino ou ajuste da receita congelada. O `test`
-oficial, já exposto, não entra em seleção de intervenção `[E37]` `[E38]`.
+As diferenças entre pares são descritivas, sem inferência causal ou teste de
+significância. Não provam erro nas anotações nem justificam retreino ou
+ajuste da receita congelada `[E38]`. Na Etapa 6A, o avaliador compartilhado
+materializou linhas de `test`, mas elas não entraram em inferência, contagem,
+regra ou veredito; a Etapa 6B usou apenas `val` e dobras de `train` `[E37]`
+`[E38]`. Os dois erros seguem como limitação não resolvida para os sujeitos
+retidos no desenvolvimento.
 
 ### Experimentos externos de física e movimento
 
@@ -532,7 +543,7 @@ cópia usada.
 | ID | Afirmação | Fonte |
 | --- | --- | --- |
 | E1 | Arquitetura dos braços, receita idêntica, gate escalar, qualidade como proxy | `train/baseline-a.md`, `train/baseline-b0.md`, `train/baseline-b1.md` (Gate adaptativo), `train/baseline-c0.md`, `train/baseline-c1.md` |
-| E2 | Composição de Le2i-CV, fatores confundidos, sobreposição de sujeitos, classes ausentes do treino, Le2i-CS não é entre domínios | `analysis/le2i-cv-generalization.md` |
+| E2 | Composição de Le2i-CV, IDs de sujeito sem identidade global única, fatores confundidos, classes ausentes do treino; Le2i-CS não é entre domínios | `analysis/le2i-cv-generalization.md` (Composição dos splits; Le2i-CV não é cross-subject; Fatores de domínio que co-variam) |
 | E3 | Semântica do desvio entre seeds, teste descritivo, nenhuma seleção | `analysis/multiseed-summary.md` (Resultado da execução real — B0, B1, C0 e C1) |
 | E4 | Referências canônicas da seed 42, apenas Le2i-CS | `reference/le2i-runs.md`; `analysis/classification-diagnosis.md` (Entradas) |
 | E5 | Caráter exploratório dos diagnósticos e das dobras | `analysis/multiseed-error-consolidation.md`, `analysis/intervention-decision.md` |
@@ -567,8 +578,8 @@ cópia usada.
 | E34 | Encerramento das Etapas 4A–4D sem promoção de `detection_dropout`, `test` oficial fora da seleção | `analysis/intervention-decision.md` (Encerramento da intervenção de perda de detecção) |
 | E35 | Amostragem balanceada por sujeito, critério congelado, deltas pareados de Macro-F1 restrita e por classe, distribuição sorteada (Etapa 5A) | `train/subject-fold-subject-balanced-sampling.md` (A intervenção; Critério exploratório congelado; Execução registrada (não canônica); Limitações) |
 | E36 | Encerramento da Etapa 5A sem promoção da amostragem balanceada por sujeito, limitações e alcance do resultado negativo | `analysis/intervention-decision.md` (Encerramento da amostragem balanceada por sujeito) |
-| E37 | Diagnóstico dos erros `standing→walk` e `sitting→stand_up` em `val` e nas dobras, regras predeclaradas e veredito `unresolved_limitation` (Etapa 6A) | `analysis/standing-sitting-diagnosis.md` (Resultados observados; Interpretação) |
-| E38 | Seleção e revisão preliminar por IA de 54 itens, 24 pares, proveniência e encerramento sem intervenção (Etapa 6B) | `analysis/standing-sitting-review-set.md` (Cobertura da execução real; Revisão preliminar por IA concluída); `analysis/intervention-decision.md` (Encerramento dos erros `standing→walk` e `sitting→stand_up`) |
+| E37 | Diagnóstico dos erros `standing→walk` e `sitting→stand_up` em `val` e nas dobras, isolamento analítico de `test`, regras predeclaradas e veredito `unresolved_limitation` (Etapa 6A) | `analysis/standing-sitting-diagnosis.md` (Evidência usada; Resultados observados; Interpretação; Execução registrada) |
+| E38 | Revisão preliminar por IA de 54 itens, 24 pares, seis erros sem par, proveniência e encerramento sem intervenção (Etapa 6B) | `analysis/standing-sitting-review-set.md` (Cobertura da execução real; Revisão preliminar por IA concluída); `analysis/intervention-decision.md` (Encerramento dos erros `standing→walk` e `sitting→stand_up`) |
 
 Os sumários locais de E15 foram produzidos pelo
 [sumário multi-seed](multiseed-summary.md), que valida configuração,
@@ -591,3 +602,6 @@ teste do Le2i-CV não estão em nenhuma outra página versionada.
   fontes conferidas.
 - O texto final deve preservar a separação entre agregados, exemplos da seed
   42, investigações exploratórias e experimentos externos.
+- Qualquer conclusão visual sobre os rótulos ou a natureza das ações requer
+  validação humana independente: a revisão da Etapa 6B é preliminar e foi
+  feita por IA `[E38]`.
