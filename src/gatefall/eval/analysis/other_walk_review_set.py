@@ -133,6 +133,7 @@ CONTEXT_FIELDS = [
 
 DecodeFrames = Callable[[Path, Sequence[int]], list[np.ndarray]]
 Record = dict[str, Any]
+SheetHeader = Callable[[str, Record, pd.DataFrame], tuple[str, ...]]
 
 
 @dataclass(frozen=True)
@@ -455,6 +456,7 @@ def render_sheets(
     reviews: list[tuple[str, Record, pd.DataFrame]],
     video_paths: Mapping[str, Path],
     decode_fn: DecodeFrames,
+    header: SheetHeader = sheet_header,
 ) -> tuple[dict[str, bytes], list[dict]]:
     sheets: dict[str, bytes] = {}
     missing: list[dict] = []
@@ -478,7 +480,7 @@ def render_sheets(
         frame_by_src = dict(zip(src_indices, decoded))
         for review_id, item, mapping in by_video[video_id]:
             frames_rgb = [frame_by_src[int(src)] for src in mapping["src_index"]]
-            sheets[review_id] = png_bytes(contact_sheet(frames_rgb, mapping, sheet_header(review_id, item, mapping)))
+            sheets[review_id] = png_bytes(contact_sheet(frames_rgb, mapping, header(review_id, item, mapping)))
     return sheets, missing
 
 
