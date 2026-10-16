@@ -18,9 +18,26 @@ sujeito (Etapa 5A).
 
 ## Evidência usada
 
-Nenhuma linha, feature, pose ou predição do `test` oficial é lida. O bloco
-`final.test` de `metrics.json` só tem a presença conferida pelo validador
-compartilhado dos runs.
+Os splits analisados são `train` e `val`. Os splits carregados são mais
+amplos, e o relatório registra os dois em `split_access`:
+
+| Campo de `split_access` | Conteúdo na execução real |
+| --- | --- |
+| `analyzed` | `train`, `val`: únicos splits que entram em contagens, métricas, regras e vereditos |
+| `inference` | `val`: o avaliador de cada run é envolvido por uma guarda que recusa qualquer outro split antes de chamá-lo |
+| `subject_fold_source` | `train`: as dobras leem `frames.parquet` com filtro de split |
+| `pose` | `train`, `val`: o loader de pose é envolvido por uma guarda que recusa vídeos fora do índice `train`/`val`, lido do `frames.parquet` com filtro de split |
+| `frames_materialized_by_shared_evaluator` | `test`, `train`, `val` |
+| `metrics_json_blocks_loaded_not_analyzed` | `final.test` |
+
+O `prepare()` compartilhado dos avaliadores de eventos chama
+`adapter.load_frames()`, que lê o `frames.parquet` inteiro, inclusive as
+linhas e os rótulos de `test`. Esse carregador não foi alterado. O
+diagnóstico reduz as linhas devolvidas a `val` antes de qualquer cálculo,
+inclusive antes da checagem de metadados dos vídeos. `metrics.json` também é
+lido inteiro, e o validador compartilhado só confere a presença de
+`final.test`. Portanto, `test` pode ser materializado em memória, mas não
+entra em inferência, pose, métricas, regras, vereditos nem treino.
 
 | Fonte | Unidade | O que é reaproveitado |
 | --- | --- | --- |
@@ -29,7 +46,7 @@ compartilhado dos runs.
 | Dobras por sujeito | Janela em `EVAL_STRIDE` do grupo retido, controle do braço A, seed 42 | Validadores das [Etapas 4B](../train/subject-folds.md) e [4D](subject-fold-dropout-robustness.md): `folds.json`, estatística da dobra, proveniência, checkpoint e reavaliação limpa que reproduz exatamente `final.val` do run da dobra. |
 
 Os grupos retidos das dobras são sujeitos do próprio `train` oficial, então
-servem como sujeitos fora do treino sem ler o `test`.
+servem como sujeitos fora do treino sem usar o `test`.
 
 ## Categorias de janela e regras
 
@@ -166,9 +183,10 @@ que desloque outra etapa, aplicada igualmente a A, B e C e avaliada sem o
 
 ## Garantias de somente leitura
 
-- Só `train` e `val` oficiais do Le2i-CS entram; runs de Le2i-CV são
-  recusados. A reinferência oficial pede só o split `val` ao avaliador, e a
-  pose bruta é aberta só para vídeos de `train` e `val`.
+- Só `train` e `val` oficiais do Le2i-CS são analisados; runs de Le2i-CV são
+  recusados. Linhas de `test` carregadas pelo avaliador compartilhado são
+  descartadas antes de qualquer cálculo. As guardas recusam inferência fora
+  de `val` e pose de vídeos fora de `train`/`val`.
 - As predições do `val` precisam reproduzir exatamente `final.val` de cada
   run, nos níveis de ambiente, sujeito e vídeo; as dos retidos, a matriz, o
   suporte e a Macro-F1 restrita de `final.val` do run da dobra. As contagens
@@ -222,9 +240,14 @@ margem final só com trecho seguinte, fração de detecção com replicação de
 borda, contagens e destinos por par, reconciliação com a matriz gravada,
 alinhamento entre predições e atributos, limiares e elegibilidade das regras,
 concordância entre braços, vereditos e uma execução ponta a ponta com dobras
-sintéticas treinadas: leitura só de `train` e `val`, evidência ausente,
+sintéticas treinadas. Essa execução confere `split_access`, inferência só em
+`val`, pose só de vídeos `train`/`val` e saídas idênticas byte a byte quando
+só as linhas de `test` devolvidas pelo avaliador mudam (rótulos trocados e um
+vídeo de `test` com dois ambientes, o que falharia a checagem de metadados
+se essas linhas entrassem no cálculo). Também confere evidência ausente,
 determinismo, entradas inalteradas, `--force`, saídas protegidas e falha
-após divergência com `metrics.json`.
+após divergência com `metrics.json`. Um teste unitário confirma que as
+guardas falham antes de chamar o avaliador ou o loader.
 
 ### Execução registrada (não canônica)
 
@@ -245,6 +268,23 @@ versionadas:
 | `standing_sitting_diagnosis.json` | `328588e2e2736bcce7ef35cccbef197a8130f34da72da49157d9e8ce2377a01f` |
 | `standing_sitting_diagnosis.md` | `785ed7c7b8ed19ea6dce60e9fb860511a6739266cf4d98e3bc3fbe76c8f98142` |
 | `standing_sitting_windows.csv` | `cbae5be8a8b0de5b18c9fb448268c549094a17ca42bdd3f035439c5a5e573957` |
+
+Essa execução usou o código anterior à distinção entre splits carregados e
+analisados (commit `efec5a1`). O JSON registrado traz
+`official_splits_read: ["train", "val"]` e o texto "O test oficial não é
+lido", que exageram o isolamento: o avaliador compartilhado materializou as
+linhas de `test`, e a checagem de metadados dos vídeos, que só aprova ou
+recusa a execução, percorreu todas as linhas carregadas. Nenhuma linha de
+`test` entrou em contagem, métrica, regra ou veredito. Os arquivos
+registrados e seus SHA-256 são mantidos.
+
+Uma verificação com o código corrigido, gravada fora do repositório, não
+substitui a execução registrada. Os SHA-256 das 376 entradas protegidas,
+incluindo as saídas registradas acima, foram iguais antes e depois. O CSV
+saiu idêntico byte a byte. No JSON, só mudaram `split_access`, que substitui
+`official_splits_read`, e o texto das limitações. No Markdown, só mudaram as
+frases sobre `test`. Suportes, reconciliações, pares, regras e vereditos são
+os mesmos.
 
 ## Limitações
 

@@ -1,5 +1,6 @@
 import json
 import shutil
+import tempfile
 from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path
@@ -35,6 +36,8 @@ from gatefall.eval.analysis.standing_sitting_diagnosis import (
     TRANSITION,
     UNRESOLVED_VERDICT,
     VIDEO_END,
+    SplitAccess,
+    development_video_splits,
     evaluate_rule,
     join_attributes,
     labeled_windows,
@@ -282,13 +285,26 @@ def _write_run(run_dir: Path, arm: str, seed: int, frames: pd.DataFrame) -> None
     (run_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
 
 
+# Altera só linhas de test: troca os rótulos e dá dois ambientes a um vídeo de
+# test, o que falharia a checagem de metadados se essas linhas entrassem em
+# algum cálculo.
+def _perturb_test(frames: pd.DataFrame) -> pd.DataFrame:
+    changed = frames.copy()
+    is_test = changed["split"] == "test"
+    changed.loc[is_test, "label"] = STANDING
+    first_test_row = changed.index[is_test][0]
+    changed.loc[first_test_row, "env"] = "EnvOther"
+    return changed
+
+
 class Recorder:
-    def __init__(self) -> None:
+    def __init__(self, frames_transform: Callable[[pd.DataFrame], pd.DataFrame] | None = None) -> None:
         self.splits: list[str] = []
         self.raw = RawRecordingPose()
+        self.frames_transform = frames_transform
 
     def load_evaluation(self, arm: str, dataset: str, run_dir: Path) -> EventEvaluation:
-        frames = frames_table()
+        frames = frames_table() if self.frames_transform is None else self.frames_transform(frames_table())
         seed = int(yaml.safe_load((run_dir / "config.yaml").read_text(encoding="utf-8"))["seed"])
 
         def evaluate_split(split: str) -> tuple[int, Predictions]:
@@ -325,7 +341,10 @@ def _report_checks(report: dict, windows: pd.DataFrame, summary: str, runs_root:
     return (
         report["canonical"] is False
         and report["read_only"] is True
-        and report["official_splits_read"] == ["train", "val"]
+        and report["split_access"]["analyzed"] == ["train", "val"]
+        and report["split_access"]["inference"] == ["val"]
+        and report["split_access"]["pose"] == ["train", "val"]
+        and report["split_access"]["frames_materialized_by_shared_evaluator"] == ["test", "train", "val"]
         and [(entry["arm"], entry["seed"]) for entry in report["official_val"]["runs"]] == [("A", 42), ("A", 43)]
         and report["official_val"]["arms"]["A"]["n_seeds"] == 2
         and all(entry["reconciliation"]["ok"] for entry in report["official_val"]["runs"])
@@ -377,6 +396,13 @@ def _selftest_end_to_end() -> bool:
         _diagnose(paths, runs, workspace / "repeat", Recorder())
         deterministic = all((workspace / "repeat" / name).read_bytes() == (output_dir / name).read_bytes()
                             for name in (REPORT_JSON_FILE, REPORT_SUMMARY_FILE, REPORT_WINDOWS_FILE))
+        perturbed = Recorder(_perturb_test)
+        with patch.object(standing_sitting_diagnosis, "load_evaluation", perturbed.load_evaluation):
+            _diagnose(paths, runs, workspace / "test_perturbed", perturbed)
+        test_excluded = perturbed.splits == ["val", "val"] and all(
+            (workspace / "test_perturbed" / name).read_bytes() == (workspace / "repeat" / name).read_bytes()
+            for name in (REPORT_JSON_FILE, REPORT_SUMMARY_FILE, REPORT_WINDOWS_FILE)
+        )
         previous = (output_dir / REPORT_JSON_FILE).read_bytes()
         skipped = not _diagnose(paths, runs[:1], output_dir, Recorder())
         preserved = (output_dir / REPORT_JSON_FILE).read_bytes() == previous
@@ -411,13 +437,16 @@ def _selftest_end_to_end() -> bool:
             and any(item["reason"] == "folds.json ausente" for item in no_folds["missing_evidence"])
         )
         pose_scope = {path.relative_to(workspace / "pose").with_suffix("").as_posix()
-                      for path in pose_files(frames_path, workspace / "pose")} == {*TRAIN_VIDEOS, "EnvVal/v5"}
+                      for path in pose_files(development_video_splits(frames_path), workspace / "pose")} == {
+            *TRAIN_VIDEOS, "EnvVal/v5"}
     return _check(
         "execução ponta a ponta com dobras sintéticas treinadas: grava JSON/resumo/janelas, reconcilia val, train e "
-        "retidos, lê só train e val (nunca vídeos de test), registra evidência ausente sem inventar resultados, é "
+        "retidos, distingue splits carregados de analisados, infere só em val, abre pose só de train/val, gera "
+        "saídas idênticas byte a byte quando só as linhas de test do avaliador mudam, registra evidência ausente "
+        "sem inventar resultados, é "
         "determinística, não muda entradas, respeita --force, recusa saídas protegidas, Le2i-CV e duplicatas e não "
         "grava após divergência com metrics.json",
-        recorded and unchanged and deterministic and skipped and preserved and forced and guards and cv_rejected
+        recorded and unchanged and deterministic and test_excluded and skipped and preserved and forced and guards and cv_rejected
         and duplicate and tamper_fails and folds_reported and pose_scope,
     )
 
@@ -427,9 +456,45 @@ def _matrix_labels(matrix: list[list[int]]) -> tuple[np.ndarray, np.ndarray]:
     return np.array([true for true, _ in pairs]), np.array([pred for _, pred in pairs])
 
 
+def _selftest_split_guards() -> bool:
+    access = SplitAccess({"EnvA/s0a": "train", "EnvVal/v5": "val"})
+    calls: list[str] = []
+
+    def evaluate(split: str) -> tuple[int, Predictions]:
+        calls.append(split)
+        return 0, ([], [], [], [])
+
+    evaluator = access.guard_evaluator(evaluate, "sintético")
+    test_inference = _raises(RuntimeError, lambda: evaluator("test"), "só infere em val")
+    evaluator("val")
+    loads: list[str] = []
+
+    def load(video_id: str) -> PoseArrays:
+        loads.append(video_id)
+        return _pose(40, [])
+
+    pose = access.guard_pose(load)
+    test_pose = _raises(RuntimeError, lambda: pose("EnvTest/t2"), "fora de train/val")
+    pose("EnvVal/v5")
+    guarded = (test_inference and calls == ["val"] and access.inference == {"val"} and test_pose
+               and loads == ["EnvVal/v5"] and access.pose == {"val"})
+    index_rejected = _raises(ValueError, lambda: SplitAccess({"EnvTest/t2": "test"}), "fora de train/val")
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "frames.parquet"
+        frames_table().to_parquet(path)
+        splits = development_video_splits(path)
+    filtered = set(splits.values()) == {"train", "val"} and not set(splits) & TEST_VIDEOS
+    return _check(
+        "inferência fora de val e pose de vídeo fora de train/val falham antes de chamar o avaliador ou o loader; "
+        "o índice de pose é lido com filtro de split e não contém vídeos de test",
+        guarded and index_rejected and filtered,
+    )
+
+
 def run_selftest() -> bool:
     checks: list[Callable[[], bool]] = [
         _selftest_window_categories,
+        _selftest_split_guards,
         _selftest_pair_breakdown,
         _selftest_rules_and_verdicts,
         _selftest_end_to_end,

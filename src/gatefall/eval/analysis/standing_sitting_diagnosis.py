@@ -2,11 +2,18 @@
 
 Diagnóstico exploratório e não canônico de Le2i-CS sobre evidência de
 desenvolvimento: o `train` oficial, o `val` oficial e os grupos retidos das
-dobras por sujeito da Etapa 4B, que são sujeitos do próprio `train`. Nenhuma
-linha, feature, pose ou predição do `test` oficial é usada; o bloco
-`final.test` de `metrics.json` só tem a presença conferida pelo validador
-compartilhado dos runs. Nada é treinado, reextraído, ajustado, selecionado ou
-promovido.
+dobras por sujeito da Etapa 4B, que são sujeitos do próprio `train`. Nada é
+treinado, reextraído, ajustado, selecionado ou promovido.
+
+Splits carregados e splits analisados são distintos (`split_access` no
+relatório). O `prepare()` compartilhado dos avaliadores de eventos lê o
+`frames.parquet` inteiro, inclusive linhas e rótulos de `test`, e
+`metrics.json` é lido inteiro, inclusive `final.test`, cuja presença o
+validador compartilhado confere. Este módulo não altera esses carregadores:
+ele reduz as linhas devolvidas a `val` antes de qualquer cálculo, só aceita
+inferência em `val`, só abre pose de vídeos `train`/`val` (lidos do
+`frames.parquet` com filtro de split) e nunca usa `test` em métricas, regras
+ou treino.
 
 Fontes reaproveitadas:
 
@@ -93,6 +100,7 @@ from gatefall.eval.analysis.window_context_diagnosis import (
     label_name,
     video_context,
 )
+from gatefall.eval.shared.orchestration import Predictions
 from gatefall.pose.loading import PoseArrays, load_pose, pose_path
 from gatefall.runs import REFERENCE_RUN_ROOT, REPOSITORY_ROOT
 from gatefall.train.baseline_a.artifacts import load_compatible_checkpoint
@@ -186,6 +194,55 @@ WINDOW_CSV_COLUMNS = [
 ]
 
 PoseLoader = Callable[[str], PoseArrays]
+SplitEvaluator = Callable[[str], tuple[int, Predictions]]
+ANALYZED_SPLITS: tuple[str, ...] = (OFFICIAL_TRAIN_SPLIT, VAL_SPLIT)
+
+
+class SplitAccess:
+    """Registra e restringe o acesso por split: inferência só em `val` e pose só de vídeos `train`/`val`."""
+
+    def __init__(self, video_splits: dict[str, str]) -> None:
+        unexpected = sorted(set(video_splits.values()) - set(ANALYZED_SPLITS))
+        if unexpected:
+            raise ValueError(f"índice de vídeos de pose com splits fora de train/val: {unexpected}")
+        self.video_splits = video_splits
+        self.frames_materialized: set[str] = set()
+        self.inference: set[str] = set()
+        self.pose: set[str] = set()
+
+    def guard_evaluator(self, evaluate_split: SplitEvaluator, context: str) -> SplitEvaluator:
+        def guarded(split: str) -> tuple[int, Predictions]:
+            if split != VAL_SPLIT:
+                raise RuntimeError(f"{context}: inferência pedida em {split!r}; a Etapa 6A só infere em val")
+            self.inference.add(split)
+            return evaluate_split(split)
+
+        return guarded
+
+    def guard_pose(self, load: PoseLoader) -> PoseLoader:
+        def guarded(video_id: str) -> PoseArrays:
+            split = self.video_splits.get(video_id)
+            if split is None:
+                raise RuntimeError(f"pose pedida para vídeo fora de train/val: {video_id!r}")
+            self.pose.add(split)
+            return load(video_id)
+
+        return guarded
+
+    def record(self) -> dict:
+        return {
+            "analyzed": list(ANALYZED_SPLITS),
+            "inference": sorted(self.inference),
+            "subject_fold_source": [OFFICIAL_TRAIN_SPLIT],
+            "pose": sorted(self.pose),
+            "frames_materialized_by_shared_evaluator": sorted(self.frames_materialized),
+            "metrics_json_blocks_loaded_not_analyzed": ["final.test"],
+            "note": (
+                "O prepare() compartilhado dos avaliadores lê o frames.parquet inteiro, inclusive linhas e rótulos de "
+                "test, e metrics.json é lido inteiro. As linhas são reduzidas a val antes de qualquer cálculo; "
+                "test não entra em inferência, pose, métricas, regras, vereditos nem treino."
+            ),
+        }
 
 
 def pair_key(true_label: str, predicted_label: str) -> str:
@@ -380,16 +437,22 @@ def _prediction_table(table: pd.DataFrame) -> pd.DataFrame:
     return focus.reset_index(drop=True)
 
 
-def official_val_run(item: DiagnosisInput, load: PoseLoader) -> tuple[dict, pd.DataFrame, dict[str, int]]:
+def official_val_run(
+    item: DiagnosisInput, load: PoseLoader, access: SplitAccess
+) -> tuple[dict, pd.DataFrame, dict[str, int]]:
     run = validate_run(item)
     seed = run.header["seed"]
     if not isinstance(seed, int):
         raise ValueError(f"{run.context}: config.yaml sem seed inteira")
     train_block = diagnose_split(run.final.get(OFFICIAL_TRAIN_SPLIT), LE2I_LABEL_NAMES, f"{run.context} [train]")
     frames, evaluate_split = load_evaluation(item.arm, item.dataset, item.path).prepare()
-    context = f"{run.context} [{VAL_SPLIT}]"
-    table, analysis = analyze_split_with_table(frames, evaluate_split, VAL_SPLIT, run.final[VAL_SPLIT], context)
+    access.frames_materialized.update(str(split) for split in frames["split"].unique())
     val_frames = cast(pd.DataFrame, frames[frames["split"] == VAL_SPLIT])
+    del frames
+    context = f"{run.context} [{VAL_SPLIT}]"
+    table, analysis = analyze_split_with_table(
+        val_frames, access.guard_evaluator(evaluate_split, context), VAL_SPLIT, run.final[VAL_SPLIT], context
+    )
     attributes = labeled_windows(val_frames, EVAL_STRIDE, FOCUS_TRUE_IDS, load)
     windows = join_attributes(_prediction_table(table), attributes, context)
     matrix = np.asarray(run.final[VAL_SPLIT]["confusion_matrix"], dtype=np.int64)
@@ -807,7 +870,9 @@ def structural_missing_evidence() -> list[dict]:
 def limitations() -> list[str]:
     return [
         "Análise exploratória e não canônica (Etapa 6A): nada substitui runs/reference nem seleciona run, seed, "
-        "checkpoint, limiar ou hiperparâmetro. O test oficial não é lido e não entra em nenhuma regra.",
+        "checkpoint, limiar ou hiperparâmetro. Linhas e rótulos de test são carregados pelo prepare() "
+        "compartilhado dos avaliadores, mas descartados antes de qualquer cálculo: test não entra em inferência, "
+        "pose, métricas, regras nem vereditos.",
         "Associação não é causa: categorias de janela coincidem com posição no vídeo, ação, sujeito, ambiente e "
         "decisões de anotação. Uma taxa de erro maior em uma categoria não mostra que ela produz o erro.",
         f"Janelas com eval_stride {EVAL_STRIDE} se sobrepõem e não são observações independentes; a unidade das "
@@ -844,9 +909,11 @@ def build_report(
     manifest_path: Path,
     pose_root: Path,
     load: PoseLoader,
+    access: SplitAccess,
     pose: PoseInputs | None = None,
 ) -> tuple[dict, pd.DataFrame, dict[str, str]]:
     train_frames, snapshot, input_sha256 = _official_train(frames_path, manifest_path)
+    load = access.guard_pose(load)
     missing: list[dict] = []
     val_entries: list[dict] = []
     val_tables: list[pd.DataFrame] = []
@@ -860,7 +927,7 @@ def build_report(
             continue
         snapshot.update(snapshot_inputs([path.resolve() for path in run_input_files(item)]))
         try:
-            entry, windows, train_support = official_val_run(item, load)
+            entry, windows, train_support = official_val_run(item, load, access)
         except FileNotFoundError as exc:
             missing.append({"evidence": OFFICIAL_VAL, "source": display_path(item.path),
                             "reason": f"arquivo ausente durante a inferência: {exc}", "missing_files": []})
@@ -896,7 +963,7 @@ def build_report(
         "read_only": True,
         "dataset": SUPPORTED_DATASET,
         "protocol": PROTOCOL_NAMES[SUPPORTED_DATASET],
-        "official_splits_read": [OFFICIAL_TRAIN_SPLIT, VAL_SPLIT],
+        "split_access": access.record(),
         "focus_pairs": [pair_key(true, pred) for true, pred in FOCUS_PAIRS],
         "label_names": list(LE2I_LABEL_NAMES),
         "restricted_labels": [LE2I_LABEL_NAMES[class_id] for class_id in RESTRICTED_CLASSES],
@@ -1071,7 +1138,8 @@ def render_summary(report: dict) -> str:
         f"# Erros {_arrow(report['focus_pairs'][0])} e {_arrow(report['focus_pairs'][1])} (Etapa 6A, não canônico)",
         "",
         "Diagnóstico exploratório e somente leitura de Le2i-CS sobre train oficial, val oficial e grupos retidos "
-        "das dobras por sujeito. O test oficial não é lido. Predições vêm de reexecuções que reproduzem "
+        "das dobras por sujeito. Linhas de test carregadas pelo avaliador compartilhado são descartadas antes de "
+        "qualquer cálculo; a inferência é só em val e nos retidos. Predições vêm de reexecuções que reproduzem "
         "exatamente as matrizes gravadas; categorias e regras descrevem associações, não causas.",
         "",
         f"**Veredito: `{decision['verdict']}`.**",
@@ -1116,11 +1184,18 @@ def check_diagnosis_output_dir(output_dir: Path, protected: list[Path]) -> None:
         raise ValueError(f"--output-dir {output_dir} dentro do repositório precisa ficar em {LOCAL_OUTPUT_ROOT}")
 
 
-def pose_files(frames_path: Path, pose_root: Path) -> list[Path]:
-    frames = pd.read_parquet(frames_path, columns=["video_id", "split"])
-    video_ids = sorted({str(video_id) for video_id in
-                        frames.loc[frames["split"].isin([OFFICIAL_TRAIN_SPLIT, VAL_SPLIT]), "video_id"]})
-    return [pose_path(video_id, pose_root=pose_root) for video_id in video_ids]
+def development_video_splits(frames_path: Path) -> dict[str, str]:
+    """Split de cada vídeo `train`/`val`, lido com filtro de split: linhas de `test` não são materializadas."""
+    frames = pd.read_parquet(frames_path, columns=["video_id", "split"],
+                             filters=[("split", "in", list(ANALYZED_SPLITS))])
+    unexpected = sorted(set(frames["split"].astype(str)) - set(ANALYZED_SPLITS))
+    if unexpected:
+        raise ValueError(f"{frames_path}: leitura filtrada devolveu splits fora de train/val: {unexpected}")
+    return {str(video_id): str(split) for video_id, split in sorted(set(zip(frames["video_id"], frames["split"])))}
+
+
+def pose_files(video_splits: dict[str, str], pose_root: Path) -> list[Path]:
+    return [pose_path(video_id, pose_root=pose_root) for video_id in sorted(video_splits)]
 
 
 def raw_pose_loader(pose_root: Path) -> PoseLoader:
@@ -1159,15 +1234,16 @@ def run_diagnosis(
     if existing and not force:
         print(f"skip {', '.join(existing)} (já existe, use --force para sobrescrever)")
         return False
+    access = SplitAccess(development_video_splits(frames_path))
     pose_snapshot: dict[str, str] = {}
     if load is None:
-        files = pose_files(frames_path, pose_root)
+        files = pose_files(access.video_splits, pose_root)
         absent = [str(path) for path in files if not path.is_file()]
         if absent:
             raise FileNotFoundError(f"pose de train/val ausente: {absent[:5]}")
         pose_snapshot = snapshot_inputs([path.resolve() for path in files])
         load = raw_pose_loader(pose_root)
-    report, windows, snapshot = build_report(runs, fold_root, frames_path, manifest_path, pose_root, load, pose)
+    report, windows, snapshot = build_report(runs, fold_root, frames_path, manifest_path, pose_root, load, access, pose)
     snapshot.update(pose_snapshot)
     report["input_sha256"] = {display_path(Path(path)): digest for path, digest in sorted(snapshot.items())}
     outputs = {
