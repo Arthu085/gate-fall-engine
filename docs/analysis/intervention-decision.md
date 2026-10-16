@@ -1,4 +1,4 @@
-# Análise — Decisão sobre intervenções no modelo (Etapas 2A, 2G e 4A–4D)
+# Análise — Decisão sobre intervenções no modelo (Etapas 2A, 2G, 4A–4D e 5A)
 
 Este documento registra uma decisão **exploratória e não canônica**: se a
 evidência de desenvolvimento (`train` e `val`) justifica alguma melhoria
@@ -35,6 +35,12 @@ braço A, avaliada só em dobras por sujeito do `train` oficial do Le2i-CS. O
 [encerramento das Etapas 4A–4D](#encerramento-etapas-4a-4d) registra o
 resultado: `detection_dropout` não é promovido, e nenhum modelo canônico
 muda.
+
+A Etapa 5A testou, nas mesmas dobras e contra os mesmos controles, uma
+intervenção distinta de amostragem balanceada por sujeito no treino do braço
+A. O [encerramento da Etapa 5A](#encerramento-etapa-5a) registra que o
+critério congelado não foi atendido: a amostragem não é promovida, e nenhum
+modelo canônico muda.
 
 ## Fontes
 
@@ -453,6 +459,97 @@ e de intervenção e não foi lido por nenhuma das quatro etapas.
   detecção, lacunas mais longas, detecções erradas nem ruído de keypoints.
 - O critério da Etapa 4C é uma regra de decisão predeclarada, não um teste
   de significância. Nenhuma afirmação de significância estatística é feita.
+
+## Encerramento da amostragem balanceada por sujeito (Etapa 5A) { #encerramento-etapa-5a }
+
+Esta seção encerra a [Etapa 5A](../train/subject-fold-subject-balanced-sampling.md):
+uma única intervenção predeclarada de amostragem no treino do braço A do
+Le2i-CS, em que cada época sorteia as janelas do treino de desenvolvimento
+com probabilidade igual por sujeito. A pergunta era se reduzir o domínio de
+poucos sujeitos sobre as janelas de treino melhora a generalização para
+sujeitos retidos. É só documentação: não há novo experimento, treino,
+avaliação, seleção nem mudança de protocolo. A Etapa 5A usa as dobras e os
+controles limpos congelados da [Etapa 4B](../train/subject-folds.md), mas é
+uma intervenção distinta da perda simulada de detecção: o
+[encerramento das Etapas 4A–4D](#encerramento-etapas-4a-4d) e suas
+conclusões ficam inalterados.
+
+### Decisão final
+
+**A amostragem balanceada por sujeito não é promovida** a nenhuma
+configuração canônica A/B/C, e a intervenção exploratória fica encerrada. A
+evidência atual não justifica:
+
+- acrescentar a amostragem balanceada por sujeito à receita de treino. Pela
+  invariante 1, isso exigiria a mesma mudança em A, B e C e o retreino dos
+  três;
+- buscar um efeito com mais seeds, outras probabilidades de sorteio,
+  combinação com balanceamento por classe ou outros braços;
+- avaliar a intervenção no `val` ou no `test` oficiais.
+
+As decisões congeladas continuam valendo: receita idêntica entre A, B e C,
+checkpoint da última época, splits oficiais, runs canônicos e
+`runs/reference/`. Os runs e o resumo da Etapa 5A ficam em
+`runs/local/le2i/subject_folds/`, não versionado, e nenhum deles é
+promovido. O `test` oficial, já exposto, não foi lido nem entrou em nenhuma
+seleção.
+
+### Critério congelado e resultado
+
+O [critério](../train/subject-fold-subject-balanced-sampling.md#criterio-exploratorio-congelado),
+fixado em `DECISION_RULE` e commitado antes dos treinos, exige delta pareado
+de Macro-F1 restrita no retido (balanceado menos controle) de pelo menos
++0,03 em pelo menos duas das três dobras e nenhum delta abaixo de −0,02 na
+dobra restante. Os deltas não são agregados entre dobras.
+
+| Dobra | Controle (4B) | Balanceado (5A) | Δ |
+| --- | ---: | ---: | ---: |
+| `retain_s0` | 0,5584 | 0,5416 | −0,0168 |
+| `retain_s1` | 0,6576 | 0,6797 | +0,0221 |
+| `retain_s3-4-6-8` | 0,6157 | 0,6163 | +0,0006 |
+
+**O critério não foi atendido.** Nenhuma dobra chega a +0,03. O menor delta,
+−0,0168, fica dentro do limite de −0,02, então a intervenção falha pela
+ausência de ganho, não por uma piora que ultrapasse a tolerância
+([execução registrada](../train/subject-fold-subject-balanced-sampling.md#execucao-registrada-nao-canonica)).
+
+### Observações
+
+1. **Os deltas não têm direção consistente.** Um é negativo, um é positivo e
+   um é praticamente nulo. O de `retain_s0`, a dobra cujo treino perde o
+   sujeito dominante, é negativo. O único delta positivo relevante,
+   +0,0221 em `retain_s1`, vem de uma dobra que retém um único sujeito e
+   ainda fica abaixo do limiar de +0,03.
+2. **Os efeitos por classe são inconsistentes.** Δ F1 de `standing` é
+   −0,048, +0,138 e −0,009; o de `other`, +0,012, +0,031 e −0,016; e o de
+   `fall`, −0,000, −0,010 e +0,015, na ordem `retain_s0`, `retain_s1`,
+   `retain_s3-4-6-8`. Nenhuma das três classes muda na mesma direção nas
+   três dobras. O maior delta, de `standing` em `retain_s1`, vem de 70
+   janelas de cinco vídeos de um único sujeito.
+3. **A amostragem mudou também a distribuição de classes do treino.** Por
+   exemplo, em `retain_s1`, `other` passou de 1052 janelas limpas para cerca
+   de 1332 sorteadas por época, e `sit_down`, de 121 para cerca de 62. O
+   efeito observado não isola o balanceamento por sujeito dessa mudança.
+
+### Limitações do encerramento
+
+- O critério é uma regra de decisão predeclarada, não um teste de
+  significância. Nenhuma afirmação de significância estatística é feita, e o
+  alvo de 0,800 não é verificado.
+- Uma seed de treino (42) por dobra e modelo. A variação entre seeds não é
+  estimada, e deltas desta ordem podem vir só dela.
+- As três dobras têm tamanhos muito diferentes, duas retêm um único sujeito,
+  e em `retain_s3-4-6-8` só há dois sujeitos de desenvolvimento. Nas outras
+  dobras, o sujeito com menos janelas é repetido várias vezes por época, e o
+  efeito mistura menos domínio de poucos sujeitos com mais sobreajuste aos
+  vídeos dos sujeitos pequenos.
+- Os pesos de classe continuam os do treino limpo completo e não compensam a
+  mudança na distribuição de classes sorteada.
+- As janelas são sobrepostas e não são observações independentes.
+- O resultado vale para esta receita, este braço, esta seed e esta regra de
+  sorteio. Ele não mostra que o balanceamento por sujeito não possa
+  funcionar em outras condições, como outro esquema de dobras, mais sujeitos,
+  outros braços ou outra intensidade de reamostragem.
 
 ## Limitações
 
