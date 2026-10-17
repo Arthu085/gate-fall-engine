@@ -56,12 +56,24 @@ atuais. As features podem ser compartilhadas entre dobras porque não são
 ajustadas nos vídeos Le2i; a padronização e a cabeça são exclusivas da dobra.
 `val` e `test` oficiais não selecionam receita, seed, limiar ou checkpoint.
 
-O controle A é o run `baseline` da investigação de desbalanceamento, na
-mesma dobra e seed. Ele usa a receita A original. A leitura verifica sua
-configuração, checkpoint, métricas, entradas, estatística de pose e
-proveniência atuais. Os hashes de pertencimento das janelas, os rótulos, os
-strides e os suportes devem coincidir. Um controle ausente ou divergente
-interrompe o piloto; ele nunca é retreinado automaticamente.
+O controle A preferencial é o run nativo `baseline_a/seed_42` da mesma
+dobra, nas raízes existentes de CS e CV. A leitura reutiliza os validadores
+de cada protocolo: integridade de treino, `fold_run.json`, composição,
+hashes das entradas, estatística ajustada só no desenvolvimento, receita A
+original, seed 42, checkpoint da última época e mapeamento de avaliação.
+Confere também os suportes das dez classes nos dois lados e os hashes de
+pertencimento das janelas, rótulos e strides contra a entrada RGB.
+
+Se o controle nativo não existir, o run `baseline` da investigação de
+desbalanceamento continua aceito após validação própria. Se ambos existirem,
+os dois precisam ser válidos e cientificamente equivalentes: mesma receita
+(exceto `run_name`), mesmas janelas, métricas finais idênticas e tensores do
+checkpoint exatamente iguais. Bytes de serialização diferentes são
+aceitáveis. Qualquer discordância ou controle presente mas inválido
+interrompe a verificação, sem fallback silencioso. As métricas completas,
+configuração, proveniência e hashes dos artefatos originais dos controles
+usados são preservados na proveniência RGB. Nenhum controle é retreinado,
+copiado ou modificado automaticamente.
 
 ## Critério do piloto CS
 
@@ -89,18 +101,39 @@ por janela não prova preservação da sensibilidade de eventos.
 Execute a partir do repositório persistente, na branch
 `analysis/gatefall-improvements`, depois de preparar as dobras existentes
 de [CS](../train/subject-folds.md) e [CV](../train/internal-folds.md).
-Os controles esperados já produzidos pela investigação anterior ficam em
-`runs/local/imbalance_experiment/{cs,cv}/<dobra>/baseline/seed_42/`.
-Não execute os pilotos de desbalanceamento novamente para esta etapa.
+Os seis controles persistentes ficam em:
+
+- CS: `runs/local/le2i/subject_folds/<dobra>/runs/baseline_a/seed_42/`.
+- CV: `runs/local/le2i_cv_internal_folds/<dobra>/runs/baseline_a/seed_42/`.
+
+Cada diretório precisa conter `config.yaml`, `metrics.json`, `checkpoint.pt`
+e `fold_run.json`; os `folds.json` e as estatísticas por dobra também são
+obrigatórios. A ausência de `runs/local/imbalance_experiment/` não impede a
+investigação. Não execute os pilotos de desbalanceamento novamente para
+esta etapa.
 
 ```bash
 cd /home/arthu/projects/gate-fall/gate-fall-engine
 git branch --show-current
 uv sync --locked --dev
 uv run python -m gatefall.train.temporal_rgb selftest
+uv run python -m gatefall.train.temporal_rgb verify-controls --protocol cs
+uv run python -m gatefall.train.temporal_rgb verify-controls --protocol cv
 uv run python -m gatefall.train.temporal_rgb smoke --device cuda --download-weights
 
 uv run python -m gatefall.train.temporal_rgb plan --protocol cs --device cuda
+uv run python -m gatefall.train.temporal_rgb plan --protocol cv --device cuda
+```
+
+`verify-controls` é somente leitura e emite JSON apenas após validar os
+três controles do protocolo. Execute as duas verificações antes de iniciar
+o smoke e os preflights. O código alterado invalida o registro antigo do
+smoke pelo hash de implementação; refaça o smoke no checkout persistente,
+sem extrair RGB nem treinar dentro de um worktree descartável.
+
+Após confirmar os preflights, o piloto CS permanece disponível:
+
+```bash
 uv run python -m gatefall.train.temporal_rgb extract --protocol cs --device cuda
 uv run python -m gatefall.train.temporal_rgb pilot --protocol cs --device cuda
 uv run python -m gatefall.train.temporal_rgb report --protocol cs --device cuda
@@ -169,6 +202,14 @@ Os selftests sintéticos cobrem causalidade e prefixos, padding, exclusão de
 rótulos ignorados, dobras/strides, vazamento, cache interrompido ou
 adulterado, normalização sem retido, repetição do head, checkpoint final,
 reprodução de métricas, relatório incompleto e guardas de recursos.
+As provas dos controles nativos exercitam os validadores reais em três
+dobras CS e três CV, incluindo artefatos ausentes ou corrompidos,
+proveniência divergente, dobra/seed incorretas, época final, estatísticas
+com retido, suporte por classe, janelas diferentes e ausência de retreino.
+Também verificam o fallback e a equivalência entre controles nativos e de
+desbalanceamento, incluindo serializações diferentes e discordância de
+métricas ou tensores. Esses artefatos são sintéticos e temporários; não
+constituem validação dos seis controles reais do checkout persistente.
 
 Validação de implementação em 17/10/2026: o selftest RGB temporal e o
 selftest da investigação de desbalanceamento passaram; `uv run pyright`

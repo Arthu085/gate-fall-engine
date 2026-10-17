@@ -10,7 +10,7 @@ from gatefall.train.temporal_rgb.contract import OUTPUT_ROOT, validate_output, v
 from gatefall.train.temporal_rgb.data import load_context
 from gatefall.train.temporal_rgb.extraction import extract, preflight, smoke
 from gatefall.train.temporal_rgb.report import write_report
-from gatefall.train.temporal_rgb.training import run_probe
+from gatefall.train.temporal_rgb.training import baseline_control, run_probe
 
 
 def main() -> None:
@@ -23,10 +23,11 @@ def main() -> None:
     plan = commands.add_parser("plan")
     pilot = commands.add_parser("pilot")
     report = commands.add_parser("report")
+    controls = commands.add_parser("verify-controls")
     for command in (smoke_parser, extraction, plan, pilot, report):
         command.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
         command.add_argument("--output-root", type=Path, default=OUTPUT_ROOT)
-    for command in (extraction, plan, pilot, report):
+    for command in (extraction, plan, pilot, report, controls):
         command.add_argument("--protocol", choices=("cs", "cv"), required=True)
         command.add_argument("--fold-root", type=Path)
     args = parser.parse_args()
@@ -34,6 +35,12 @@ def main() -> None:
         from gatefall.train.temporal_rgb.selftests import run_selftests
 
         run_selftests()
+        return
+    if args.command == "verify-controls":
+        fold_root = args.fold_root or (CS_FOLD_ROOT if args.protocol == "cs" else CV_FOLD_ROOT)
+        context = load_context(args.protocol, fold_root)
+        verified = [baseline_control(context, partition, fold_root) for partition in context.partitions]
+        print(json.dumps({"protocol": args.protocol, "canonical": False, "controls": verified}, indent=2))
         return
     root = validate_output(args.output_root)
     if args.command == "smoke":
