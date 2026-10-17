@@ -9,6 +9,12 @@ informação temporal RGB para as confusões persistentes. Há um único backbon
 uma receita e um controle estático. Não se cria um braço canônico nem se
 combinam DINOv3 e SAM 3.
 
+**Investigação encerrada após o piloto CS, seed 42.** O RGB dinâmico
+superou o estático nas três dobras de desenvolvimento, mas ficou abaixo
+de A em todas e falhou nos critérios predeclarados de progressão. Os
+resultados e a proveniência local estão registrados abaixo. O experimento
+canônico A/B/C e os resultados do manuscrito permanecem inalterados.
+
 ## Contrato registrado antes dos treinos
 
 `gatefall.train.temporal_rgb` usa o R3D-18 de torchvision com os pesos
@@ -96,11 +102,13 @@ da decisão. Métricas de eventos, FA/h e latência ficam explicitamente
 indisponíveis (`null`) até existir avaliador validado por dobra. Revocação
 por janela não prova preservação da sensibilidade de eventos.
 
-## Execução no checkout persistente
+## Registro da execução no checkout persistente
 
-Execute a partir do repositório persistente, na branch
-`analysis/gatefall-improvements`, depois de preparar as dobras existentes
-de [CS](../train/subject-folds.md) e [CV](../train/internal-folds.md).
+Os comandos abaixo documentam o procedimento do piloto concluído no
+checkout persistente, na branch `analysis/gatefall-improvements`, com as
+dobras existentes de [CS](../train/subject-folds.md) e
+[CV](../train/internal-folds.md). Não constituem recomendação de nova
+execução após o encerramento.
 Os seis controles persistentes ficam em:
 
 - CS: `runs/local/le2i/subject_folds/<dobra>/runs/baseline_a/seed_42/`.
@@ -122,16 +130,16 @@ uv run python -m gatefall.train.temporal_rgb verify-controls --protocol cv
 uv run python -m gatefall.train.temporal_rgb smoke --device cuda --download-weights
 
 uv run python -m gatefall.train.temporal_rgb plan --protocol cs --device cuda
-uv run python -m gatefall.train.temporal_rgb plan --protocol cv --device cuda
 ```
 
 `verify-controls` é somente leitura e emite JSON apenas após validar os
-três controles do protocolo. Execute as duas verificações antes de iniciar
-o smoke e os preflights. O código alterado invalida o registro antigo do
-smoke pelo hash de implementação; refaça o smoke no checkout persistente,
-sem extrair RGB nem treinar dentro de um worktree descartável.
+três controles do protocolo. As duas verificações validaram os seis
+controles reais. A mudança de código da PR #128 invalidou o registro
+anterior do smoke pelo hash de implementação; o registro persistente atual
+corresponde ao código após essa correção. Extração e treino reais exigem
+o checkout persistente.
 
-Após confirmar os preflights, o piloto CS permanece disponível:
+O procedimento CS registrado foi:
 
 ```bash
 uv run python -m gatefall.train.temporal_rgb extract --protocol cs --device cuda
@@ -139,14 +147,9 @@ uv run python -m gatefall.train.temporal_rgb pilot --protocol cs --device cuda
 uv run python -m gatefall.train.temporal_rgb report --protocol cs --device cuda
 ```
 
-Após examinar o relatório CS, a execução equivalente para CV é:
-
-```bash
-uv run python -m gatefall.train.temporal_rgb plan --protocol cv --device cuda
-uv run python -m gatefall.train.temporal_rgb extract --protocol cv --device cuda
-uv run python -m gatefall.train.temporal_rgb pilot --protocol cv --device cuda
-uv run python -m gatefall.train.temporal_rgb report --protocol cv --device cuda
-```
+Não há diretório `runs/local/temporal_rgb/cv/` no checkout validado;
+portanto, não há preflight, extração ou piloto RGB CV local a relatar.
+O resultado CS não justifica executar essas etapas.
 
 `--fold-root` aceita o diretório das dobras existentes; os padrões são
 `runs/local/le2i/subject_folds` e `runs/local/le2i_cv_internal_folds`.
@@ -209,28 +212,138 @@ com retido, suporte por classe, janelas diferentes e ausência de retreino.
 Também verificam o fallback e a equivalência entre controles nativos e de
 desbalanceamento, incluindo serializações diferentes e discordância de
 métricas ou tensores. Esses artefatos são sintéticos e temporários; não
-constituem validação dos seis controles reais do checkout persistente.
+constituem, por si só, validação dos seis controles reais do checkout
+persistente.
 
-Validação de implementação em 17/10/2026: o selftest RGB temporal e o
-selftest da investigação de desbalanceamento passaram; `uv run pyright`
-terminou sem erros ou avisos, e `uv run mkdocs build --strict` passou. O
-smoke com pesos oficiais passou no ambiente pinado, com PyTorch
-`2.13.0+cu130`, torchvision `0.28.0+cu130` e uma GTX 1650. Produziu 512
-canais, repetição byte a byte e descritores distintos para o clipe
-dinâmico e o controle estático; os 33.166.272 parâmetros congelados e os
-buffers permaneceram idênticos. Uma inferência aquecida levou cerca de
-0,057 s, com pico de 203.022.848 bytes alocados em CUDA. Essa medição
-sintética não estabelece o tempo ou a viabilidade de uma extração Le2i
-completa. O registro integral fica em
-`runs/local/temporal_rgb/smoke_cuda.json`, junto dos pesos locais cujo
-SHA-256 é `b3b3357ead25631ec9c57362ff2128a92d0427e01e2cd184951a44380c3f2e9d`.
+### Evidência local validada em 17/10/2026
 
-**Nenhum treino ou extração real Le2i foi executado nesta implementação.**
-Não há resultado real de Macro-F1, ganho contra A, preservação de eventos
-ou observação do alvo 0,800 para esta proposta. O piloto continua
-**não validado**, sem PR para `main` ou candidato promovido.
+A fonte primária dos resultados é
+`runs/local/temporal_rgb/cs/comparison.json`, cujo SHA-256 é
+`176500f0a36d878a100775e0f5194657982f583c7e2ce1e1eef6b46a9e8a1eec`.
+O relatório registra `missing: []`, seed 42, os três pares
+`static`/`dynamic` e os controles A nativos. A conferência usa os artefatos
+persistentes, sem refazer extração, treino ou sobrescrever relatórios.
 
-Mesmo com ganho futuro, três grupos e uma seed fornecem apenas evidência
+- **Smoke pré-treinado:** `runs/local/temporal_rgb/smoke_cuda.json`
+  registra `synthetic_pretrained_smoke_passed`, PyTorch `2.13.0+cu130`,
+  torchvision `0.28.0+cu130` e NVIDIA GeForce GTX 1650. Produziu 512 canais,
+  repetição byte a byte e descritores dinâmico/estático distintos. Os
+  33.166.272 parâmetros congelados e os buffers permaneceram idênticos.
+  A inferência aquecida levou `0.053282754000065324` s, com pico de
+  `203022848` bytes alocados em CUDA. O campo `real_data_trained: false`
+  descreve apenas esse smoke sintético, não o piloto subsequente.
+- **Preflight CS:** `cs/feasibility.json` registra `feasible: true` e
+  `problems: []`, com 20.740 janelas e 41.480 inferências estimadas.
+  A estimativa foi `0.6139357322007527` h de inferência, excluindo
+  decodificação e I/O. O cache estimado sem compressão foi `105525120`
+  bytes; o maior vídeo decodificado, `224409600` bytes, com
+  `4940705792` bytes de RAM disponíveis. O disco exigido foi
+  `1284792064` bytes, frente a `939535351808` bytes livres. Esses são
+  recursos registrados no preflight, não medições atuais nem duração
+  observada da extração completa.
+- **Extração real:** os 133 vídeos do `train` oficial usados em CS possuem
+  um HDF5 íntegro por vídeo em `cs/features/`, cobrindo as 20.740 janelas
+  rotuladas em stride 1, com features `static` e `dynamic` de 512 canais.
+  Foram conferidos os hashes dos vídeos RGB, arrays e features, a
+  proveniência e o alinhamento causal contra as entradas atuais. Não há
+  leitura de `val` ou `test` oficiais nesta investigação.
+- **Seis controles A originais:** os validadores reais confirmaram os
+  três runs CS (`retain_s0`, `retain_s1`, `retain_s3-4-6-8`) e os três CV
+  (`retain_Coffee_room_01`, `retain_Coffee_room_02`, `retain_Lecture_room`),
+  todos em `baseline_a/seed_42/` nas raízes indicadas acima. Foram
+  conferidos receita, composição, hashes, estatísticas de desenvolvimento,
+  checkpoint final, suportes por classe e pertencimento das janelas.
+  Os três controles CS coincidem com os incorporados em `comparison.json`;
+  a validação dos controles CV não constitui execução RGB CV.
+- **Piloto CS concluído:** seis runs, três dobras × dois modos, seed 42,
+  30 épocas e checkpoint da última época. A reconstrução do relatório
+  em memória, com `build_report`, reproduziu exatamente
+  `comparison.json`, incluindo diferenças e decisão. A verificação
+  reproduziu as predições a partir dos seis checkpoints e features e
+  confirmou a padronização ajustada só no desenvolvimento.
+
+Os pesos locais têm SHA-256
+`b3b3357ead25631ec9c57362ff2128a92d0427e01e2cd184951a44380c3f2e9d`.
+O smoke e os runs registram a implementação
+`225866d46397415db1752d85441ccd5b80cac5ebd1ee8d739a0930c7378daa70`
+e o lockfile
+`859e22caf510c5836a756f05967ee368751e4d7c7780b99e3ab4512e72702004`,
+conferidos contra o checkout após a PR #128. Os hashes de entradas,
+composição e features permanecem nos JSONs e HDF5 locais. Não faltou nem
+falhou artefato necessário à validação CS e dos seis controles A.
+
+### Macro-F1 pareada nas dobras de desenvolvimento CS
+
+Os valores abaixo mantêm a representação decimal dos números locais, sem
+arredondamento. A métrica é a Macro-F1 restrita às oito classes do
+contrato, avaliada no grupo retido de cada dobra do `train` oficial.
+O mapeamento interno `val`/`test` dos controles A significa `retained`,
+conforme `fold_run.json`; não representa os splits oficiais homônimos.
+
+| Dobra | Baseline A | RGB estático | RGB dinâmico |
+| --- | --- | --- | --- |
+| `retain_s0` | 0.5584449623146064 | 0.3239285310919959 | 0.39249832731572265 |
+| `retain_s1` | 0.6575916704711838 | 0.3115730369800097 | 0.40901715788166837 |
+| `retain_s3-4-6-8` | 0.6156845792679513 | 0.3429590312215618 | 0.45721239046798223 |
+
+| Dobra | `dynamic − A` | `static − A` | `dynamic − static` |
+| --- | --- | --- | --- |
+| `retain_s0` | -0.16594663499888374 | -0.2345164312226105 | 0.06856979622372678 |
+| `retain_s1` | -0.24857451258951546 | -0.3460186334911741 | 0.09744412090165866 |
+| `retain_s3-4-6-8` | -0.15847218879996905 | -0.2727255480463895 | 0.11425335924642044 |
+| Média das diferenças pareadas | -0.19099777879612276 | -0.2844202042533914 | 0.09342242545726863 |
+
+As médias são aritméticas entre dobras, sem agregar janelas ou protocolos.
+As médias `dynamic − A` e `dynamic − static` constam em `pilot_decision`;
+a média `static − A` foi calculada diretamente das três diferenças
+registradas.
+
+### Resultado exato das verificações predeclaradas
+
+| Verificação em `pilot_decision.checks` | Exigência | Observado | Resultado |
+| --- | --- | --- | --- |
+| `mean_gain_vs_a` | Média `dynamic − A` ≥ +0.030 | -0.19099777879612276 | `false` |
+| `positive_folds_vs_a` | Pelo menos 2 dobras com `dynamic − A` > 0 | 0 de 3 | `false` |
+| `temporal_gain` | Média `dynamic − static` ≥ +0.010 | 0.09342242545726863 | `true` |
+| `positive_folds_vs_static` | Pelo menos 2 dobras com `dynamic − static` > 0 | 3 de 3 | `true` |
+| `fall_fallen_recall` | Cada diferença de revocação contra A ≥ -0.050 | Falha em `fallen` de `retain_s0` e `fall` de `retain_s1` | `false` |
+| `other_walk_fp` | Diferença dos FP combinados contra A ≤ 0 em cada dobra | +380 em `retain_s1` | `false` |
+
+As salvaguardas por dobra, sempre `dynamic − A`, foram:
+
+| Dobra | Δ revocação `fall` | Δ revocação `fallen` | FP `other` + `walk`: A | FP `other` + `walk`: dinâmico | Δ FP |
+| --- | --- | --- | --- | --- | --- |
+| `retain_s0` | 0.018027571580063628 | -0.06727272727272726 | 1829 | 1533 | -296 |
+| `retain_s1` | -0.37744034707158347 | -0.040752351097178785 | 355 | 735 | 380 |
+| `retain_s3-4-6-8` | 0.02037351443123936 | 0.09530201342281885 | 990 | 836 | -154 |
+
+O relatório registra `status: complete`, `window_criteria_met: false`,
+`advance: false` e `promotion: false`. Também registra
+`candidate_promoted: false`, `independent_validation: false` e
+`observed_at_or_above_0_800: []`. Sensibilidade de eventos de queda, FA/h e
+latência permanecem `null`, com status
+`unavailable_without_validated_fold_event_evaluator`; não há prova de
+preservação de eventos.
+
+### Conclusão e encerramento
+
+O RGB dinâmico superou o RGB estático nas três dobras CS de desenvolvimento,
+com sinal temporal segundo os dois critérios correspondentes. Entretanto,
+ficou abaixo do baseline A em todas as dobras e falhou no ganho médio,
+no número de ganhos contra A e nas salvaguardas de revocação de
+`fall`/`fallen` e de falsos positivos de `other`/`walk`. Portanto, o piloto
+**não justifica execução CV, seeds adicionais, ajuste de hiperparâmetros,
+promoção ou avaliação no teste oficial**. A investigação fica encerrada
+na branch `analysis/gatefall-improvements`, sem proposta de incorporar a
+implementação experimental em `main`.
+
+O experimento canônico A/B/C, suas referências e os resultados do
+manuscrito permanecem inalterados. Caches, pesos, checkpoints, controles
+e relatórios experimentais locais são preservados. Este encerramento
+altera apenas esta documentação; não altera treino, contratos de
+avaliação ou documentos no Google Drive.
+
+Três grupos e uma seed fornecem apenas evidência
 exploratória. As janelas se sobrepõem, o `test` já foi conhecido por estudos
 anteriores, e a comparação RGB versus A muda representação e arquitetura.
 O controle estático isola a contribuição do histórico dentro da sonda RGB.
