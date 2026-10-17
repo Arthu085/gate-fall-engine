@@ -83,6 +83,7 @@ nav:
       - Consolidação multi-seed dos erros: analysis/multiseed-error-consolidation.md
       - Decisão sobre intervenções (Etapas 2A, 2G, 4A–4D e 5A): analysis/intervention-decision.md
       - Investigação de perda e confusão de classes: analysis/imbalance-investigation.md
+      - Investigação de RGB temporal congelado: analysis/temporal-rgb-investigation.md
       - Viabilidade das dobras internas do Le2i-CV (Etapa 2B): analysis/internal-fold-feasibility.md
       - Piloto das dobras internas do Le2i-CV (Etapa 2D): analysis/internal-fold-pilot.md
       - Auditoria dos ambientes retidos (Etapa 2E): analysis/internal-fold-retained-audit.md
