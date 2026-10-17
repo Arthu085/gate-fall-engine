@@ -264,6 +264,9 @@ def test_extraction(root: Path) -> None:
 
 
 def run_selftests() -> None:
+    from gatefall.train.temporal_rgb.control_selftests import run_control_selftests
+
+    run_control_selftests()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         test_alignment_and_cache(root)

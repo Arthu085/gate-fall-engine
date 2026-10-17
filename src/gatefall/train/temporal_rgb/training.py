@@ -15,7 +15,11 @@ from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.hashing import sha256_array, sha256_file
 from gatefall.train.imbalance_experiment.cli import OUTPUT_ROOT as BASELINE_ROOT, _sources
 from gatefall.train.imbalance_experiment.report import _read_run
+from gatefall.train.baseline_a.config import load_config
+from gatefall.train.internal_folds import folds as cv_folds, stats as cv_stats, summary as cv_summary
+from gatefall.train.internal_folds.training import QualityFeatures
 from gatefall.train.internal_folds.folds import DEVELOPMENT_SPLIT, RETAINED_SPLIT
+from gatefall.train.subject_folds import folds as cs_folds, summary as cs_summary
 from gatefall.train.shared.imbalance import RECIPES, class_weights
 from gatefall.train.shared.metrics import classification_summary, restricted_macro_f1
 from gatefall.train.temporal_rgb.contract import FEATURE_DIM, MODES, SEED, contract, digest, guard_destination, setup
@@ -94,28 +98,90 @@ def checkpoint_digest(checkpoint: dict[str, Any]) -> str:
     })
 
 
+def _native_control(context: Context, partition: Partition, fold_root: Path) -> Path:
+    if context.protocol == "cs":
+        document = cs_folds.read_folds_document(fold_root)
+        cs_summary.run_entry(fold_root, document, partition.membership_record, "A", SEED)
+        return cs_folds.fold_run_dir(fold_root, partition.fold, "A", SEED)
+    document = cv_folds.read_folds_document(fold_root)
+    files = cv_stats.load_recorded_stats_files(
+        cv_folds.stats_dir(fold_root, partition.fold), partition.membership_record, context.input_sha256,
+    )
+    quality = QualityFeatures(
+        root=Path(cast(str, document["quality_features_path"])),
+        sha256=cast(str, document["quality_features_sha256"]),
+    )
+    cv_summary.run_entry(fold_root, partition.membership_record, files, quality, "A", SEED)
+    return cv_folds.fold_run_dir(fold_root, partition.fold, "A", SEED)
+
+
+def _control_record(path: Path, sidecar: str, windows: dict[str, Any]) -> dict[str, Any]:
+    metrics = json.loads((path / "metrics.json").read_text(encoding="utf-8"))
+    for split, index in windows.items():
+        labels = index["label"].to_numpy(dtype=np.int64)
+        expected = {name: int(np.sum(labels == class_id)) for class_id, name in enumerate(LE2I_LABEL_NAMES)}
+        actual = metrics["final"][split]
+        if actual["support"] != expected or any(actual["per_class"][name]["support"] != expected[name] for name in expected):
+            raise ValueError(f"suporte do controle A diverge das janelas atuais: {path}/{split}")
+    retained = metrics["final"]["val"]
+    return {
+        "restricted_macro_f1": retained["macro_f1_restricted"], "per_class": retained["per_class"],
+        "confusion_matrix": retained["confusion_matrix"], "path": str(path),
+        "metrics": metrics, "config": load_config(path / "config.yaml").to_dict(),
+        "fold_provenance": json.loads((path / sidecar).read_text(encoding="utf-8")),
+        "window_sha256": {split: window_identity(index) for split, index in windows.items()},
+        "source": "native" if sidecar == "fold_run.json" else "imbalance",
+        "artifact_sha256": {name: sha256_file(path / name)
+                            for name in ("config.yaml", "metrics.json", "checkpoint.pt", sidecar)},
+    }
+
+
+def _verify_equivalent_controls(native: dict[str, Any], imbalance: dict[str, Any]) -> None:
+    left_config, right_config = native["config"], imbalance["config"]
+    if ({key: value for key, value in left_config.items() if key != "run_name"}
+            != {key: value for key, value in right_config.items() if key != "run_name"}
+            or native["metrics"]["final"] != imbalance["metrics"]["final"]
+            or native["window_sha256"] != imbalance["window_sha256"]):
+        raise ValueError("controles nativo e imbalance discordam na receita, nas janelas ou nas métricas")
+    left = torch.load(Path(native["path"]) / "checkpoint.pt", map_location="cpu", weights_only=True)
+    right = torch.load(Path(imbalance["path"]) / "checkpoint.pt", map_location="cpu", weights_only=True)
+    if set(left) != set(right) or any(left[key].dtype != right[key].dtype or not torch.equal(left[key], right[key]) for key in left):
+        raise ValueError("controles nativo e imbalance discordam nos tensores do checkpoint")
+
+
 def baseline_control(context: Context, partition: Partition, fold_root: Path) -> dict[str, Any]:
-    path = BASELINE_ROOT / context.protocol / partition.fold / "baseline" / f"seed_{SEED}"
-    row = _read_run(path, context.protocol, partition.fold, "baseline", SEED)
+    if context.protocol not in ("cs", "cv"):
+        raise ValueError("protocolo deve ser cs ou cv")
+    folds = cs_folds if context.protocol == "cs" else cv_folds
+    native = folds.fold_run_dir(fold_root, partition.fold, "A", SEED)
+    imbalance = BASELINE_ROOT / context.protocol / partition.fold / "baseline" / f"seed_{SEED}"
+    if not native.exists() and not imbalance.exists():
+        raise FileNotFoundError(f"controle A ausente: {native} e {imbalance}; nenhum controle será treinado")
     development, retained, _, source = _sources(context.protocol, fold_root, partition.fold)
-    provenance = cast(dict[str, Any], row["provenance"])
-    if any(provenance.get(key) != value for key, value in cast(dict[str, Any], source["provenance"]).items()):
-        raise ValueError("controle A diverge das entradas e estatísticas atuais da dobra")
+    provenance = cast(dict[str, Any], source["provenance"])
     if provenance["input_sha256"] != context.input_sha256 or provenance["membership_sha256"] != context.membership_sha256:
         raise ValueError("controle A diverge do contexto RGB")
+    if provenance["development_videos"] != list(partition.development_video_ids) or provenance["retained_videos"] != list(partition.retained_video_ids):
+        raise ValueError("vídeos do controle A divergem da partição RGB")
+    windows = {}
     for baseline, side in ((development, DEVELOPMENT_SPLIT), (retained, RETAINED_SPLIT)):
-        if window_identity(baseline._windows) != window_identity(fold_windows(partition, side)):
+        index = fold_windows(partition, side)
+        if window_identity(baseline._windows) != window_identity(index):
             raise ValueError("janelas de A e RGB não são idênticas")
-    classes = cast(dict[str, Any], row["per_class"])
-    labels = fold_windows(partition, RETAINED_SPLIT)["label"].to_numpy(dtype=np.int64)
-    if any(classes[name]["support"] != int(np.sum(labels == index)) for index, name in enumerate(LE2I_LABEL_NAMES)):
-        raise ValueError("suporte do controle A diverge das janelas atuais")
-    return {
-        "restricted_macro_f1": row["restricted_macro_f1"], "per_class": row["per_class"],
-        "confusion_matrix": row["confusion_matrix"], "path": str(path),
-        "artifact_sha256": {name: sha256_file(path / name)
-                            for name in ("config.yaml", "metrics.json", "checkpoint.pt", "experiment.json")},
-    }
+        windows["train" if side == DEVELOPMENT_SPLIT else "val"] = index
+    windows["test"] = windows["val"]
+    controls = []
+    if native.exists():
+        _native_control(context, partition, fold_root)
+        controls.append(_control_record(native, "fold_run.json", windows))
+    if imbalance.exists():
+        row = _read_run(imbalance, context.protocol, partition.fold, "baseline", SEED)
+        if any(cast(dict[str, Any], row["provenance"]).get(key) != value for key, value in provenance.items()):
+            raise ValueError("controle imbalance diverge das entradas e estatísticas atuais da dobra")
+        controls.append(_control_record(imbalance, "experiment.json", windows))
+    if len(controls) == 2:
+        _verify_equivalent_controls(controls[0], controls[1])
+    return {**controls[0], "equivalent_controls": controls[1:]}
 
 
 def verify_run(
