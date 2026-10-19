@@ -33,8 +33,15 @@ from gatefall.data.gmdcsa24.provenance import (
     ensure_ignored_output,
     video_boundaries,
 )
-from gatefall.data.gmdcsa24.source import sha256_of
+from gatefall.data.gmdcsa24.source import (
+    OMNIFALL_DATASET_NAME,
+    RELEASE_COMMIT,
+    RELEASE_TAG,
+    REPOSITORY,
+    sha256_of,
+)
 from gatefall.data.intervals import sweep_gaps_and_overlap, tag_gap_positions
+from gatefall.data.le2i.annotations import DATASET_ID, LABEL_CONFIG_NAME, OMNIFALL_REVISION
 from gatefall.data.resampling import build_time_grid, labels_for_grid
 from gatefall.data.windowing import build_window_index
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES, PROTOCOL_PROCESSED_DIRS, Le2iDatasetAdapter
@@ -166,6 +173,25 @@ PUBLISHED_AGGREGATES: dict[str, object] = {
         "T_fall": {"S1": 25, "S2": 101, "S3": 72, "S4": 27},
     },
 }
+
+# O que `validate` confere contra a fonte atual e o que só confere contra o valor
+# registrado no build ou contra a identidade pinada no código, sem reler o clone,
+# o OmniFall ou os vídeos.
+VERIFIED_AGAINST_CURRENT_SOURCES = (
+    "SHA-256 e marca de aprovação do documento do protocolo no repositório",
+    "tabelas gravadas: hashes de conteúdo, coerência entre si e agregados recalculados",
+    "hash dos índices de val/test e janelas de treino do Le2i-CS local",
+)
+RECORDED_AT_BUILD_ONLY = (
+    "commit, tag e repositório do clone, e `verify`/`inventory` OK: valor do build "
+    "conferido com a identidade pinada, sem reler o clone",
+    "dataset, config e revisão do OmniFall: valor do build conferido com a identidade "
+    "pinada; `content_sha256` dos segmentos não é recalculado",
+    "parâmetros do adapter: valor do build conferido com as constantes do código",
+    "`source_sha256` e motivos de exclusão: manifesto conferido com `videos.parquet`, "
+    "sem recalcular o hash dos MP4",
+    "commit do código do adapter: só registrado",
+)
 
 # Treino do controle Le2i-CS em TRAIN_STRIDE, publicado no protocolo verificado.
 LE2I_CS_TRAIN_WINDOWS = 5219
@@ -416,6 +442,51 @@ def load_le2i_reference(adapter: Le2iDatasetAdapter) -> Le2iReference:
     return le2i_reference(adapter.load_frames(), adapter.load_manifest())
 
 
+def adapter_parameters() -> dict[str, object]:
+    return {
+        "target_fps": TARGET_FPS,
+        "window_frames": WINDOW_FRAMES,
+        "train_stride": TRAIN_STRIDE,
+        "first_unpadded_index": FIRST_UNPADDED_INDEX,
+        "boundary_margin_s": BOUNDARY_MARGIN_S,
+        "dropped_classes": list(DROPPED_CLASSES),
+        "split": SPLIT,
+        "decoder": DECODER,
+    }
+
+
+def pinned_identity() -> dict[str, dict[str, object]]:
+    """Identidade esperada de cada seção de proveniência do manifesto."""
+    return {
+        "protocol": {"path": PROTOCOL_DOC.as_posix(), "approval": PROTOCOL_APPROVAL_MARKER},
+        "source": {
+            "repository": REPOSITORY,
+            "tag": RELEASE_TAG,
+            "commit": RELEASE_COMMIT,
+            "verify": True,
+            "inventory": True,
+        },
+        "labels": {
+            "dataset_id": DATASET_ID,
+            "config": LABEL_CONFIG_NAME,
+            "revision": OMNIFALL_REVISION,
+            "dataset": OMNIFALL_DATASET_NAME,
+        },
+    }
+
+
+def excluded_records(videos: pd.DataFrame) -> list[dict[str, object]]:
+    excluded = cast(pd.DataFrame, videos[videos["excluded"]]).sort_values("video_id")
+    return [
+        {
+            "video_id": str(row["video_id"]),
+            "reasons": str(row["exclusion_reasons"]).split("; "),
+            "source_sha256": str(row["source_sha256"]),
+        }
+        for row in excluded.to_dict("records")
+    ]
+
+
 def optional_sha256(path: Path) -> str | None:
     return sha256_of(path) if path.is_file() else None
 
@@ -442,7 +513,10 @@ def table_entry(dataframe: pd.DataFrame) -> dict[str, object]:
 def write_outputs(
     output_dir: Path, tables: AdapterTables, provenance: dict[str, object], force: bool
 ) -> Path:
-    """Grava as tabelas e, por último, o manifesto; sem o manifesto a saída não valida."""
+    """Grava as tabelas e, por último, o manifesto; sem o manifesto a saída não valida.
+
+    As seções `protocol`, `source` e `labels` partem da identidade pinada, com o
+    SHA-256 atual do protocolo; `provenance` só acrescenta campos do build."""
     problems = output_location_problems(output_dir)
     if problems:
         raise ValueError("; ".join(problems))
@@ -461,28 +535,17 @@ def write_outputs(
     for name, frame in named_tables.items():
         write_parquet(frame, output_dir / name)
         entries[name] = table_entry(read_table(output_dir, name))
-    excluded = cast(pd.DataFrame, tables.videos[tables.videos["excluded"]])
+    identity = pinned_identity()
+    identity["protocol"]["sha256"] = sha256_of(REPOSITORY_ROOT / PROTOCOL_DOC)
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         **provenance,
-        "parameters": {
-            "target_fps": TARGET_FPS,
-            "window_frames": WINDOW_FRAMES,
-            "train_stride": TRAIN_STRIDE,
-            "first_unpadded_index": FIRST_UNPADDED_INDEX,
-            "boundary_margin_s": BOUNDARY_MARGIN_S,
-            "dropped_classes": list(DROPPED_CLASSES),
-            "split": SPLIT,
-            "decoder": DECODER,
+        **{
+            name: {**fields, **cast(dict[str, object], provenance.get(name, {}))}
+            for name, fields in identity.items()
         },
-        "excluded_videos": [
-            {
-                "video_id": str(row["video_id"]),
-                "reasons": str(row["exclusion_reasons"]).split("; "),
-                "source_sha256": str(row["source_sha256"]),
-            }
-            for row in excluded.to_dict("records")
-        ],
+        "parameters": adapter_parameters(),
+        "excluded_videos": excluded_records(tables.videos),
         "summary": tables.summary,
         "files": entries,
     }
@@ -541,12 +604,51 @@ def integrity_problems(
         n_frames = [frame_counts.get(str(identifier)) for identifier in tables[name]["video_id"]]
         if n_frames != [int(value) for value in tables[name]["n_frames"]]:
             problems.append(f"{name}: n_frames diverge da grade de {FRAMES_FILE}")
-    listed = [
-        str(entry["video_id"])
-        for entry in cast(list[dict[str, object]], manifest.get("excluded_videos", []))
-    ]
-    if listed != sorted(str(identifier) for identifier in videos.loc[videos["excluded"], "video_id"]):
-        problems.append(f"lista de exclusão do manifesto difere de {VIDEOS_FILE}")
+    return problems
+
+
+def provenance_problems(manifest: dict[str, object], videos: pd.DataFrame) -> list[str]:
+    """Proveniência do manifesto contra a identidade pinada e contra `videos.parquet`.
+
+    Só o SHA-256 do protocolo é relido da fonte atual; o resto compara o valor
+    registrado no build com a identidade esperada, sem corrigir o manifesto."""
+    problems: list[str] = []
+    for section, expected in pinned_identity().items():
+        recorded = manifest.get(section)
+        if not isinstance(recorded, dict):
+            problems.append(f"{section}: seção ausente do manifesto")
+            continue
+        problems.extend(
+            compare_expected(expected, {key: recorded.get(key) for key in expected}, f"{section}.")
+        )
+    protocol = manifest.get("protocol")
+    recorded_sha = protocol.get("sha256") if isinstance(protocol, dict) else None
+    current_sha = optional_sha256(REPOSITORY_ROOT / PROTOCOL_DOC)
+    if recorded_sha != current_sha:
+        problems.append(
+            f"protocol.sha256: registrado {recorded_sha!r}, documento atual {current_sha!r}; "
+            "a saída foi gerada sob outro texto do protocolo"
+        )
+    problems.extend(compare_expected(adapter_parameters(), manifest.get("parameters"), "parameters."))
+    recorded = manifest.get("excluded_videos")
+    expected = excluded_records(videos)
+    if recorded != expected:
+        entries = recorded if isinstance(recorded, list) else []
+        by_id = {str(entry.get("video_id")): entry for entry in entries if isinstance(entry, dict)}
+        details = [
+            problem
+            for entry in expected
+            for problem in compare_expected(
+                entry, by_id.pop(str(entry["video_id"]), None), f"excluded_videos.{entry['video_id']}."
+            )
+        ]
+        details.extend(
+            f"excluded_videos.{identifier}: registrado, mas não excluído em {VIDEOS_FILE}"
+            for identifier in by_id
+        )
+        problems.extend(
+            details or [f"excluded_videos: ordem, repetição ou formato diferente de {VIDEOS_FILE}"]
+        )
     return problems
 
 
@@ -631,6 +733,7 @@ def validate_outputs(
     videos = tables[VIDEOS_FILE]
     return {
         "integridade": integrity_problems(output_dir, manifest, tables),
+        "proveniência": provenance_problems(manifest, videos),
         "W1": w1_problems(manifest, videos, expected_exclusions),
         "W2": compare_expected(
             expected_aggregates, summarize(videos, tables[CANDIDATES_FILE]), "agregados."
@@ -641,11 +744,17 @@ def validate_outputs(
 
 
 def report_validation(results: dict[str, list[str]]) -> bool:
-    print("\n=== validação do adapter (W1, W2, V2, V5) ===")
+    print("\n=== validação do adapter (integridade, proveniência, W1, W2, V2, V5) ===")
     for condition, problems in results.items():
         print(f"[{'FAIL' if problems else 'PASS'}] {condition}")
         for problem in problems:
             print(f"  {problem}")
+    print("\nverificado contra a fonte atual:")
+    for item in VERIFIED_AGAINST_CURRENT_SOURCES:
+        print(f"  {item}")
+    print("registrado no build, sem revalidação independente da fonte:")
+    for item in RECORDED_AT_BUILD_ONLY:
+        print(f"  {item}")
     return all(not problems for problems in results.values())
 
 

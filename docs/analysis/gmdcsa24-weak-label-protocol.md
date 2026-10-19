@@ -442,13 +442,20 @@ nos MP4 de taxa variável. O `src_index` da grade aponta para esse quadro.
 
 ### Checagens
 
-`validate` recalcula tudo das tabelas gravadas e só passa com as cinco
-condições:
+`validate` recalcula tudo das tabelas gravadas, nunca reescreve o manifesto e
+só passa com as seis condições:
 
 - **Integridade:** hash de conteúdo e linhas de cada tabela iguais ao
   manifesto; T e S iguais aos filtros de `window_candidates.parquet`; resumo
   do manifesto igual ao recalculado; grade gravada igual à de cada vídeo
   incluído.
+- **Proveniência:** cada seção do manifesto conferida com a identidade
+  esperada: caminho, marca de aprovação e SHA-256 do protocolo; repositório,
+  tag e commit pinados do clone, com `verify` e `inventory` OK; dataset,
+  config e revisão pinados do OmniFall; parâmetros fixos do adapter (fps,
+  janela, stride, margem de 0,5 s, classes descartadas, split e
+  decodificador); e cada registro de `excluded_videos` (`video_id`, motivos e
+  `source_sha256`) igual ao de `videos.parquet`.
 - **W1:** marca de aprovação nesta página; os 15 vídeos excluídos e os motivos
   iguais à [tabela](#videos); `review.csv` com o mesmo SHA-256 antes e depois
   do build.
@@ -467,14 +474,26 @@ condições:
 O selftest sintético (`adapter selftest`, na CI) cobre alinhamento temporal,
 exclusões, a margem de 0,5 s de S, decodificação sem quadros duplicados,
 adulteração das tabelas e do manifesto, divergência de um único agregado e
-vazamento para `val`/`test`.
+vazamento para `val`/`test`. Ele também adultera, um de cada vez, a margem de
+fronteira, o commit do clone, a revisão do OmniFall, o SHA-256 do protocolo, o
+motivo e o `source_sha256` de um vídeo excluído. Cada adulteração reprova a
+proveniência, e a saída intacta continua válida.
+
+A proveniência não revalida tudo contra a fonte. `validate` relê só o
+documento do protocolo, as tabelas gravadas e o Le2i-CS local. O commit do
+clone, a revisão e o hash dos segmentos do OmniFall e o `source_sha256` dos
+MP4 são os valores registrados no build. Eles são conferidos contra a
+identidade pinada no código e contra `videos.parquet`, sem reler o clone, o
+OmniFall ou os vídeos. Revalidar essas fontes exige um novo `build`, que
+refaz `verify`, `inventory`, a sondagem e os hashes. `validate` imprime as
+duas listas separadas.
 
 ### Resultado sobre os dados pinados
 
 Executado em 2026-10-19 sobre o clone `v2.1` (`verify` e `inventory` OK) e o
 OmniFall `labels` na revisão `68e5cee`, com o Le2i-CS canônico local:
 
-- integridade, W1, W2, V2 e V5 passam;
+- integridade, proveniência, W1, W2, V2 e V5 passam;
 - as contagens coincidem com todos os agregados publicados, sem nenhuma
   diferença: 3 231 janelas rotuladas, −945, −142, −171, **T = 1 973**, −411,
   **S = 1 562**, as contagens por classe e por sujeito, 145 vídeos incluídos,

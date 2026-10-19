@@ -10,11 +10,13 @@ abaixo. Não toca no dataset real, no Hugging Face nem no Le2i. Requer FFmpeg.
 import contextlib
 import io
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
 from dataclasses import replace
 from pathlib import Path
+from collections.abc import Callable
 from typing import cast
 
 import numpy as np
@@ -409,10 +411,9 @@ def check_validation(tables: AdapterTables, tmp: Path) -> list[bool]:
 
     checks = [
         _check(
-            "saída gravada valida: integridade, W1, W2, V2 e V5 sem problema",
-            all(not problems for problems in clean.values()) and set(clean) == {
-                "integridade", "W1", "W2", "V2", "V5"
-            },
+            "saída gravada valida: integridade, proveniência, W1, W2, V2 e V5 sem problema",
+            all(not problems for problems in clean.values())
+            and set(clean) == {"integridade", "proveniência", "W1", "W2", "V2", "V5"},
         ),
         _check("saída existente não é sobrescrita sem --force", refused),
         _check(
@@ -466,6 +467,7 @@ def check_validation(tables: AdapterTables, tmp: Path) -> list[bool]:
         ]
     )
     checks.extend(check_separation(output_dir, le2i))
+    checks.extend(check_provenance_tampering(output_dir, le2i, tmp))
     return checks
 
 
@@ -519,6 +521,60 @@ def check_separation(output_dir: Path, le2i: Le2iReference) -> list[bool]:
                 len(v2_problems(output_dir, manifest, tables, None)) == 1,
             ),
         ]
+    )
+    return checks
+
+
+def _set_first_exclusion(field: str, value: object) -> Callable[[dict[str, object]], None]:
+    def mutate(manifest: dict[str, object]) -> None:
+        cast(list[dict[str, object]], manifest["excluded_videos"])[0][field] = value
+
+    return mutate
+
+
+def _set_field(section: str, field: str, value: object) -> Callable[[dict[str, object]], None]:
+    def mutate(manifest: dict[str, object]) -> None:
+        cast(dict[str, object], manifest[section])[field] = value
+
+    return mutate
+
+
+def check_provenance_tampering(output_dir: Path, le2i: Le2iReference, tmp: Path) -> list[bool]:
+    """Cada adulteração, isolada numa cópia da saída, reprova só a proveniência;
+    o validate não reescreve o manifesto e a saída original continua válida."""
+    mutations = {
+        "margem de fronteira": _set_field("parameters", "boundary_margin_s", 0.6),
+        "commit do clone": _set_field("source", "commit", "0" * 40),
+        "revisão do OmniFall": _set_field("labels", "revision", "0" * 40),
+        "identidade do protocolo": _set_field("protocol", "sha256", "0" * 64),
+        "motivo de exclusão": _set_first_exclusion("reasons", ["lacuna de 9.99 s"]),
+        "SHA-256 da fonte excluída": _set_first_exclusion("source_sha256", "f" * 64),
+    }
+    checks: list[bool] = []
+    for position, (name, mutate) in enumerate(mutations.items()):
+        tampered_dir = tmp / f"provenance_{position}"
+        shutil.copytree(output_dir, tampered_dir)
+        manifest_path = tampered_dir / MANIFEST_FILE
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        mutate(manifest)
+        tampered_text = json.dumps(manifest, indent=2, ensure_ascii=False)
+        manifest_path.write_text(tampered_text, encoding="utf-8")
+        results = _validate(tampered_dir, le2i)
+        failed = {condition for condition, problems in results.items() if problems}
+        checks.append(
+            _check(
+                f"proveniência: {name} adulterado reprova, sem reescrever o manifesto",
+                failed == {"proveniência"}
+                and len(results["proveniência"]) == 1
+                and manifest_path.read_text(encoding="utf-8") == tampered_text,
+            )
+        )
+    untouched = _validate(output_dir, le2i)
+    checks.append(
+        _check(
+            "proveniência: a saída não adulterada continua válida",
+            all(not problems for problems in untouched.values()),
+        )
     )
     return checks
 

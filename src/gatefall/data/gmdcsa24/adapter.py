@@ -19,20 +19,10 @@ from gatefall.data.gmdcsa24.annotations import (
 )
 from gatefall.data.gmdcsa24.audit import require_root, run_inventory, run_verify
 from gatefall.data.gmdcsa24.provenance import DEFAULT_REVIEW_DIR, REVIEW_SHEET
-from gatefall.data.gmdcsa24.source import (
-    DEFAULT_ROOT,
-    OMNIFALL_DATASET_NAME,
-    RELEASE_COMMIT,
-    RELEASE_TAG,
-    REPOSITORY,
-    build_inventory,
-    read_checkout_state,
-    sha256_of,
-)
+from gatefall.data.gmdcsa24.source import DEFAULT_ROOT, build_inventory, read_checkout_state
 from gatefall.data.gmdcsa24.weak_label import (
     DEFAULT_OUTPUT_DIR,
     MANIFEST_FILE,
-    PROTOCOL_DOC,
     Le2iReference,
     build_tables,
     load_le2i_reference,
@@ -45,7 +35,6 @@ from gatefall.data.gmdcsa24.weak_label import (
     validate_outputs,
     write_outputs,
 )
-from gatefall.data.le2i.annotations import DATASET_ID, LABEL_CONFIG_NAME, OMNIFALL_REVISION
 from gatefall.datasets.le2i import LE2I_DATASET
 from gatefall.hashing import sha256_dataframe
 from gatefall.runs import REPOSITORY_ROOT
@@ -93,23 +82,8 @@ def run_build(root: Path, output_dir: Path, force: bool) -> bool:
     tables = build_tables(sources, omnifall, original.segments)
     code_commit, code_status = read_checkout_state(REPOSITORY_ROOT)
     provenance: dict[str, object] = {
-        "protocol": {
-            "path": PROTOCOL_DOC.as_posix(),
-            "sha256": sha256_of(REPOSITORY_ROOT / PROTOCOL_DOC),
-        },
-        "source": {
-            "repository": REPOSITORY,
-            "tag": RELEASE_TAG,
-            "commit": RELEASE_COMMIT,
-            "root": root.as_posix(),
-            "verify": True,
-            "inventory": True,
-        },
+        "source": {"root": root.as_posix()},
         "labels": {
-            "dataset_id": DATASET_ID,
-            "config": LABEL_CONFIG_NAME,
-            "revision": OMNIFALL_REVISION,
-            "dataset": OMNIFALL_DATASET_NAME,
             "segments": len(omnifall),
             "content_sha256": omnifall_content_sha256(omnifall),
         },
