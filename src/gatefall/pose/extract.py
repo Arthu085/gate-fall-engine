@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -52,6 +53,24 @@ class PoseExtractResult:
     split: str
     k: int
     n_found: int
+
+
+@dataclass(frozen=True)
+class PoseTrack:
+    keypoints: np.ndarray
+    bbox: np.ndarray
+    person_found: np.ndarray
+    n_detections: np.ndarray
+    track_id: np.ndarray
+
+    def datasets(self) -> dict[str, np.ndarray]:
+        return {
+            "keypoints": self.keypoints,
+            "bbox": self.bbox,
+            "person_found": self.person_found,
+            "n_detections": self.n_detections,
+            "track_id": self.track_id,
+        }
 
 
 def _resolve_model_path(model_name: str) -> str:
@@ -145,19 +164,64 @@ def run_pose_extract(
             f"decodificação de {video_id} retornou {len(frames_rgb)} quadros; esperado {k}"
         )
 
+    if model is None:
+        model = YOLO(_resolve_model_path(model_name))
+    track = track_pose(model, frames_rgb, k)
+
+    attrs: dict[str, object] = {
+        "video_id": video_id,
+        "env": str(manifest_row["env"]),
+        "split": str(manifest_row["split"]),
+        "subject": int(manifest_row["subject"]),
+        "K": k,
+        "fps": float(manifest_row["fps"]),
+        "width": int(manifest_row["width"]),
+        "height": int(manifest_row["height"]),
+        "model_name": model_name,
+        "ultralytics_version": ultralytics.__version__,
+        "tracker_name": TRACKER_NAME,
+        "target_fps": TARGET_FPS,
+    }
+
+    write_pose_file(output_path, track, attrs)
+
+    n_found = int(track.person_found.sum())
+    print(
+        f"\n{video_id}: K={k}, quadros com pessoa encontrada={n_found} "
+        f"({100.0 * n_found / k:.1f}%)"
+    )
+
+    return PoseExtractResult(
+        video_id=video_id,
+        env=str(manifest_row["env"]),
+        split=str(manifest_row["split"]),
+        k=k,
+        n_found=n_found,
+    )
+
+
+def track_pose(
+    model: YOLO, frames_rgb: Iterable[np.ndarray], k: int
+) -> PoseTrack:
+    """YOLO-Pose + ByteTrack sobre os K quadros RGB da grade de um vídeo.
+
+    Reinicia o tracker e cria um `PersonSelector` novo a cada chamada, então
+    nenhum estado passa de um vídeo para o outro."""
     keypoints = np.zeros((k, N_KEYPOINTS, 3), dtype=np.float32)
     bbox = np.zeros((k, 4), dtype=np.float32)
     person_found = np.zeros((k,), dtype=np.bool_)
     n_detections = np.zeros((k,), dtype=np.int16)
     track_id = np.full((k,), -1, dtype=np.int32)
 
-    if model is None:
-        model = YOLO(_resolve_model_path(model_name))
     _reset_tracker_state(model)
 
     selector = PersonSelector()
 
+    n_frames = 0
     for frame_index, frame_rgb in enumerate(frames_rgb):
+        if frame_index >= k:
+            raise PoseExtractError(f"a fonte entregou mais de {k} quadros da grade")
+        n_frames += 1
         frame_bgr = _to_bgr(frame_rgb)
         results = model.track(
             frame_bgr, persist=True, tracker=TRACKER_NAME, verbose=False
@@ -201,75 +265,41 @@ def run_pose_extract(
         if frame_track_ids is not None and len(frame_track_ids) == n_det:
             track_id[frame_index] = frame_track_ids[selected_idx]
 
-    attrs: dict[str, object] = {
-        "video_id": video_id,
-        "env": str(manifest_row["env"]),
-        "split": str(manifest_row["split"]),
-        "subject": int(manifest_row["subject"]),
-        "K": k,
-        "fps": float(manifest_row["fps"]),
-        "width": int(manifest_row["width"]),
-        "height": int(manifest_row["height"]),
-        "model_name": model_name,
-        "ultralytics_version": ultralytics.__version__,
-        "tracker_name": TRACKER_NAME,
-        "target_fps": TARGET_FPS,
-    }
+    if n_frames != k:
+        raise PoseExtractError(f"a fonte entregou {n_frames} quadros da grade; esperado {k}")
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = output_path.with_suffix(f"{output_path.suffix}.{os.getpid()}.tmp")
-    with h5py.File(tmp_path, "w") as h5_file:
-        h5_file.create_dataset("keypoints", data=keypoints)
-        h5_file.create_dataset("bbox", data=bbox)
-        h5_file.create_dataset("person_found", data=person_found)
-        h5_file.create_dataset("n_detections", data=n_detections)
-        h5_file.create_dataset("track_id", data=track_id)
-        for key, value in attrs.items():
-            h5_file.attrs[key] = value
-    os.replace(tmp_path, output_path)
-
-    _verify_written_file(
-        output_path,
+    return PoseTrack(
         keypoints=keypoints,
         bbox=bbox,
         person_found=person_found,
         n_detections=n_detections,
         track_id=track_id,
-        attrs=attrs,
     )
 
-    n_found = int(person_found.sum())
-    print(
-        f"\n{video_id}: K={k}, quadros com pessoa encontrada={n_found} "
-        f"({100.0 * n_found / k:.1f}%)"
-    )
 
-    return PoseExtractResult(
-        video_id=video_id,
-        env=str(manifest_row["env"]),
-        split=str(manifest_row["split"]),
-        k=k,
-        n_found=n_found,
-    )
+def write_pose_file(
+    output_path: Path, track: PoseTrack, attrs: dict[str, object]
+) -> None:
+    """Grava o HDF5 de um vídeo de forma atômica e o relê para conferir."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = output_path.with_suffix(f"{output_path.suffix}.{os.getpid()}.tmp")
+    with h5py.File(tmp_path, "w") as h5_file:
+        for name, data in track.datasets().items():
+            h5_file.create_dataset(name, data=data)
+        for key, value in attrs.items():
+            h5_file.attrs[key] = value
+    os.replace(tmp_path, output_path)
+
+    _verify_written_file(output_path, track=track, attrs=attrs)
 
 
 def _verify_written_file(
     path: Path,
     *,
-    keypoints: np.ndarray,
-    bbox: np.ndarray,
-    person_found: np.ndarray,
-    n_detections: np.ndarray,
-    track_id: np.ndarray,
+    track: PoseTrack,
     attrs: dict[str, object],
 ) -> None:
-    expected_datasets = {
-        "keypoints": keypoints,
-        "bbox": bbox,
-        "person_found": person_found,
-        "n_detections": n_detections,
-        "track_id": track_id,
-    }
+    expected_datasets = track.datasets()
     with h5py.File(path, "r") as h5_file:
         for name, expected in expected_datasets.items():
             actual_dataset = cast(h5py.Dataset, h5_file[name])

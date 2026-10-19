@@ -9,8 +9,8 @@ do pipe é o `i`-ésimo quadro decodificado, o mesmo que `ffprobe
 """
 
 import subprocess
+from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 
@@ -71,3 +71,45 @@ def decode_frames(
         return []
     decoded = decode_scaled_frames(path, list(src_indices), width, height)
     return [decoded[index] for index in src_indices]
+
+
+class GridFrameReader:
+    """Lê o vídeo inteiro pelo pipe passthrough e entrega só os quadros da grade.
+
+    `src_indices` precisa ser estritamente crescente. Depois de esgotada a
+    iteração, `decoded_frames` é o total de quadros que o decodificador
+    entregou, para conferir contra a contagem do adapter: um pipe que
+    duplicasse ou descartasse quadros mudaria esse total."""
+
+    def __init__(self, path: Path, src_indices: Sequence[int], width: int, height: int) -> None:
+        if any(later <= earlier for earlier, later in zip(src_indices, src_indices[1:])):
+            raise ValueError(f"{path}: src_index da grade não é estritamente crescente")
+        self.path = path
+        self.src_indices = list(src_indices)
+        self.width = width
+        self.height = height
+        self.decoded_frames: int | None = None
+
+    def __iter__(self) -> Iterator[np.ndarray]:
+        frame_size = self.width * self.height * 3
+        process = open_passthrough_pipe(self.path)
+        assert process.stdout is not None
+        decoded = 0
+        position = 0
+        try:
+            while True:
+                chunk = process.stdout.read(frame_size)
+                if len(chunk) < frame_size:
+                    break
+                if position < len(self.src_indices) and decoded == self.src_indices[position]:
+                    position += 1
+                    yield np.frombuffer(chunk, dtype=np.uint8).reshape(
+                        self.height, self.width, 3
+                    ).copy()
+                decoded += 1
+        finally:
+            process.stdout.close()
+            return_code = process.wait()
+        if return_code != 0:
+            raise OSError(f"{self.path}: ffmpeg terminou com código {return_code}")
+        self.decoded_frames = decoded

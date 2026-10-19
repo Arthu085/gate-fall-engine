@@ -15,6 +15,7 @@ data/
 ├── processed/gmdcsa24/manifest.json e {videos,frames,window_candidates,windows_t,windows_s}.parquet
 ├── features/le2i/pose/<video_id>.h5
 ├── features/le2i/dinov3/<env>/<video_name>.h5
+├── features/gmdcsa24/pose/manifest.json e Subject_<n>/<ADL|Fall>/<nn>.h5
 └── scratch/                         # inclui gmdcsa24/provenance/ (planilha e contact sheets locais)
 
 runs/
@@ -39,6 +40,9 @@ mede.
 rótulos fracos](../analysis/gmdcsa24-weak-label-protocol.md#adapter-e-validacao).
 Ela só contém janelas de treino do GMDCSA24 e nunca grava em
 `data/processed/le2i/`, nas features, nos rótulos ou nos runs.
+`data/features/gmdcsa24/pose/` é a saída isolada da [pose do
+GMDCSA24](gmdcsa24-pose.md), só dos 145 vídeos elegíveis; ela nunca grava em
+`data/features/le2i/` nem em `data/processed/`.
 
 | Camada | Responsabilidade |
 | --- | --- |
