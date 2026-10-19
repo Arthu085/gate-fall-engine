@@ -92,9 +92,11 @@ arquivo, quando:
   estatísticas de padronização ou à revisão de proveniência, ou não é
   ignorada pelo Git.
 
-Por vídeo, a extração também falha quando o SHA-256 do MP4 difere do
-`source_sha256` do adapter ou quando o total decodificado difere de
-`n_frames_decoded`. Nesses casos nenhum HDF5 é gravado.
+Por vídeo, a extração também falha quando o MP4 está ausente, quando o SHA-256
+do MP4 difere do `source_sha256` do adapter ou quando o total decodificado
+difere de `n_frames_decoded`. Nesses casos nenhum HDF5 é gravado. A fonte é
+conferida antes de qualquer outra decisão sobre o vídeo, inclusive quando já
+existe um HDF5 válido para ele.
 
 ## Saída
 
@@ -119,7 +121,8 @@ e o hash do código de extração, e, por vídeo, o SHA-256 do HDF5, K, o total 
 quadros com pessoa, `source_sha256`, `grid_sha256` e `n_frames_decoded`. Sem
 manifesto, a saída não valida.
 
-Um HDF5 existente que confere com a proveniência atual é pulado; um que não
+Um HDF5 existente que confere com a proveniência atual é pulado, desde que o
+MP4 correspondente exista e tenha o `source_sha256` do adapter; um que não
 confere é recusado, e só `--force` o refaz. Com o manifesto presente,
 `extract` sem `--force` é recusado. `--video-id` extrai só os vídeos pedidos e
 não grava manifesto enquanto a cobertura estiver incompleta.
@@ -134,24 +137,33 @@ passa com as seis condições:
 - **separação:** saída fora dos artefatos canônicos e ignorada pelo Git;
 - **manifesto:** modelo igual ao contrato do braço A, manifesto do adapter com
   o mesmo SHA-256 registrado na extração, extração no commit do E0 e
-  `dirty = false`, e o mesmo SHA-256 de protocolo do adapter;
-- **cobertura:** exatamente os 145 HDF5 elegíveis, nenhum vídeo excluído e
-  nenhum arquivo extra ou temporário de escrita interrompida;
+  `dirty = false`, o mesmo SHA-256 de protocolo do adapter, e `summary`
+  igual ao resumo recalculado dos HDF5 conferidos (vídeos, quadros da grade e
+  quadros com pessoa), sem campo ausente ou extra;
+- **cobertura:** exatamente os 145 HDF5 elegíveis, nenhum vídeo excluído,
+  nenhum arquivo extra ou temporário de escrita interrompida, e o manifesto com
+  um registro para cada vídeo elegível e nenhum outro;
 - **alinhamento:** a grade de cada vídeo elegível, como em
   [Decodificação e alinhamento](#decodificacao-e-alinhamento);
-- **HDF5:** SHA-256 de cada arquivo igual ao manifesto, `source_sha256`,
-  `grid_sha256` e `n_frames_decoded` iguais aos do adapter, shapes e dtypes
-  do esquema, atributos iguais aos esperados, `person_found` igual a
-  `n_detections > 0`, `track_id = -1` e coordenadas nulas sem pessoa, e
-  valores finitos.
+- **HDF5:** shapes e dtypes do esquema, atributos iguais aos esperados,
+  `person_found` igual a `n_detections > 0`, `track_id = -1` e coordenadas
+  nulas sem pessoa, e valores finitos; e o registro de cada vídeo no
+  manifesto igual ao recalculado do plano do adapter e do HDF5 gravado
+  (caminho, SHA-256 do arquivo, K, quadros com pessoa, `source_sha256`,
+  `grid_sha256` e `n_frames_decoded`), sem campo ausente ou extra.
+
+A validação não confia nos valores do manifesto: cada registro e o resumo são
+recalculados e comparados.
 
 A validação não calcula métrica de modelo.
 
 O `selftest` (na CI) usa o clone sintético do selftest do adapter e um modelo
 falso que codifica o quadro de origem nos keypoints. Ele cobre decodificação
 de taxa variável, recusa de quadro duplicado, isolamento do tracker entre
-vídeos, cada pré-requisito acima, HDF5 existente que confere ou não, saída
-incompleta, divergências de proveniência e separação de caminhos.
+vídeos, cada pré-requisito acima, HDF5 existente que confere ou não, fonte
+alterada ou ausente com HDF5 válido já gravado, saída incompleta, divergências
+de proveniência, registros e resumo do manifesto adulterados e separação de
+caminhos.
 
 ## E0 antes da extração
 

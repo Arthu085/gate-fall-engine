@@ -443,7 +443,13 @@ def extract_video(
     force: bool,
 ) -> int | None:
     """Extrai um vídeo e devolve quantos quadros têm pessoa; `None` quando um
-    HDF5 já existente confere e `force` não foi passado."""
+    HDF5 já existente confere e `force` não foi passado. A fonte é conferida
+    antes, então um HDF5 válido nunca dispensa a verificação do MP4."""
+    source = root / plan.relative_path
+    if not source.is_file():
+        raise PoseExtractError(f"{source} não encontrado")
+    if sha256_of(source) != plan.source_sha256:
+        raise PoseExtractError(f"{source}: SHA-256 diverge do source_sha256 do adapter")
     output_path = pose_path(plan.video_id, pose_root=pose_dir)
     if output_path.exists() and not force:
         problems = pose_file_problems(output_path, attrs)
@@ -452,11 +458,6 @@ def extract_video(
                 f"{output_path} já existe e não confere ({problems[0]}); use --force"
             )
         return None
-    source = root / plan.relative_path
-    if not source.is_file():
-        raise PoseExtractError(f"{source} não encontrado")
-    if sha256_of(source) != plan.source_sha256:
-        raise PoseExtractError(f"{source}: SHA-256 diverge do source_sha256 do adapter")
     reader = GridFrameReader(source, plan.src_indices, plan.width, plan.height)
     track = track_pose(model, reader, len(plan.src_indices))
     if reader.decoded_frames != plan.n_frames_decoded:
@@ -468,24 +469,34 @@ def extract_video(
     return int(track.person_found.sum())
 
 
+def file_record(pose_dir: Path, plan: VideoPlan) -> dict[str, object]:
+    """Registro de um vídeo no manifesto, recalculado do plano e do HDF5 gravado."""
+    path = pose_path(plan.video_id, pose_root=pose_dir)
+    with h5py.File(path, "r") as h5_file:
+        found = cast(h5py.Dataset, h5_file["person_found"])[()]
+    return {
+        "path": path.relative_to(pose_dir).as_posix(),
+        "file_sha256": sha256_of(path),
+        "K": int(found.shape[0]),
+        "n_found": int(found.sum()),
+        "source_sha256": plan.source_sha256,
+        "grid_sha256": plan.grid_sha256,
+        "n_frames_decoded": plan.n_frames_decoded,
+    }
+
+
 def file_records(
     pose_dir: Path, plans: dict[str, VideoPlan]
 ) -> dict[str, dict[str, object]]:
-    records: dict[str, dict[str, object]] = {}
-    for video_id, plan in sorted(plans.items()):
-        path = pose_path(video_id, pose_root=pose_dir)
-        with h5py.File(path, "r") as h5_file:
-            n_found = int(cast(h5py.Dataset, h5_file["person_found"])[()].sum())
-        records[video_id] = {
-            "path": path.relative_to(pose_dir).as_posix(),
-            "file_sha256": sha256_of(path),
-            "K": len(plan.src_indices),
-            "n_found": n_found,
-            "source_sha256": plan.source_sha256,
-            "grid_sha256": plan.grid_sha256,
-            "n_frames_decoded": plan.n_frames_decoded,
-        }
-    return records
+    return {video_id: file_record(pose_dir, plan) for video_id, plan in sorted(plans.items())}
+
+
+def summarize(records: dict[str, dict[str, object]]) -> dict[str, object]:
+    return {
+        "videos": len(records),
+        "grid_frames": sum(int(cast(int, record["K"])) for record in records.values()),
+        "frames_with_person": sum(int(cast(int, record["n_found"])) for record in records.values()),
+    }
 
 
 def write_manifest(
@@ -524,13 +535,7 @@ def write_manifest(
             "extraction_code_sha256": provenance["extraction_code_sha256"],
         },
         "decoder": decoding_module.__name__ + ".GridFrameReader (ffmpeg -fps_mode passthrough)",
-        "summary": {
-            "videos": len(records),
-            "grid_frames": sum(int(cast(int, record["K"])) for record in records.values()),
-            "frames_with_person": sum(
-                int(cast(int, record["n_found"])) for record in records.values()
-            ),
-        },
+        "summary": summarize(records),
         "videos": records,
     }
     manifest_path = pose_dir / POSE_MANIFEST_FILE
@@ -707,11 +712,15 @@ def validate_pose_output(
     manifest = read_json(manifest_path)
     results["manifesto"] = manifest_problems(manifest, adapter, gate)
     results["cobertura"] = coverage_problems(pose_dir, plans, adapter.videos)
-    records = cast(dict[str, dict[str, object]], manifest.get("videos", {}))
-    if sorted(records) != sorted(plans):
-        results["cobertura"].append(
-            "a lista de vídeos do manifesto difere dos vídeos elegíveis do adapter"
-        )
+    records = section(manifest, "videos")
+    results["cobertura"].extend(
+        f"vídeo elegível ausente do manifesto: {video_id}"
+        for video_id in sorted(set(plans) - set(records))
+    )
+    results["cobertura"].extend(
+        f"vídeo inesperado no manifesto: {video_id}"
+        for video_id in sorted(set(records) - set(plans))
+    )
     identity = section(manifest, "model")
     code = section(manifest, "code")
     provenance = {
@@ -719,17 +728,25 @@ def validate_pose_output(
         "code_commit": str(code.get("commit")),
         "extraction_code_sha256": str(code.get("extraction_code_sha256")),
     }
+    verified: dict[str, dict[str, object]] = {}
     for video_id, plan in sorted(plans.items()):
         path = pose_path(video_id, pose_root=pose_dir)
-        record = records.get(video_id)
-        if not path.is_file() or record is None:
+        if not path.is_file():
             continue
-        if record.get("file_sha256") != sha256_of(path):
-            results["HDF5"].append(f"{path}: SHA-256 diverge do manifesto")
-        for key in ("source_sha256", "grid_sha256", "n_frames_decoded"):
-            if record.get(key) != getattr(plan, key):
-                results["HDF5"].append(f"{video_id}: {key} do manifesto diverge do adapter")
-        results["HDF5"].extend(pose_file_problems(path, expected_attrs(plan, identity, provenance)))
+        file_problems = pose_file_problems(path, expected_attrs(plan, identity, provenance))
+        results["HDF5"].extend(file_problems)
+        if file_problems:
+            continue
+        verified[video_id] = file_record(pose_dir, plan)
+        if video_id in records:
+            label = f"manifesto videos.{video_id}."
+            results["HDF5"].extend(compare_expected(verified[video_id], records[video_id], label))
+    # Um HDF5 ausente ou inválido já reprova cobertura ou HDF5; o resumo só é
+    # recalculado quando todos os vídeos elegíveis foram conferidos.
+    if len(verified) == len(plans):
+        results["manifesto"].extend(
+            compare_expected(summarize(verified), manifest.get("summary"), "summary.")
+        )
     return results
 
 

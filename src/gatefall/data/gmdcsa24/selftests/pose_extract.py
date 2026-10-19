@@ -39,6 +39,7 @@ from gatefall.data.gmdcsa24.pose_extract import (
     build_plans,
     expected_attrs,
     extract_video,
+    extraction_code_sha256,
     grid_problems,
     load_adapter,
     model_identity,
@@ -78,6 +79,7 @@ from gatefall.pose.loading import pose_path
 from gatefall.runs import REPOSITORY_ROOT
 
 _COMMIT = "c" * 40
+_Select = Callable[[dict[str, object]], dict[str, object]]
 _LE2I = _le2i_reference(_EVAL_HASHES)
 
 
@@ -466,6 +468,62 @@ def check_extraction(setup: _Setup, tmp: Path) -> tuple[Path, list[bool]]:
     return pose_dir, checks
 
 
+def check_existing_source(setup: _Setup, pose_dir: Path, tmp: Path) -> list[bool]:
+    """Um HDF5 existente e válido não dispensa conferir o MP4 de origem."""
+    plans = _plans(setup)
+    plan = plans[sorted(plans)[0]]
+    attrs = expected_attrs(
+        plan,
+        model_identity(setup.weights),
+        {
+            "adapter_manifest_sha256": load_adapter(setup.adapter_dir).manifest_sha256,
+            "code_commit": _COMMIT,
+            "extraction_code_sha256": extraction_code_sha256(),
+        },
+    )
+    existing_dir = tmp / "pose_existing_source"
+    shutil.copytree(pose_dir, existing_dir)
+    output_path = pose_path(plan.video_id, pose_root=existing_dir)
+    original_sha256 = sha256_of(output_path)
+
+    def changed(root: Path) -> None:
+        with (root / plan.relative_path).open("ab") as source:
+            source.write(b"\0")
+
+    def missing(root: Path) -> None:
+        (root / plan.relative_path).unlink()
+
+    outcomes: dict[str, bool] = {}
+    sources: dict[str, Callable[[Path], None]] = {
+        "unchanged": lambda root: None,
+        "changed": changed,
+        "missing": missing,
+    }
+    for name, mutate in sources.items():
+        root = tmp / f"root_{name}"
+        shutil.copytree(setup.root, root)
+        mutate(root)
+        model = _FakeModel()
+        try:
+            skipped = extract_video(plan, root, existing_dir, cast(YOLO, model), attrs, force=False)
+            rejected = False
+        except PoseExtractError:
+            skipped, rejected = 0, True
+        untouched = model.calls == 0 and sha256_of(output_path) == original_sha256
+        outcomes[name] = untouched and (skipped is None if name == "unchanged" else rejected)
+    return [
+        _check(
+            "HDF5 existente com a fonte inalterada é pulado sem rodar o modelo",
+            outcomes["unchanged"],
+        ),
+        _check(
+            "HDF5 existente e válido não dispensa a fonte: MP4 alterado ou ausente é recusado "
+            "sem rodar o modelo nem sobrescrever o HDF5",
+            outcomes["changed"] and outcomes["missing"],
+        ),
+    ]
+
+
 def check_existing_outputs(setup: _Setup, pose_dir: Path, tmp: Path) -> list[bool]:
     plans = _plans(setup)
     total = sum(len(plan.src_indices) for plan in plans.values())
@@ -525,6 +583,8 @@ def check_incomplete_and_provenance(setup: _Setup, pose_dir: Path, tmp: Path) ->
     first, second = sorted(plans)[:2]
     excluded = sorted(_EXPECTED_EXCLUSIONS)[0]
 
+    second_relative = pose_path(second, pose_root=Path()).as_posix()
+
     def first_path(root: Path) -> Path:
         return pose_path(first, pose_root=root)
 
@@ -560,6 +620,36 @@ def check_incomplete_and_provenance(setup: _Setup, pose_dir: Path, tmp: Path) ->
 
         return update
 
+    def record(manifest: dict[str, object]) -> dict[str, object]:
+        return cast(dict[str, dict[str, object]], manifest["videos"])[first]
+
+    def summary(manifest: dict[str, object]) -> dict[str, object]:
+        return cast(dict[str, object], manifest["summary"])
+
+    def shift(select: _Select, field: str) -> Callable[[Path], None]:
+        def update(manifest: dict[str, object]) -> None:
+            select(manifest)[field] = int(cast(int, select(manifest)[field])) + 1
+
+        return _edit_pose_manifest(update)
+
+    def drop(select: _Select, field: str) -> Callable[[Path], None]:
+        def update(manifest: dict[str, object]) -> None:
+            del select(manifest)[field]
+
+        return _edit_pose_manifest(update)
+
+    def add(select: _Select, field: str) -> Callable[[Path], None]:
+        return _edit_pose_manifest(lambda manifest: select(manifest).update({field: 0}))
+
+    def drop_first_record(manifest: dict[str, object]) -> None:
+        del cast(dict[str, object], manifest["videos"])[first]
+
+    def add_excluded_record(manifest: dict[str, object]) -> None:
+        cast(dict[str, object], manifest["videos"])[excluded] = dict(record(manifest))
+
+    def drop_summary(manifest: dict[str, object]) -> None:
+        del manifest["summary"]
+
     variants: dict[str, tuple[Callable[[Path], None], set[str]]] = {
         "HDF5 ausente": (lambda root: first_path(root).unlink(), {"cobertura"}),
         "temporário de escrita interrompida": (
@@ -576,6 +666,25 @@ def check_incomplete_and_provenance(setup: _Setup, pose_dir: Path, tmp: Path) ->
             _edit_pose_manifest(set_record("grid_sha256", "0" * 64)),
             {"HDF5"},
         ),
+        "path do vídeo no manifesto": (
+            _edit_pose_manifest(set_record("path", second_relative)),
+            {"HDF5"},
+        ),
+        "K do vídeo no manifesto": (shift(record, "K"), {"HDF5"}),
+        "quadros com pessoa do vídeo no manifesto": (shift(record, "n_found"), {"HDF5"}),
+        "campo ausente no registro do vídeo": (drop(record, "n_found"), {"HDF5"}),
+        "campo extra no registro do vídeo": (add(record, "n_missing"), {"HDF5"}),
+        "vídeo elegível ausente do manifesto": (
+            _edit_pose_manifest(drop_first_record),
+            {"cobertura"},
+        ),
+        "vídeo excluído no manifesto": (_edit_pose_manifest(add_excluded_record), {"cobertura"}),
+        "total de vídeos do resumo": (shift(summary, "videos"), {"manifesto"}),
+        "total de quadros do resumo": (shift(summary, "grid_frames"), {"manifesto"}),
+        "total com pessoa do resumo": (shift(summary, "frames_with_person"), {"manifesto"}),
+        "total ausente do resumo": (drop(summary, "frames_with_person"), {"manifesto"}),
+        "total extra no resumo": (add(summary, "frames_without_person"), {"manifesto"}),
+        "resumo ausente": (_edit_pose_manifest(drop_summary), {"manifesto"}),
         "SHA-256 dos pesos no manifesto": (
             _edit_pose_manifest(set_section("model", "weights_sha256", "0" * 64)),
             {"manifesto", "HDF5"},
@@ -651,6 +760,7 @@ def run_pose_extract_selftest() -> None:
         checks.extend(check_source_identity(setup, tmp))
         pose_dir, extraction = check_extraction(setup, tmp)
         checks.extend(extraction)
+        checks.extend(check_existing_source(setup, pose_dir, tmp))
         checks.extend(check_existing_outputs(setup, pose_dir, tmp))
         checks.extend(check_incomplete_and_provenance(setup, pose_dir, tmp))
     if not all(checks):
