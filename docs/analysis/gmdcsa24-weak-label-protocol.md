@@ -1,12 +1,18 @@
 # Protocolo aprovado — piloto exploratório GMDCSA24 com rótulos fracos (braço A)
 
-!!! warning "Status: APROVADO em 2026-10-19, só para planejamento e adapter"
+!!! warning "Status: APROVADO em 2026-10-19; passo 4 vale só a partir da integração do PR #135"
     O responsável pelo projeto aprovou este protocolo exploratório separado
-    (ver [Registro da aprovação](#registro-da-aprovacao)). A aprovação
-    autoriza só o planejamento da implementação e o PR separado do adapter.
-    Ela **não** autoriza extração de features, treino de modelos nem
-    sincronização com o Google Drive; essas atividades continuam proibidas
-    até os [portões seguintes](#o-que-continua-proibido). As anotações
+    (ver [Registro da aprovação](#registro-da-aprovacao)), e o adapter do
+    passo 3 foi integrado no PR #134. A autorização do passo 4, proposta no PR
+    #135, vale só a partir da revisão e da integração desse PR pelo
+    responsável. Ela cobre apenas a execução local e isolada da extração
+    offline YOLO-Pose dos 145 vídeos elegíveis e do piloto T/S do braço A, e
+    cada etapa depende de uma implementação revisada em PR próprio e dos
+    portões de validação dela (ver
+    [Autorização do passo 4](#autorizacao-do-passo-4)).
+    Sincronização com o Google Drive, mudança do modelo canônico, treinos de
+    B0, B1, C0 ou C1 e outras variantes de rótulo fraco continuam
+    [proibidos](#o-que-continua-proibido) em qualquer caso. As anotações
     OmniFall do GMDCSA24 continuam não verificadas, e a triagem visual por IA
     nunca vale como confirmação humana. O
     [protocolo verificado](gmdcsa24-pilot-protocol.md) continua PROPOSTO e
@@ -370,7 +376,8 @@ calculadas uma vez depois da decisão.
 ## Critérios de parada
 
 1. Nada é extraído nem treinado antes de cumpridos os passos de
-   [Aprovação](#aprovacao), inclusive a autorização separada do passo 4.
+   [Aprovação](#aprovacao), inclusive a autorização separada do passo 4 e os
+   [portões](#portoes-antes-de-cada-etapa) dela.
 2. Antes do treino, falha de `verify`, `inventory`, V5 ou W2 para a trilha. O
    código é corrigido sem mudar a política. Se a correção exigir mudar a
    política, a trilha para e precisa de um novo protocolo.
@@ -519,8 +526,9 @@ compartilhadas com o Le2i nem uma tabela por vídeo, como decidido na
 
 ### O que fica para depois do passo 4
 
-O adapter entrega só o lado GMDCSA24 do treino de T e S. Continuam fora deste
-passo, atrás da autorização separada:
+O adapter entrega só o lado GMDCSA24 do treino de T e S. Continuam fora do
+adapter, cada um com implementação própria e só nas condições de
+[Autorização do passo 4](#autorizacao-do-passo-4):
 
 - a extração de pose dos 145 vídeos incluídos, com o decodificador do adapter;
 - a junção das janelas de T ou S com o treino Le2i-CS no carregador de
@@ -545,15 +553,20 @@ ordem:
    [Receita de contagem](#receita-de-contagem-e-congelamento-w2)). A
    aprovação escolheu a W2 só por agregados, então este passo não se aplica à
    validação inicial do adapter.
-3. **Implementado, em revisão.** O adapter isolado (`data/processed/gmdcsa24/`), o manifesto
+3. **Cumprido em 2026-10-19.** O adapter isolado (`data/processed/gmdcsa24/`), o manifesto
    com a lista de exclusão, a montagem dos treinos de T e S e as checagens W1,
-   W2, V2 e V5 são implementados e revisados em PR próprio, com selftests
+   W2, V2 e V5 foram implementados e revisados no PR #134, com selftests
    sintéticos, sem alterar os selftests e as referências do Le2i. O adapter
    decodifica sem duplicar quadros. A implementação e o resultado sobre os
-   dados pinados estão em [Adapter e validação](#adapter-e-validacao); o
-   passo só se cumpre com a revisão e a integração desse PR.
-4. **Pendente.** A extração, os treinos e qualquer sincronização com o Google
-   Drive são autorizados à parte, depois dos passos anteriores.
+   dados pinados estão em [Adapter e validação](#adapter-e-validacao). O PR
+   #134 foi integrado em `experiment/external-fall-data` com o head
+   `4ef87d1` (merge `fc7f4de`).
+4. **Proposto no PR #135; vale só a partir da integração dele.** A revisão e
+   a integração desse PR pelo responsável pelo projeto são a autorização
+   explícita da execução local e isolada descrita em
+   [Autorização do passo 4](#autorizacao-do-passo-4). Antes dessa integração,
+   nada do passo 4 vale. A autorização não cobre sincronização com o Google
+   Drive, que continua proibida.
 
 ### Registro da aprovação
 
@@ -600,37 +613,143 @@ exploratória separada. A decisão cobre os itens exigidos no passo 1:
   a trilha para e precisa de um novo protocolo aprovado
   ([critério de parada 2](#criterios-de-parada)).
 
-A aprovação autoriza só o planejamento da implementação e o PR separado do
-adapter (passo 3). Ela não autoriza extração de features nem treino de
-modelos.
+A aprovação do passo 1 autorizou só o planejamento da implementação e o PR
+separado do adapter (passo 3). Ela não autorizou extração de features nem
+treino de modelos.
+
+### Autorização do passo 4
+
+O PR #135 propõe esta autorização. Ela vale só a partir da revisão e da
+integração desse PR em `experiment/external-fall-data` pelo responsável pelo
+projeto; antes disso, nada desta seção está autorizado, e nenhuma autorização
+anterior é alegada.
+
+#### Evidência de execução informada pelo responsável
+
+O responsável pelo projeto informou os logs abaixo, executados no checkout
+local de `experiment/external-fall-data` depois da integração do PR #134. O
+manifesto gravado registra o commit `fc7f4de` e `code.dirty = true`. Os logs
+não estão versionados e não foram reexecutados neste PR.
+
+- `adapter validate` sobre a saída existente: integridade, proveniência, W1,
+  W2, V2 e V5 passam.
+- `adapter build --force`, seguido de `adapter validate`:
+    - clone na tag `v2.1` (commit `5abac7693229900cf80f722e878fbb119211fc1c`),
+      sem arquivo modificado ou não rastreado; 160 MP4, sem duplicata por
+      SHA-256; os mesmos 160 vídeos no clone, no CSV original e nas configs
+      `labels`, `cs` e `cv` do OmniFall;
+    - os 15 vídeos excluídos são os da [tabela](#videos);
+    - funil 3 231, −945, −142, −171, **T = 1 973**, −411, **S = 1 562**;
+      contagens por classe de T e S, 145 vídeos incluídos, 137 com janela em
+      T, 58 e 45 com janela `fall` em T e S, e janelas de T e janelas `fall`
+      por sujeito, todos iguais a [Contagem esperada](#contagem-esperada);
+    - integridade, proveniência, W1, W2, V2 e V5 passam no build e no
+      `validate` isolado.
+
+O próprio `validate` separa o que conferiu contra a fonte atual (documento do
+protocolo, tabelas gravadas e Le2i-CS local) do que só compara com o valor
+registrado no build (clone, OmniFall, parâmetros, exclusões e commit do
+código). O `build --force` refez `verify`, `inventory`, a sondagem e os hashes
+dos MP4. Essa evidência cumpre a pré-condição do passo 3 e não substitui o
+[portão E0](#portoes-antes-de-cada-etapa).
+
+#### O que passa a ser autorizado
+
+Com a integração do PR #135, e só depois dos portões de cada etapa, fica
+autorizada a execução **local e isolada** de:
+
+1. **Extração offline YOLO-Pose dos 145 vídeos elegíveis.** São os vídeos
+   incluídos de `videos.parquet`, decodificados pelo decodificador do adapter
+   e alinhados ao `src_index` de `frames.parquet`, com o backbone congelado e
+   a mesma configuração de pose do braço A no Le2i. Os 15 vídeos excluídos
+   não são extraídos. A saída fica em caminho próprio do GMDCSA24, ignorado
+   pelo Git, fora de `data/features/le2i/` e dos outros artefatos canônicos.
+2. **Piloto T/S só do braço A.** Cinco treinos de T e cinco de S, nas seeds 42
+   a 46, uma execução por seed, com a receita congelada e o mesmo controle
+   pareado (aceito pelo `checkpoint_sha256` ou retreinado na mesma máquina,
+   condição V3). JSON de padronização e pesos da `CrossEntropyLoss` são
+   ajustados só sobre o treino de cada lado. A decisão usa só `val` do
+   Le2i-CS, pelo [critério de decisão](#criterio-de-decisao); `test` é
+   calculado uma vez, depois da decisão, só como descrição.
+
+Nada mais é autorizado. As decisões fixadas nesta página continuam valendo
+sem mudança:
+
+- as fontes pinadas, as 15 exclusões, as definições de T e S e a W2 só por
+  agregados;
+- a margem fixa de 0,5 s de S;
+- as seeds 42 a 46 e a receita congelada;
+- a padronização só com treino e o controle pareado;
+- o isolamento de `val` e `test` do Le2i-CS;
+- as condições G1–G4, W1, W2 e V2–V5;
+- os [critérios de parada](#criterios-de-parada).
+
+A [revisão de proveniência](gmdcsa24-provenance-review.md) continua
+PENDENTE, e a condição V1 do [protocolo verificado](gmdcsa24-pilot-protocol.md)
+continua não cumprida.
+
+#### Portões antes de cada etapa
+
+Cada etapa só começa depois dos portões dela. Uma falha bloqueia a etapa e
+segue o [critério de parada 2](#criterios-de-parada): o código é corrigido sem
+mudar a política, ou a trilha para.
+
+- **E0 — saída do adapter sob o texto integrado.** O PR #135 muda este
+  documento, então o SHA-256 do protocolo registrado no manifesto atual deixa
+  de bater, e `validate` reprova a proveniência até um novo build. Antes da
+  extração, `adapter build --force` e `adapter validate` rodam a partir do
+  commit integrado. As seis condições precisam passar, e os agregados precisam
+  ser os mesmos. Os hashes de conteúdo de `windows_t.parquet`,
+  `windows_s.parquet` e `window_candidates.parquet` também precisam ser iguais
+  aos de [Resultado sobre os dados pinados](#resultado-sobre-os-dados-pinados).
+- **Extração.** A implementação é revisada e integrada em PR próprio, sem
+  aprovação ou mudança de protocolo no mesmo PR, e com selftest sintético. A
+  validação dela confere pelo menos estes pontos:
+    - cobertura exata dos 145 vídeos incluídos, sem nenhum excluído;
+    - alinhamento com a grade de `frames.parquet`;
+    - isolamento dos caminhos do Le2i e backbone congelado;
+    - nenhuma métrica de modelo calculada.
+- **Treino.** A implementação da junção com o treino Le2i-CS, da padronização
+  e dos pesos de cada lado é revisada e integrada em PR próprio, com selftest
+  sintético. Antes do primeiro treino passam, para T e para S:
+    - W1, W2 e V2–V5, inclusive as partes de V2 que dependem do treino:
+      estatísticas do controle sem GMDCSA24, alarme não recalibrado e índices
+      de `val`/`test` com o hash acima nos dois lados;
+    - configuração idêntica ao controle fora dos três itens permitidos (V4).
 
 ### O que continua proibido
 
-Até o PR do adapter ser revisado e integrado com as checagens do passo 3, e
-até a autorização separada do passo 4, continuam proibidos:
+Sem a integração do PR #135, continua proibido tudo o que a autorização do
+passo 4 cobriria. Depois dela, a extração, a padronização, o treino e as
+métricas ficam bloqueados até a validação da implementação correspondente:
 
-- extrair features de qualquer vídeo do GMDCSA24, com YOLO-Pose ou com
-  qualquer outro backbone;
+- extrair features do GMDCSA24 antes de a implementação da extração ser
+  integrada e de o [portão E0](#portoes-antes-de-cada-etapa) passar;
 - ajustar os JSON de padronização de T e S, montar os treinos de T e S com
-  features ou treinar T, S ou um novo controle;
+  features ou treinar T, S ou um novo controle antes de a implementação do
+  treino ser integrada e de os portões dela passarem;
 - calcular qualquer métrica de modelo com GMDCSA24 no treino, em `val` ou em
-  `test`;
+  `test` antes desses portões.
+
+Continuam proibidos mesmo com a autorização do passo 4:
+
+- extrair features de vídeos fora dos 145 elegíveis ou com qualquer backbone
+  além do YOLO-Pose, inclusive DINOv3 e SAM 3;
+- treinar ou ajustar o YOLO-Pose;
+- avaliar modelos no GMDCSA24 ou no Le2i-CV;
 - sincronizar dados, features, manifestos ou checkpoints do GMDCSA24 com o
   Google Drive;
-- implementar o adapter no mesmo PR de uma aprovação ou de uma mudança de
-  protocolo;
+- implementar a extração ou o treino no mesmo PR de uma aprovação ou de uma
+  mudança de protocolo;
 - alterar o [protocolo verificado](gmdcsa24-pilot-protocol.md), `review.csv`,
   `review-status` ou as colunas humanas da revisão, inclusive com a triagem
   por IA;
-- alterar os experimentos canônicos do Le2i: receita congelada, splits
-  Le2i-CS e Le2i-CV, checkpoints, calibração, protocolo de alarme,
+- alterar os experimentos ou o modelo canônico do Le2i: receita congelada,
+  splits Le2i-CS e Le2i-CV, checkpoints, calibração, protocolo de alarme,
   selftests e referências em `runs/reference/`;
 - treinar B0, B1, C0 ou C1 com GMDCSA24, usar outro dataset externo ou testar
   outra variante de rótulo fraco (outra margem, outra lista de exclusão,
   reetiquetagem ou deslocamento de rótulo).
-
-Nada desta lista é liberado só pela integração do adapter: a extração, os
-treinos e a sincronização dependem da autorização explícita do passo 4.
 
 ## Riscos em aberto
 
