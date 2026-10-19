@@ -7,13 +7,16 @@ fora das gravações, gravação sem vídeo, vídeo duplicado e `metadata.json`
 divergente). Requer FFmpeg.
 """
 
+import contextlib
 import hashlib
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
@@ -21,13 +24,17 @@ from gatefall.config import WINDOW_FRAMES
 from gatefall.data.figshare_fall.inventory import (
     build_inventory,
     compute_file_digests,
-    find_duplicate_videos,
     find_metadata_mismatches,
+    find_probable_duplicate_videos,
+    has_identical_content,
     summarize_subjects,
 )
+from gatefall.data.figshare_fall.audit import run_probe
 from gatefall.data.figshare_fall.probe import (
+    PROBE_COLUMNS,
     count_unpadded_windows,
     probe_videos,
+    report_probe,
     select_spread_sample,
 )
 
@@ -137,14 +144,33 @@ def check_inventory(archive: zipfile.ZipFile) -> list[bool]:
             and recordings.loc["ADL/SBJ_01_LOC3/ACT13_B_1", "side"] == "B",
         ),
         _check(
-            "vídeos idênticos agrupados por (CRC-32, tamanho)",
-            find_duplicate_videos(inventory.videos)
+            "prováveis duplicatas agrupadas por (CRC-32, tamanho)",
+            find_probable_duplicate_videos(inventory.videos)
             == [
                 [
                     "VideoDataset/Fall/SBJ_01_LOC1/ACT1_L_1/a (1).mp4",
                     "VideoDataset/Fall/SBJ_01_LOC1/ACT1_L_1/a.mp4",
                 ]
             ],
+        ),
+        # CRC-32 e tamanho iguais não provam igualdade; o SHA-256 do conteúdo
+        # é que confirma ou refuta, inclusive para um grupo de vídeos diferentes.
+        _check(
+            "SHA-256 do conteúdo confirma a cópia e refuta vídeos diferentes",
+            has_identical_content(
+                archive,
+                [
+                    "VideoDataset/Fall/SBJ_01_LOC1/ACT1_L_1/a.mp4",
+                    "VideoDataset/Fall/SBJ_01_LOC1/ACT1_L_1/a (1).mp4",
+                ],
+            )
+            and not has_identical_content(
+                archive,
+                [
+                    "VideoDataset/Fall/SBJ_01_LOC1/ACT1_L_1/a.mp4",
+                    "VideoDataset/ADL/SBJ_01_LOC3/ACT13_B_1/b.mp4",
+                ],
+            ),
         ),
     ]
 
@@ -204,15 +230,84 @@ def check_probe(archive: zipfile.ZipFile) -> list[bool]:
     ]
 
 
-def check_spread_sample() -> bool:
+def _raises_value_error(members: list[str], limit: int) -> bool:
+    try:
+        select_spread_sample(members, limit)
+    except ValueError:
+        return True
+    return False
+
+
+def check_spread_sample() -> list[bool]:
     members = [f"m{index:02d}" for index in range(10)]
-    return _check(
-        "amostra espalhada é determinística, inclui as pontas e respeita limites",
-        select_spread_sample(list(reversed(members)), 3) == ["m00", "m04", "m09"]
-        and select_spread_sample(members, None) == members
-        and select_spread_sample(members, 50) == members
-        and select_spread_sample(members, 0) == [],
-    )
+    return [
+        _check(
+            "amostra espalhada é determinística, inclui as pontas e respeita limites",
+            select_spread_sample(list(reversed(members)), 3) == ["m00", "m04", "m09"]
+            and select_spread_sample(members, 1) == ["m00"]
+            and select_spread_sample(members, None) == members
+            and select_spread_sample(members, 50) == members,
+        ),
+        _check(
+            "limit 0 ou negativo levanta ValueError em vez de amostra vazia",
+            _raises_value_error(members, 0) and _raises_value_error(members, -3),
+        ),
+    ]
+
+
+def _quiet_report_probe(probes: pd.DataFrame) -> bool:
+    with contextlib.redirect_stdout(io.StringIO()):
+        return report_probe(probes)
+
+
+def check_probe_outcome(archive: zipfile.ZipFile) -> list[bool]:
+    inventory = build_inventory(archive.infolist())
+    probes = probe_videos(archive, list(inventory.videos["member"]))
+    decoded = cast(pd.DataFrame, probes[probes["error"].isna()])
+    failed = cast(pd.DataFrame, probes[probes["error"].notna()])
+    return [
+        _check(
+            "sondagem sem nenhum vídeo não é sucesso",
+            not _quiet_report_probe(pd.DataFrame(columns=PROBE_COLUMNS)),
+        ),
+        _check(
+            "sondagem só com falhas não é sucesso; só com decodificados é",
+            not _quiet_report_probe(failed) and _quiet_report_probe(decoded),
+        ),
+    ]
+
+
+def check_probe_cli(directory: Path, archive_path: Path) -> list[bool]:
+    # Zip só com um vídeo solto: a seleção de vídeos de gravação fica vazia.
+    empty_archive = directory / "sem_gravacoes.zip"
+    with zipfile.ZipFile(empty_archive, "w") as archive:
+        archive.writestr("VideoDataset/timelapse.mp4", b"x")
+    with contextlib.redirect_stdout(io.StringIO()):
+        empty_ok = run_probe(empty_archive, None)
+
+    exit_codes = [
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "gatefall.data.figshare_fall.audit",
+                "probe",
+                "--archive",
+                str(archive_path),
+                "--limit",
+                limit,
+            ],
+            capture_output=True,
+        ).returncode
+        for limit in ("0", "-1")
+    ]
+    return [
+        _check("zip sem vídeos de gravação faz probe falhar", not empty_ok),
+        _check(
+            "CLI rejeita --limit 0 e --limit -1 antes de sondar",
+            exit_codes == [2, 2],
+        ),
+    ]
 
 
 def check_file_digests(path: Path) -> bool:
@@ -234,8 +329,10 @@ def run_audit_selftest() -> None:
                 *check_inventory(archive),
                 *check_metadata_and_subjects(archive),
                 *check_probe(archive),
+                *check_probe_outcome(archive),
             ]
-        checks.append(check_spread_sample())
+        checks.extend(check_spread_sample())
+        checks.extend(check_probe_cli(Path(tmp_dir), archive_path))
         checks.append(check_file_digests(archive_path))
     if not all(checks):
         print("\nselftest FALHOU", file=sys.stderr)

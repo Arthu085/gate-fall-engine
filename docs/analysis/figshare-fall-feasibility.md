@@ -16,7 +16,8 @@ mudaram.
   dá nome, tamanho e CRC-32 de todos os 22 397 membros. As contagens abaixo
   marcadas como **verificadas** vêm dele.
 - **Amostra.** Também por `Range`, foram lidos seis `metadata.json`, três logs
-  de sensor e nove MP4, um por par categoria × local. O CRC-32 de cada MP4
+  de sensor, nove MP4 (um por par categoria × local) e o par de MP4 suspeito de
+  duplicata. O CRC-32 de cada MP4
   bateu com o do diretório central. Os arquivos ficaram fora do repositório e
   de `data/`. Propriedades medidas só nessa amostra estão marcadas como
   **amostra**.
@@ -109,15 +110,21 @@ A unidade utilizável é a gravação, ou seja, um diretório `ACT…`:
 | Sem vídeo | 0 | 16 | 16 |
 | Com dois vídeos | 1 | 5 | 6 |
 
-- Uma das seis gravações com dois vídeos contém uma cópia byte a byte:
-  `Fall/SBJ_02_LOC2/ACT1_L_1/20240912_101331 (1).mp4`, com mesmo CRC-32 e
-  tamanho. As outras cinco têm vídeos distintos, com timestamps separados por
-  4 a 47 s. O registro não diz qual tomada é a válida.
+- Pelo diretório central, o único par de MP4 com mesmo CRC-32 e mesmo tamanho
+  é `Fall/SBJ_02_LOC2/ACT1_L_1/20240912_101331.mp4` e
+  `20240912_101331 (1).mp4`, na mesma gravação. Isso indica uma provável cópia,
+  mas não prova igualdade, porque o CRC-32 colide. Os dois membros foram então
+  baixados por `Range`, cerca de 0,7 MB cada, e têm SHA-256 idêntico
+  (`dd255576…d93a41`). Com isso, a cópia está verificada. As outras cinco
+  gravações com dois vídeos têm CRC-32 diferentes, com timestamps separados
+  por 4 a 47 s. O registro não diz qual tomada é a válida.
 - Oito das nove gravações da ação 12 (Fall) não têm vídeo.
 - Os três timelapses são compilações aceleradas e não são gravações.
-- Restam 2 013 vídeos distintos dentro de diretórios de gravação. O número de
-  quedas utilizáveis depende de como as gravações duplas forem tratadas: são
-  987 com exatamente um vídeo, ou 992 com ao menos um.
+- Restam 2 013 vídeos distintos dentro de diretórios de gravação. A contagem
+  é exata: CRC-32 ou tamanho diferentes já provam conteúdo diferente, e o
+  único par coincidente foi confirmado por SHA-256. O número de quedas
+  utilizáveis depende de como as gravações duplas forem tratadas: são 987 com
+  exatamente um vídeo, ou 992 com ao menos um.
 
 ## Sujeitos, locais e granularidade do rótulo (verificada)
 
@@ -190,8 +197,8 @@ preenchidas com o quadro 0. Em resolução, os vídeos têm 6 vezes a largura e
 
 ## Vazamento e viabilidade de split
 
-- **Cópias e compilações.** A cópia `(1).mp4` e os três timelapses precisam ser
-  excluídos. Os timelapses provavelmente reúnem quadros de várias gravações e
+- **Cópias e compilações.** A cópia `(1).mp4`, confirmada por SHA-256, e os
+  três timelapses precisam ser excluídos. Os timelapses provavelmente reúnem quadros de várias gravações e
   vazariam entre splits. Isso não foi verificado.
 - **Sujeito confundido com classe.** 16 dos 29 sujeitos têm uma só classe. Um
   split por sujeito deixaria aparência e identidade predizerem o rótulo.
@@ -246,13 +253,16 @@ Todos aceitam `--archive PATH`. O padrão é
   Falha em divergência.
 - `inventory` lê o diretório central e os `metadata.json`. Ele relata
   contagens anunciadas × arquivo, gravações sem vídeo ou com vídeos duplos,
-  duplicatas por CRC-32, ações, sujeitos e locais. Falha se algum
-  `metadata.json` faltar ou divergir do caminho.
+  ações, sujeitos e locais. Também lista as prováveis duplicatas, ou seja,
+  vídeos com mesmo CRC-32 e tamanho. Para cada grupo, compara o SHA-256 do
+  conteúdo descompactado e informa se o conteúdo é idêntico ou diferente.
+  Falha se algum `metadata.json` faltar ou divergir do caminho.
 - `probe` extrai cada MP4 para um diretório temporário e roda o mesmo
   `probe_video` do Le2i. Relata codec, resolução, FPS, quadros, duração, `K` da
   grade a 10 fps e vídeos com `K < WINDOW_FRAMES`. Sem `--limit`, sonda todos
   os vídeos de gravação. Com `--limit N`, sonda uma amostra determinística
-  espalhada. Falha se algum vídeo não decodificar.
+  espalhada, e `N` precisa ser positivo. Falha se algum vídeo não decodificar
+  ou se nenhum vídeo for sondado.
 - `selftest` monta um zip sintético com os desvios observados e não precisa do
   dataset. Requer FFmpeg.
 

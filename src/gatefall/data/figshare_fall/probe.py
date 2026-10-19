@@ -36,11 +36,11 @@ PROBE_COLUMNS = [
 
 def select_spread_sample(members: list[str], limit: int | None) -> list[str]:
     """Amostra determinística e espalhada sobre a lista ordenada de membros."""
+    if limit is not None and limit <= 0:
+        raise ValueError(f"limit deve ser positivo, recebido: {limit}")
     ordered = sorted(members)
     if limit is None or limit >= len(ordered):
         return ordered
-    if limit <= 0:
-        return []
     positions = np.unique(np.round(np.linspace(0, len(ordered) - 1, limit)).astype(int))
     return [ordered[position] for position in positions]
 
@@ -94,13 +94,16 @@ def probe_videos(archive: zipfile.ZipFile, members: list[str]) -> pd.DataFrame:
 def report_probe(probes: pd.DataFrame) -> bool:
     print("\n=== sondagem de vídeo (ffprobe com contagem por decodificação) ===")
     print(f"vídeos sondados: {len(probes)}")
+    if probes.empty:
+        print("nenhum vídeo selecionado: a sondagem não verificou nada")
+        return False
     failed = probes[probes["error"].notna()]
     for member, error in zip(failed["member"], failed["error"]):
         print(f"  FALHA {member}: {error}")
     decoded = probes[probes["error"].isna()]
     if decoded.empty:
         print("nenhum vídeo decodificado")
-        return failed.empty
+        return False
 
     print("\ncodec x resolução:")
     print(decoded.groupby(["codec", "width", "height"]).size().to_string())

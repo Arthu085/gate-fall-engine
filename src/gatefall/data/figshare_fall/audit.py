@@ -27,6 +27,13 @@ from gatefall.data.figshare_fall.probe import (
 )
 
 
+def positive_int(text: str) -> int:
+    value = int(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"deve ser um inteiro positivo, recebido: {value}")
+    return value
+
+
 def require_archive(path: Path) -> None:
     if path.exists():
         return
@@ -54,7 +61,7 @@ def run_inventory(path: Path) -> bool:
         inventory = read_inventory(archive)
         report_counts(inventory)
         report_recording_anomalies(inventory)
-        report_duplicates(inventory)
+        report_duplicates(archive, inventory)
         report_actions(inventory.recordings)
         report_subjects_and_locations(inventory.recordings)
         return report_metadata(archive, inventory.recordings)
@@ -81,7 +88,7 @@ def main() -> None:
         if name == "probe":
             subparser.add_argument(
                 "--limit",
-                type=int,
+                type=positive_int,
                 default=None,
                 help="Amostra determinística espalhada de N vídeos (padrão: todos)",
             )

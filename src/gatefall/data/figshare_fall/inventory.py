@@ -172,12 +172,27 @@ def find_metadata_mismatches(
     return problems
 
 
-def find_duplicate_videos(videos: pd.DataFrame) -> list[list[str]]:
-    """Agrupa vídeos com mesmo (CRC-32, tamanho), indício de cópia byte a byte."""
+def find_probable_duplicate_videos(videos: pd.DataFrame) -> list[list[str]]:
+    """Agrupa vídeos com mesmo (CRC-32, tamanho).
+
+    Coincidência é só indício de cópia: CRC-32 colide. Já CRC-32 ou tamanho
+    diferentes provam conteúdo diferente, então vídeos fora dos grupos são
+    distintos."""
     groups = videos.groupby(["crc", "size"])["member"].apply(list)
     return sorted(
         sorted(cast(list[str], members)) for members in groups if len(members) > 1
     )
+
+
+def has_identical_content(archive: zipfile.ZipFile, members: list[str]) -> bool:
+    digests = set()
+    for member in members:
+        digest = hashlib.sha256()
+        with archive.open(member) as file:
+            for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        digests.add(digest.hexdigest())
+    return len(digests) == 1
 
 
 def summarize_subjects(recordings: pd.DataFrame) -> pd.DataFrame:
@@ -257,9 +272,9 @@ def report_recording_anomalies(inventory: ArchiveInventory) -> None:
             print(f"  {recording_id}")
 
 
-def report_duplicates(inventory: ArchiveInventory) -> None:
-    print("\n=== vídeos com mesmo CRC-32 e tamanho ===")
-    duplicates = find_duplicate_videos(inventory.videos)
+def report_duplicates(archive: zipfile.ZipFile, inventory: ArchiveInventory) -> None:
+    print("\n=== prováveis duplicatas: vídeos com mesmo CRC-32 e tamanho ===")
+    duplicates = find_probable_duplicate_videos(inventory.videos)
     if not duplicates:
         print("nenhum")
     recording_of = dict(
@@ -268,7 +283,12 @@ def report_duplicates(inventory: ArchiveInventory) -> None:
     for group in duplicates:
         recordings = {recording_of[member] for member in group}
         scope = "mesma gravação" if len(recordings) == 1 else "gravações distintas"
-        print(f"{scope}:")
+        content = (
+            "conteúdo idêntico por SHA-256"
+            if has_identical_content(archive, group)
+            else "conteúdo DIFERENTE apesar de CRC-32 e tamanho iguais"
+        )
+        print(f"{scope}, {content}:")
         for member in group:
             print(f"  {member}")
 
