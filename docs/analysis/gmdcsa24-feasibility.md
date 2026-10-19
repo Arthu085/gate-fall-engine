@@ -78,9 +78,11 @@ Subject N/
 | **Total** | **81** | **79** | **160** |
 
 - **Vídeos utilizáveis: 160.** Os mesmos 160 identificadores aparecem no clone,
-  nos CSVs originais, no config `labels` do OmniFall e nos splits `cs` e `cv`.
-  `Subject 1/ADL/01.mp4` ↔ `Subject_1/ADL/01`. Não há linha repetida nem
-  arquivo fora do layout.
+  nos CSVs originais, no config `labels` do OmniFall e nos splits `cs` e `cv`,
+  pela regra de nome `Subject 1/ADL/01.mp4` ↔ `Subject_1/ADL/01`. Não há linha
+  repetida nem arquivo fora do layout. A correspondência é por nome; o que ela
+  prova e o que não prova está em
+  [O que foi verificado](#correspondencia-com-o-omnifall-o-que-foi-verificado).
 - **Duplicatas: nenhuma.** Na árvore pública, os 160 SHA-1 de blob são
   distintos. No clone, nenhum par tem o mesmo SHA-256.
 - O `subject` do OmniFall bate com o caminho em todos os 458 segmentos.
@@ -122,9 +124,10 @@ Todo vídeo comporta ao menos uma janela causal completa (menor `K` = 29).
 O problema está na posição da queda: no GMDCSA24, a mediana do início do
 primeiro `fall` é 1,66 s. Em 53 das 78 quedas (68%), o primeiro quadro `fall`
 da grade tem índice menor que 23, e as janelas do início dessas quedas contêm
-cópias do quadro 0. No Le2i, isso ocorre em 8,5% das quedas. Se esses vídeos entrassem no treino sem tratamento, a replicação de
-borda ficaria correlacionada com a classe `fall`, um atalho que não existe nos
-splits de avaliação do Le2i.
+cópias do quadro 0. No Le2i, isso ocorre em 8,5% das quedas. Se esses vídeos
+entrassem no treino sem tratamento, a replicação de borda ficaria
+correlacionada com a classe `fall`, um atalho que não existe nos splits de
+avaliação do Le2i.
 
 ## Anotações originais do autor (repositório público)
 
@@ -183,14 +186,15 @@ São 458 segmentos densos e de rótulo único nas dez classes do GateFall:
 | `other` | 72 | 328,2 | 43,4 | 145,2 | 64,5 | 75,2 |
 
 - **Limites temporais.** O último fim de cada vídeo fica entre 0,56 s antes e
-  0,06 s depois da duração medida (mediana −0,003 s; p5 −0,019; p95 +0,027). Isso confirma que o
-  OmniFall anotou os mesmos vídeos da `v2.x`, não só os mesmos nomes.
+  0,06 s depois da duração medida (mediana −0,003 s; p5 −0,019; p95 +0,027).
+  Isso é coerente com anotações feitas sobre gravações de mesma duração, mas
+  não prova que sejam os mesmos quadros (ver a seção seguinte).
 - **Gaps.** Na grade de 10 fps, 80 de 12 799 quadros ficam como
   `IGNORE_LABEL`, em 23 vídeos. Os maiores são o início de `Subject_1/ADL/05`
   (1,0 s) e um trecho de 1,26 s em `Subject_2/ADL/21`.
 - **Sobreposições.** 24 vídeos têm alguma sobreposição. Em 22, ela é só de
-  arredondamento (< 0,1 s). Há dois casos reais. Em `Subject_3/ADL/09`, `stand_up [0; 7,78)` cobre
-  `sitting` e `standing`; pela regra de menor `start`, `stand_up` vence e
+  arredondamento (< 0,1 s). Há dois casos reais. Em `Subject_3/ADL/09`,
+  `stand_up [0; 7,78)` cobre `sitting` e `standing`; pela regra de menor `start`, `stand_up` vence e
   apaga o resto. Em `Subject_3/Fall/09`, `fall` e `sitting` se sobrepõem por
   0,1 s. No total, `labels_for_grid` resolve 46 quadros em 3 vídeos.
 - **Quedas.** Cada vídeo `Fall` tem no máximo um `fall`, e nenhum vídeo `ADL`
@@ -202,6 +206,36 @@ São 458 segmentos densos e de rótulo único nas dez classes do GateFall:
   diferença. Em 22 vídeos, a diferença passa de 0,5 s. Isso é coerente com a
   definição do OmniFall: a queda começa no primeiro quadro em que o movimento
   diverge.
+
+## Correspondência com o OmniFall: o que foi verificado
+
+A compatibilidade das anotações foi verificada em quatro níveis. Nenhum deles
+chega ao quadro.
+
+| Nível | Verificado | Evidência |
+| --- | --- | --- |
+| Identidade do checkout | Sim | `HEAD` = `5abac76…` (tag `v2.1`), árvore sem alterações (`verify`) |
+| Correspondência de arquivos | Sim | 160 MP4 ↔ 160 linhas de CSV, sem duplicatas por SHA-1 de blob nem por SHA-256 (`inventory`) |
+| IDs das anotações | Sim | Os 160 `path` do `labels` e dos splits `gmdcsa24-{cs,cv}` em `68e5cee` mapeiam 1:1 para os arquivos pela regra de nome; `subject` igual ao do caminho nos 458 segmentos |
+| Consistência temporal | Sim, por vídeo | Último fim OmniFall entre −0,56 s e +0,06 s da duração medida; `fall` só em vídeos `Fall`; início do `fall` em mediana 0,23 s antes do `Falling` do autor (até 1,70 s) |
+| Proveniência quadro a quadro | **Não** | Ver abaixo |
+
+O que falta confirmar:
+
+- O OmniFall não publica a versão do GMDCSA24 que anotou nem checksum dos
+  vídeos. A `v2.0` e a `v2.1` têm os mesmos vídeos, mas as versões `1.x`
+  diferem. A correspondência foi inferida por nome e duração, não por
+  conteúdo.
+- Durações coerentes são necessárias, não suficientes: um corte ou
+  recodificação de duração parecida passaria pelo mesmo teste.
+- Ninguém conferiu, nos arquivos da `v2.1`, que as ações anotadas acontecem
+  nos instantes anotados. A diferença de até 1,70 s no início da queda é
+  compatível com a definição do OmniFall, mas também com um deslocamento.
+
+Antes de qualquer treino, a proveniência precisa de uma checagem visual: os
+limites de `fall` e de pelo menos uma transição não `fall`, numa amostra
+estratificada por sujeito e categoria, conferidos quadro a quadro nos MP4 da
+`v2.1`. Uma divergência maior que um passo de grade (0,1 s) bloqueia o uso.
 
 ## Sujeitos, ambientes e splits
 
@@ -227,7 +261,7 @@ São 458 segmentos densos e de rótulo único nas dez classes do GateFall:
 | --- | --- |
 | Taxonomia de dez classes | **Compatível** via OmniFall; o CSV original é incompatível |
 | Segmentos `[start, end)` e `labels_for_grid` | **Compatível**; 80 quadros ignorados e 1 vídeo com sobreposição real |
-| Identidade e proveniência | **Verificada**: 160 = 160 = 160, tag e revisão pinadas, durações coerentes |
+| Identidade e proveniência | **Parcial**: checkout, arquivos, IDs e consistência temporal verificados; proveniência quadro a quadro não confirmada |
 | Grade de 10 fps | Funciona, mas com taxa variável: desvio de PTS até 0,13 s |
 | Janela causal de 24 quadros | Cabe em 100% dos vídeos; só 32% das quedas têm histórico completo no início |
 | Split por vídeo ou sujeito | Possível por sujeito, com quatro sujeitos e ambiente confundido |
@@ -237,58 +271,99 @@ São 458 segmentos densos e de rótulo único nas dez classes do GateFall:
 
 ## Decisão
 
-**GO condicionado** para um PR de integração isolado. Os vídeos, a
-identidade, os limites temporais e a taxonomia do OmniFall foram verificados
-contra a tag `v2.1` e batem. O dataset adiciona 160 vídeos, 12 799 quadros e
-1 543 quadros `fall`, o equivalente a 58% dos quadros e 77% dos quadros
-`fall` do treino Le2i-CS.
+**GO condicionado e em etapas.** O GO autoriza apenas propor um protocolo
+experimental separado. Ele não aprova retreinar A, B0, B1, C0 ou C1, não
+altera o protocolo canônico congelado do GateFall e não autoriza treino algum
+por si só.
 
-O GO vale somente com estas condições:
+O que sustenta o GO: checkout, arquivos, IDs das anotações e consistência
+temporal foram verificados contra a tag `v2.1`, e a taxonomia do OmniFall é
+a mesma do GateFall. O dataset somaria 160 vídeos, 12 799 quadros e 1 543
+quadros `fall`, o equivalente a 58% dos quadros e 77% dos quadros `fall` do
+treino Le2i-CS. A proveniência quadro a quadro continua não confirmada.
+
+### Etapas
+
+1. **Protocolo experimental separado, aprovado antes de qualquer treino.** O
+   protocolo fixa por escrito os dados, a política de aumento, o controle, as
+   seeds e o critério de progressão. Le2i-CS, Le2i-CV, `val` e `test`
+   oficiais, as referências A/B0/B1/C0/C1, o alvo e o protocolo de alarme
+   ficam fora de toda decisão. Pela regra de risco dominante, o protocolo diz
+   o que o experimento desloca.
+2. **Piloto isolado e barato só do braço A.** O tratamento usa o treino do
+   Le2i mais o GMDCSA24; o controle é o braço A existente, com a mesma
+   receita e as mesmas seeds. O resultado é exploratório e não substitui
+   nenhuma referência.
+3. **B0, B1, C0 e C1 só se o piloto justificar.** A expansão exige que o
+   piloto passe no critério predeclarado. Todo braço expandido recebe a mesma
+   política de aumento (mesmos vídeos, janelas, exclusões e tratamento de
+   borda) e é comparado com o próprio controle nas mesmas condições.
+
+Uma promoção do aumento ao protocolo canônico seria outra decisão. Pela
+invariante 1, ela exigiria a mesma mudança de dados em A, B e C e o retreino
+das três configurações. Esta página não a aprova.
+
+### Pré-requisitos sem treino
+
+Qualquer falha reprova a etapa 1 de imediato.
 
 1. **Rótulos somente do OmniFall** (`labels`, revisão `68e5cee`). O CSV
    original continua só como auditoria.
-2. **Somente no treino.** GMDCSA24 nunca entra na validação ou no teste
-   Le2i-CS/Le2i-CV, nem no cálculo de estatísticas de padronização usadas
-   nesses testes, nem na calibração do alarme. As métricas de referência
-   continuam sendo as do Le2i.
-3. **A, B e C juntos.** O aumento entra igual nas três configurações, com a
-   mesma seleção de vídeos e janelas, e as três são executadas de novo.
-4. **Replicação de borda tratada antes do treino.** O PR precisa medir e
-   tratar a correlação entre a replicação de borda e `fall`, por exemplo
-   descartando janelas de treino do GMDCSA24 com `k_end < 23` ou registrando
-   a fração delas por classe. A escolha vale para as três configurações.
+2. **Proveniência quadro a quadro conferida** na amostra descrita em
+   [O que foi verificado](#correspondencia-com-o-omnifall-o-que-foi-verificado).
+3. **Somente no treino.** GMDCSA24 nunca entra na validação ou no teste
+   Le2i-CS/Le2i-CV, nas estatísticas de padronização desses testes nem na
+   calibração do alarme.
+4. **Tratamento da replicação de borda definido.** Por exemplo, descartar
+   janelas de treino do GMDCSA24 com `k_end < 23` ou registrar a fração delas
+   por classe. A escolha vale para todo braço que receber o aumento.
 5. **Exclusões explícitas.** `Subject_3/ADL/09` fica de fora ou recebe
    correção documentada da sobreposição. `Subject_2/Fall/03` fica como o
    OmniFall anotou, com nota.
-6. **Escopo declarado.** Pela regra de risco dominante, o PR precisa dizer o
-   que o experimento desloca antes de começar.
+
+### Riscos conhecidos
+
+Estes riscos valem para todas as etapas e precisam constar do protocolo:
+
+- **Replicação de borda temporal.** Só 25 de 78 quedas (32,1%) têm histórico
+  causal completo no início, contra 91,5% no Le2i. Sem tratamento, a borda
+  replicada vira atalho para `fall`.
+- **Sobreposição e lacunas de rótulo.** `Subject_3/ADL/09` tem `stand_up`
+  sobre `sitting` e `standing`; 80 quadros ficam sem rótulo; `Subject_2/Fall/03`
+  é uma queda sem `fall`. O CSV original é multirrótulo e não mapeia para as
+  dez classes.
+- **Desequilíbrio de sujeitos e ambientes.** Quatro sujeitos; S2 tem 35% dos
+  quadros; S2 e S3 dividem o quarto; iluminação confundida com sujeito. Um
+  teste só com GMDCSA24 teria 17 quedas.
+- **Licença e consentimento.** MIT no GitHub, CC BY 4.0 no Zenodo e CC BY-NC
+  4.0 nas anotações OmniFall. O consentimento de imagem não está documentado.
+- **Taxa de quadros variável.** A grade assume taxa constante. O desvio de PTS
+  chega a 0,131 s, e quatro vídeos passam de um passo de grade.
 
 ## Limitações
 
-- Quatro sujeitos e no máximo três ambientes. Um teste com GMDCSA24 isolado
-  teria 17 quedas e não sustenta conclusão estatística.
 - O ambiente vem de inspeção visual de oito quadros, não de metadado.
-- Taxa de quadros variável: a grade assume taxa constante. Quatro vídeos
-  passam de um passo de grade de desvio.
-- Resolução e FPS diferem do Le2i (320×240 ou 320×180, 24–25 fps). O efeito disso nas
-  features congeladas não foi medido.
-- A licença do Zenodo (CC BY 4.0) e a do GitHub (MIT) divergem. O
-  consentimento de imagem não está documentado.
+- A proveniência quadro a quadro das anotações não foi confirmada.
+- Resolução e FPS diferem do Le2i (320×240 ou 320×180, 24–25 fps). O efeito
+  disso nas features congeladas não foi medido.
 - O artigo do Data in Brief não foi lido; esta análise não usa nada dele.
 
-## Estratégia de validação proposta para o PR de integração
+## Estratégia de validação proposta
 
-1. Adapter e manifesto isolados (`data/processed/gmdcsa24/`), com `sha256` por
+1. Checagem visual da proveniência (pré-requisito 2), registrada por vídeo.
+2. Adapter e manifesto isolados (`data/processed/gmdcsa24/`), com `sha256` por
    vídeo e `verify` desta auditoria como pré-requisito.
-2. Selftests sintéticos no padrão do Le2i para o adapter e a montagem do treino
+3. Selftests sintéticos no padrão do Le2i para o adapter e a montagem do treino
    aumentado. Os selftests e as referências existentes do Le2i precisam
    continuar idênticos.
-3. Verificação automática de que nenhum `video_id` do GMDCSA24 aparece em
+4. Verificação automática de que nenhum `video_id` do GMDCSA24 aparece em
    validação, teste ou estatísticas de padronização do Le2i.
-4. Relatório de janelas por classe e da fração com replicação de borda, antes e
-   depois do tratamento da condição 4.
-5. Comparação pareada com as referências atuais, com o bootstrap agrupado por
-   sujeito já existente e várias seeds, nas três configurações.
+5. Relatório de janelas por classe e da fração com replicação de borda, antes e
+   depois do tratamento do pré-requisito 4.
+6. Piloto do braço A pareado com o controle, com várias seeds e o bootstrap
+   agrupado por sujeito já existente, avaliado pelo critério predeclarado.
+   Os demais braços só entram se esse critério passar, sob a mesma política
+   de aumento.
 
 ## Como reproduzir a validação
 
