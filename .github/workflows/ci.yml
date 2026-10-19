@@ -26,6 +26,7 @@ jobs:
           uv run python -m gatefall.data.windows selftest
           uv run python -m gatefall.data.frames_io selftest
           uv run python -m gatefall.data.figshare_fall.audit selftest
+          uv run python -m gatefall.data.gmdcsa24.audit selftest
           uv run python -m gatefall.pose.selection selftest
           uv run python -m gatefall.pose.loading selftest
           uv run python -m gatefall.pose.manual_bbox_audit selftest
