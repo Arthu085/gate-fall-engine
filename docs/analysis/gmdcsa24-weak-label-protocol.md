@@ -3,8 +3,8 @@
 !!! warning "Status: APROVADO em 2026-10-19; passo 4 vale só a partir da integração do PR #135"
     O responsável pelo projeto aprovou este protocolo exploratório separado
     (ver [Registro da aprovação](#registro-da-aprovacao)), e o adapter do
-    passo 3 foi integrado no PR #134. A autorização do passo 4, proposta no PR
-    #135, vale só a partir da revisão e da integração desse PR pelo
+    passo 3 foi integrado no PR #134. A autorização do passo 4, proposta no
+    PR #135, vale só a partir da revisão e da integração desse PR pelo
     responsável. Ela cobre apenas a execução local e isolada da extração
     offline YOLO-Pose dos 145 vídeos elegíveis e do piloto T/S do braço A, e
     cada etapa depende de uma implementação revisada em PR próprio e dos
@@ -558,8 +558,8 @@ ordem:
    W2, V2 e V5 foram implementados e revisados no PR #134, com selftests
    sintéticos, sem alterar os selftests e as referências do Le2i. O adapter
    decodifica sem duplicar quadros. A implementação e o resultado sobre os
-   dados pinados estão em [Adapter e validação](#adapter-e-validacao). O PR
-   #134 foi integrado em `experiment/external-fall-data` com o head
+   dados pinados estão em [Adapter e validação](#adapter-e-validacao). O
+   PR #134 foi integrado em `experiment/external-fall-data` com o head
    `4ef87d1` (merge `fc7f4de`).
 4. **Proposto no PR #135; vale só a partir da integração dele.** A revisão e
    a integração desse PR pelo responsável pelo projeto são a autorização
@@ -627,9 +627,24 @@ anterior é alegada.
 #### Evidência de execução informada pelo responsável
 
 O responsável pelo projeto informou os logs abaixo, executados no checkout
-local de `experiment/external-fall-data` depois da integração do PR #134. O
-manifesto gravado registra o commit `fc7f4de` e `code.dirty = true`. Os logs
-não estão versionados e não foram reexecutados neste PR.
+local de `experiment/external-fall-data` depois da integração do PR #134. Os
+logs não estão versionados e não foram reexecutados neste PR. A evidência tem
+três naturezas, que não se misturam:
+
+- **Execução informada pelo responsável:** o que os logs exibem, listado
+  abaixo.
+- **Inferência a partir do código, não observada:** o `build` grava em
+  `code.commit` o HEAD do checkout do GateFall e em `code.dirty` se
+  `git status --porcelain --untracked-files=all` tem alguma linha. Os logs
+  não exibem esses dois campos, e `validate` só os registra, sem conferir.
+  O prompt do terminal nos logs sugere arquivo não rastreado no checkout, o
+  que daria `code.dirty = true`, mas isso não foi observado no manifesto.
+- **Inspeção independente:** nenhuma inspeção verificada do manifesto gerado
+  acompanha esta evidência. O commit do código e o estado limpo do checkout
+  dessa execução ficam **não comprovados** e só se resolvem no
+  [portão E0](#portoes-antes-de-cada-etapa).
+
+Os logs exibem:
 
 - `adapter validate` sobre a saída existente: integridade, proveniência, W1,
   W2, V2 e V5 passam.
@@ -648,10 +663,10 @@ não estão versionados e não foram reexecutados neste PR.
 
 O próprio `validate` separa o que conferiu contra a fonte atual (documento do
 protocolo, tabelas gravadas e Le2i-CS local) do que só compara com o valor
-registrado no build (clone, OmniFall, parâmetros, exclusões e commit do
-código). O `build --force` refez `verify`, `inventory`, a sondagem e os hashes
-dos MP4. Essa evidência cumpre a pré-condição do passo 3 e não substitui o
-[portão E0](#portoes-antes-de-cada-etapa).
+registrado no build (clone, OmniFall, parâmetros e exclusões) e do que só
+registra (commit do código). O `build --force` refez `verify`, `inventory`, a
+sondagem e os hashes dos MP4. Essa evidência cumpre a pré-condição do passo 3
+e não substitui o [portão E0](#portoes-antes-de-cada-etapa).
 
 #### O que passa a ser autorizado
 
@@ -694,14 +709,28 @@ Cada etapa só começa depois dos portões dela. Uma falha bloqueia a etapa e
 segue o [critério de parada 2](#criterios-de-parada): o código é corrigido sem
 mudar a política, ou a trilha para.
 
-- **E0 — saída do adapter sob o texto integrado.** O PR #135 muda este
-  documento, então o SHA-256 do protocolo registrado no manifesto atual deixa
-  de bater, e `validate` reprova a proveniência até um novo build. Antes da
-  extração, `adapter build --force` e `adapter validate` rodam a partir do
-  commit integrado. As seis condições precisam passar, e os agregados precisam
-  ser os mesmos. Os hashes de conteúdo de `windows_t.parquet`,
-  `windows_s.parquet` e `window_candidates.parquet` também precisam ser iguais
-  aos de [Resultado sobre os dados pinados](#resultado-sobre-os-dados-pinados).
+- **E0 — saída do adapter sob o texto integrado, em checkout limpo.** O
+  PR #135 muda este documento, então o SHA-256 do protocolo registrado no
+  manifesto atual deixa de bater, e `validate` reprova a proveniência até um
+  novo build. Antes da extração, o portão exige, nesta ordem:
+    1. **Checkout limpo.** O checkout do GateFall está no commit integrado de
+       `experiment/external-fall-data` que contém este texto, e
+       `git status --porcelain --untracked-files=all` não lista nada. Arquivo
+       modificado ou não rastreado é resolvido antes: versionado em PR
+       próprio, removido ou movido para fora do checkout.
+    2. **Build e validação.** `adapter build --force` e `adapter validate`
+       rodam nesse checkout. As seis condições passam, e os agregados são os
+       mesmos. Os hashes de conteúdo de `windows_t.parquet`,
+       `windows_s.parquet` e `window_candidates.parquet` também são iguais
+       aos de
+       [Resultado sobre os dados pinados](#resultado-sobre-os-dados-pinados).
+    3. **Inspeção do manifesto.** Como `validate` não confere a seção `code`,
+       o `manifest.json` recriado é inspecionado diretamente: `code.commit`
+       igual ao commit integrado do item 1 e `code.dirty = false`. O
+       registro do E0 traz esses dois valores, o SHA-256 do manifesto e o
+       SHA-256 do protocolo gravado nele. Um build com `code.dirty = true` ou
+       com outro `code.commit` não cumpre o E0, mesmo com as seis condições
+       aprovadas, e não autoriza a extração.
 - **Extração.** A implementação é revisada e integrada em PR próprio, sem
   aprovação ou mudança de protocolo no mesmo PR, e com selftest sintético. A
   validação dela confere pelo menos estes pontos:
