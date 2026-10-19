@@ -5,11 +5,17 @@ gerada automaticamente: fronteira anotada, rótulos esperados, hash da fonte e
 quadros por PTS real. `HUMAN_COLUMNS` é o julgamento do revisor. Só as colunas
 humanas decidem a aprovação; a evidência automática nunca confirma, sozinha,
 que uma anotação está correta.
+
+A aprovação compara a planilha com o plano reconstruído do clone pinado e do
+OmniFall: mesmos casos, sem repetição, e evidência automática idêntica. Só as
+colunas humanas podem ser editadas.
 """
 
 import hashlib
+import math
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 
@@ -86,6 +92,23 @@ class SelectedVideo:
     all_boundaries: bool
 
 
+@dataclass(frozen=True)
+class ReviewPlan:
+    """Casos exigidos e estratos sem vídeos não excluídos suficientes."""
+
+    cases: pd.DataFrame
+    short_strata: tuple[str, ...]
+
+
+@dataclass
+class SheetIntegrity:
+    """Casos intactos (`case_id` → linha), ausentes e problemas de integridade."""
+
+    intact: dict[str, dict[str, str]]
+    missing: list[str]
+    problems: list[str]
+
+
 @dataclass
 class ReviewStatus:
     pending: list[str] = field(default_factory=list)
@@ -95,7 +118,7 @@ class ReviewStatus:
 
     @property
     def approved(self) -> bool:
-        return bool(self.confirmed or self.excluded) and not self.pending and not self.blocked
+        return bool(self.confirmed) and not self.pending and not self.blocked
 
 
 def empty_segments(segments: pd.DataFrame) -> pd.DataFrame:
@@ -200,13 +223,19 @@ def select_videos(
     videos: pd.DataFrame,
     boundaries_by_video: dict[str, list[Boundary]],
     anomalies: dict[str, list[str]],
-) -> list[SelectedVideo]:
+    excluded: frozenset[str] = frozenset(),
+) -> tuple[list[SelectedVideo], tuple[str, ...]]:
     """Anomalias e desvios de PTS entram sempre; cada estrato sujeito × categoria
-    recebe `VIDEOS_PER_STRATUM` vídeos a mais, pela ordem de `sample_key`."""
+    recebe `VIDEOS_PER_STRATUM` vídeos não excluídos a mais, pela ordem de `sample_key`.
+
+    Um vídeo de estrato com caso `excluded` continua exigido e puxa o próximo
+    candidato como reposição. Devolve também os estratos cujos candidatos
+    acabam antes da cota."""
     selected = [
         SelectedVideo(identifier, "; ".join(reasons), all_boundaries=True)
         for identifier, reasons in sorted(anomalies.items())
     ]
+    short_strata: list[str] = []
     for keys, group in videos.groupby(["subject", "category"]):
         subject, category = cast(tuple[int, str], keys)
         candidates = sorted(
@@ -218,11 +247,18 @@ def select_videos(
             ),
             key=sample_key,
         )
-        selected.extend(
-            SelectedVideo(identifier, f"estrato S{subject}/{category}", all_boundaries=False)
-            for identifier in candidates[:VIDEOS_PER_STRATUM]
-        )
-    return sorted(selected, key=lambda item: item.video_id)
+        kept = 0
+        for position, identifier in enumerate(candidates):
+            if kept == VIDEOS_PER_STRATUM:
+                break
+            selection = f"estrato S{subject}/{category}"
+            if position >= VIDEOS_PER_STRATUM:
+                selection += ", reposição"
+            selected.append(SelectedVideo(identifier, selection, all_boundaries=False))
+            kept += identifier not in excluded
+        if kept < VIDEOS_PER_STRATUM:
+            short_strata.append(f"S{subject}/{category}")
+    return sorted(selected, key=lambda item: item.video_id), tuple(short_strata)
 
 
 def boundaries_to_review(category: str, video: SelectedVideo, boundaries: list[Boundary]) -> list[Boundary]:
@@ -267,17 +303,20 @@ def build_review_plan(
     omnifall: pd.DataFrame,
     original_segments: pd.DataFrame,
     probes: pd.DataFrame,
-) -> pd.DataFrame:
-    """Planilha de revisão com evidência automática e colunas humanas `pending`.
+    excluded: frozenset[str] = frozenset(),
+) -> ReviewPlan:
+    """Casos exigidos, com evidência automática e colunas humanas `pending`.
 
-    `omnifall` usa nomes de classe (`with_label_names`)."""
+    `omnifall` usa nomes de classe (`with_label_names`); `excluded` são os
+    vídeos com caso `excluded` na planilha, que puxam reposições no estrato."""
     by_video = {str(key): group for key, group in omnifall.groupby("video_id")}
     boundaries_by_video = {key: video_boundaries(group) for key, group in by_video.items()}
     anomalies = anomaly_reasons(videos, omnifall, original_segments, probes)
+    selected, short_strata = select_videos(videos, boundaries_by_video, anomalies, excluded)
     indexed_videos = videos.set_index("video_id")
     indexed_probes = probes.set_index("video_id")
     rows: list[dict[str, object]] = []
-    for video in select_videos(videos, boundaries_by_video, anomalies):
+    for video in selected:
         info = indexed_videos.loc[video.video_id]
         probe = indexed_probes.loc[video.video_id]
         category = str(info["category"])
@@ -311,7 +350,12 @@ def build_review_plan(
                     "notes": "",
                 }
             )
-    return pd.DataFrame(rows, columns=REVIEW_COLUMNS)
+    return ReviewPlan(pd.DataFrame(rows, columns=REVIEW_COLUMNS), short_strata)
+
+
+def excluded_videos(sheet: pd.DataFrame) -> frozenset[str]:
+    excluded = sheet.loc[sheet["review_outcome"].str.strip() == EXCLUDED, "video_id"]
+    return frozenset(str(identifier) for identifier in excluded)
 
 
 def ensure_ignored_output(path: Path) -> None:
@@ -357,6 +401,9 @@ def read_review_sheet(review_dir: Path) -> pd.DataFrame:
     missing = [column for column in REVIEW_COLUMNS if column not in sheet.columns]
     if missing:
         raise ValueError(f"planilha de revisão sem as colunas {missing}")
+    unexpected = [column for column in sheet.columns if column not in REVIEW_COLUMNS]
+    if unexpected:
+        raise ValueError(f"planilha de revisão com colunas inesperadas {unexpected}")
     return sheet
 
 
@@ -372,6 +419,14 @@ def parse_seconds(text: str) -> float | None:
     return value if np.isfinite(value) else None
 
 
+def is_iso_timestamp(text: str) -> bool:
+    try:
+        datetime.fromisoformat(text.strip())
+    except ValueError:
+        return False
+    return True
+
+
 def evaluate_case(row: dict[str, str]) -> tuple[str, str]:
     """Estado de um caso a partir só das colunas humanas e da marca `auto_flag`.
 
@@ -383,6 +438,8 @@ def evaluate_case(row: dict[str, str]) -> tuple[str, str]:
         return "pending", "sem revisão humana"
     if not row["reviewer"].strip() or not row["reviewed_at"].strip():
         return "blocked", "revisão sem reviewer ou reviewed_at"
+    if not is_iso_timestamp(row["reviewed_at"]):
+        return "blocked", f"reviewed_at {row['reviewed_at']!r} não é data ISO 8601"
     if outcome == EXCLUDED:
         if not row["notes"].strip():
             return "blocked", "exclusão sem justificativa em notes"
@@ -403,69 +460,111 @@ def evaluate_case(row: dict[str, str]) -> tuple[str, str]:
     return "confirmed", f"fronteira observada a {delta:+.3f} s"
 
 
-def check_auto_evidence(
-    sheet: pd.DataFrame, omnifall: pd.DataFrame, digests: dict[str, str]
-) -> dict[str, str]:
-    """Confere a evidência automática contra o OmniFall pinado e o hash atual da fonte.
+def same_evidence(expected: object, recorded: str) -> bool:
+    """Texto idêntico; número igual depois de lido, para aceitar `1.4` e `1.40`."""
+    if isinstance(expected, str):
+        return recorded == expected
+    value = parse_seconds(recorded)
+    if value is None:
+        return False
+    return math.isclose(value, float(cast(float, expected)), rel_tol=0, abs_tol=1e-9)
 
-    Devolve `case_id` → problema; qualquer problema bloqueia o caso."""
-    by_video = {str(key): group for key, group in omnifall.groupby("video_id")}
-    problems: dict[str, str] = {}
-    for row in sheet.to_dict("records"):
-        identifier = str(row["video_id"])
-        if digests.get(identifier) != row["source_sha256"]:
-            problems[str(row["case_id"])] = "SHA-256 da fonte diverge da planilha"
+
+def check_integrity(sheet: pd.DataFrame, cases: pd.DataFrame) -> SheetIntegrity:
+    """Confere a planilha contra os casos reconstruídos do clone pinado e do OmniFall.
+
+    Caso repetido, fora da amostra ou com qualquer coluna de `AUTO_COLUMNS`
+    diferente é um problema; caso exigido que falta vai para `missing`."""
+    counts = sheet["case_id"].value_counts()
+    expected = {str(row["case_id"]): row for row in cases.to_dict("records")}
+    problems = [
+        f"{identifier}: caso repetido {count} vezes na planilha"
+        for identifier, count in counts.items()
+        if count > 1
+    ]
+    problems.extend(
+        f"{identifier}: caso fora da amostra determinística"
+        for identifier in counts.index
+        if identifier not in expected
+    )
+    recorded = {
+        str(row["case_id"]): cast(dict[str, str], row)
+        for row in sheet.to_dict("records")
+        if counts[row["case_id"]] == 1
+    }
+    intact: dict[str, dict[str, str]] = {}
+    missing: list[str] = []
+    for identifier, case in expected.items():
+        if identifier not in recorded:
+            if identifier not in counts.index:
+                missing.append(identifier)
             continue
-        expected = {
-            case_id(identifier, boundary): boundary
-            for boundary in video_boundaries(by_video.get(identifier, empty_segments(omnifall)))
-        }
-        boundary = expected.get(str(row["case_id"]))
-        if boundary is None or (boundary.label_before, boundary.label_after) != (
-            row["label_before"],
-            row["label_after"],
-        ):
-            problems[str(row["case_id"])] = "fronteira ou rótulos divergem do OmniFall pinado"
-    return problems
+        row = recorded[identifier]
+        altered = [column for column in AUTO_COLUMNS if not same_evidence(case[column], row[column])]
+        if altered:
+            problems.append(f"{identifier}: evidência automática alterada em {altered}")
+        else:
+            intact[identifier] = row
+    return SheetIntegrity(intact, missing, problems)
 
 
-def summarize_review(sheet: pd.DataFrame, evidence_problems: dict[str, str]) -> ReviewStatus:
+def review_status(sheet: pd.DataFrame, plan: ReviewPlan) -> ReviewStatus:
+    """Avalia só os casos intactos; integridade, ausência e estrato curto bloqueiam."""
+    integrity = check_integrity(sheet, plan.cases)
     status = ReviewStatus()
-    for row in sheet.to_dict("records"):
-        identifier = str(row["case_id"])
-        if identifier in evidence_problems:
-            status.blocked.append(f"{identifier}: {evidence_problems[identifier]}")
-            continue
-        state, reason = evaluate_case(cast(dict[str, str], row))
-        entry = f"{identifier}: {reason}"
+    status.blocked.extend(
+        f"estrato {stratum}: candidatos acabaram antes de {VIDEOS_PER_STRATUM} vídeos não excluídos"
+        for stratum in plan.short_strata
+    )
+    status.blocked.extend(integrity.problems)
+    status.blocked.extend(
+        f"{identifier}: caso exigido ausente da planilha; rode `review-plan --extend`"
+        for identifier in integrity.missing
+    )
+    for identifier, row in integrity.intact.items():
+        state, reason = evaluate_case(row)
         {
             "pending": status.pending,
             "confirmed": status.confirmed,
             "excluded": status.excluded,
             "blocked": status.blocked,
-        }[state].append(entry)
+        }[state].append(f"{identifier}: {reason}")
     return status
 
 
-def source_digests(root: Path, sheet: pd.DataFrame, videos: pd.DataFrame) -> dict[str, str]:
-    paths = cast(pd.Series, videos.set_index("video_id")["relative_path"])
-    return {
-        str(identifier): sha256_of(root / str(paths[identifier]))
-        for identifier in sorted(set(sheet["video_id"]))
-        if identifier in paths.index
-    }
+def extend_review_sheet(sheet: pd.DataFrame, plan: ReviewPlan) -> pd.DataFrame:
+    """Casos exigidos por `plan` com o julgamento dos casos já intactos na planilha.
+
+    Casos ausentes, como reposições de estrato, entram `pending`. Recusa a
+    planilha com qualquer problema de integridade, para não descartar julgamento."""
+    integrity = check_integrity(sheet, plan.cases)
+    if integrity.problems:
+        raise ValueError(
+            "planilha com problemas de integridade; corrija antes de estender:\n  "
+            + "\n  ".join(integrity.problems)
+        )
+    extended = plan.cases.copy()
+    for column in HUMAN_COLUMNS:
+        extended[column] = [
+            integrity.intact[identifier][column] if identifier in integrity.intact else value
+            for identifier, value in zip(extended["case_id"], extended[column])
+        ]
+    return extended
 
 
-def report_plan(plan: pd.DataFrame) -> None:
+def report_plan(plan: ReviewPlan) -> None:
+    cases = plan.cases
     print(f"\n=== amostra de revisão de proveniência (sal {SAMPLE_SALT!r}) ===")
-    print(f"vídeos: {plan['video_id'].nunique()}; fronteiras (casos): {len(plan)}")
-    per_stratum = plan.drop_duplicates("video_id").groupby(["subject", "category"]).size()
+    print(f"vídeos: {cases['video_id'].nunique()}; fronteiras (casos): {len(cases)}")
+    per_stratum = cases.drop_duplicates("video_id").groupby(["subject", "category"]).size()
     print("vídeos por sujeito e categoria:")
     print(per_stratum.to_string())
     print("casos por tipo de fronteira:")
-    print(plan["boundary"].value_counts().to_string())
-    print(f"casos com |desvio CFR| > {REVIEW_TOLERANCE_S:g} s: {(plan['auto_flag'] == CFR_FLAG).sum()}")
-    for video, group in plan.groupby("video_id", sort=True):
+    print(cases["boundary"].value_counts().to_string())
+    print(f"casos com |desvio CFR| > {REVIEW_TOLERANCE_S:g} s: {(cases['auto_flag'] == CFR_FLAG).sum()}")
+    if plan.short_strata:
+        print(f"estratos sem candidatos suficientes: {list(plan.short_strata)}")
+    for video, group in cases.groupby("video_id", sort=True):
         first = group.iloc[0]
         print(f"  {video} [{first['selection']}] sha256 {str(first['source_sha256'])[:12]}")
         for row in group.to_dict("records"):
@@ -477,14 +576,17 @@ def report_plan(plan: pd.DataFrame) -> None:
             )
 
 
-def report_status(status: ReviewStatus, sheet: pd.DataFrame, review_dir: Path) -> None:
+def report_status(
+    status: ReviewStatus, plan: ReviewPlan, sheet: pd.DataFrame, review_dir: Path
+) -> None:
     rendered = sum(
-        contact_sheet_path(review_dir, str(identifier)).is_file() for identifier in sheet["case_id"]
+        contact_sheet_path(review_dir, str(identifier)).is_file()
+        for identifier in plan.cases["case_id"]
     )
     print(f"\n=== estado da revisão de proveniência ({review_dir / REVIEW_SHEET}) ===")
     print(
-        f"casos: {len(sheet)}; evidência automática renderizada: {rendered} "
-        "(não confirma anotação)"
+        f"casos exigidos pelo clone pinado: {len(plan.cases)}; linhas na planilha: {len(sheet)}; "
+        f"evidência automática renderizada: {rendered} (não confirma anotação)"
     )
     print(f"confirmados por revisor humano: {len(status.confirmed)}")
     print(f"excluídos com justificativa: {len(status.excluded)}")

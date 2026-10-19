@@ -21,9 +21,22 @@ A planilha `review.csv` separa duas coisas:
   `reviewer`, `reviewed_at`, `notes`): o julgamento de quem olhou os quadros.
   Só essas colunas mudam o estado de um caso.
 
-`review-status` recalcula o SHA-256 de cada vídeo e as fronteiras do OmniFall
-pinado. Se a planilha divergir de algum dos dois, o caso fica bloqueado, seja
-qual for o julgamento registrado.
+`review-status` não confia na planilha para saber o que revisar. Ele exige
+`verify` OK, decodifica os 160 vídeos e reconstrói o conjunto de casos
+exigidos pelas regras abaixo, com SHA-256, fronteiras, rótulos, índices de
+quadro, desvios e marcas. A planilha precisa bater exatamente com esse
+conjunto:
+
+| Problema na planilha | Efeito |
+| --- | --- |
+| Caso exigido ausente (inclusive pendente ou com `desvio_cfr` apagado da planilha) | Bloqueia |
+| `case_id` repetido | Bloqueia |
+| Caso fora da amostra determinística | Bloqueia |
+| Qualquer coluna automática diferente da reconstruída (`annotated_s`, `boundary`, `label_before`, `label_after`, `source_sha256`, índices e PTS dos quadros, `cfr_offset_s`, `auto_flag` etc.) | Bloqueia o caso, seja qual for o julgamento |
+| Coluna faltando ou coluna nova | A planilha é recusada |
+
+Só as colunas humanas podem ser editadas. Números são comparados pelo valor
+lido, para aceitar `1.4` e `1.40`; texto, byte a byte.
 
 ## Seleção determinística
 
@@ -41,6 +54,12 @@ e as regras são recalculadas a cada execução:
    estratos), fora as inclusões obrigatórias. Num vídeo `Fall`, entram o início
    e o fim do `fall`; num vídeo `ADL`, a primeira transição sem `fall`. Um
    vídeo sem essa fronteira não é elegível para o estrato.
+3. **Reposição depois de exclusão:** um vídeo de estrato com qualquer caso
+   `excluded` continua exigido, mas não conta para a cota. O próximo
+   candidato do estrato, na mesma ordem, passa a ser exigido, com seleção
+   `estrato S<n>/<categoria>, reposição`, até haver dois vídeos não excluídos.
+   Se os candidatos acabarem, o estrato bloqueia a aprovação. Vídeos de
+   inclusão obrigatória não puxam reposição.
 
 Uma fronteira é o início de um segmento ou o fim seguido de lacuna. O rótulo
 anterior ignora o segmento que começa, para que a sobreposição de
@@ -58,19 +77,21 @@ A tolerância é um passo da grade de 10 fps: 0,1 s.
 | Julgamento | Exige | Estado |
 | --- | --- | --- |
 | `pending` | — | Pendente |
-| `confirmed` | `observed_boundary_s`, `reviewer`, `reviewed_at`; \|observado − anotado\| <= 0,1 s | Confirmado |
+| `confirmed` | `observed_boundary_s` numérico, `reviewer`, `reviewed_at` em ISO 8601; \|observado − anotado\| <= 0,1 s | Confirmado |
 | `confirmed` fora da tolerância | — | Bloqueado |
 | `discrepancy` | `reviewer`, `reviewed_at` | Bloqueado até investigação |
-| `excluded` | `reviewer`, `reviewed_at`, justificativa em `notes` | Excluído do piloto |
+| `excluded` | `reviewer`, `reviewed_at`, justificativa em `notes` | Excluído do piloto; em vídeo de estrato, exige reposição |
 
 A marca automática `desvio_cfr` indica que o quadro da grade de taxa
 constante fica a mais de 0,1 s da fronteira anotada. A anotação pode estar
 certa, mas a grade associaria o rótulo ao quadro errado. Esse caso só deixa de
 bloquear como `excluded`.
 
-A proveniência é **APROVADA** só sem caso pendente nem bloqueado e com ao
-menos um caso revisado. `review-status` sai com código 1 em qualquer outro
-estado.
+A proveniência é **APROVADA** só se a planilha bater com os casos
+reconstruídos, nenhum caso estiver pendente ou bloqueado, todo estrato tiver
+dois vídeos com todas as fronteiras confirmadas e houver ao menos um caso
+confirmado. Uma revisão toda excluída nunca aprova. `review-status` sai com
+código 1 em qualquer outro estado.
 
 ## Como executar
 
@@ -89,15 +110,19 @@ Todos aceitam `--root DIR` e `--review-dir DIR`. O padrão de `--review-dir` é
 - `review-plan` exige `verify` OK, decodifica os 160 vídeos (cerca de seis
   minutos), sorteia os casos e grava `review.csv` com todos os casos
   `pending`. Não sobrescreve uma planilha existente sem `--force`, que apaga os
-  julgamentos.
+  julgamentos. Com `--extend`, lê a planilha, reconstrói os casos com as
+  exclusões registradas e acrescenta só os que faltam, como reposições de
+  estrato, como `pending`. Os julgamentos ficam como estão. Recusa estender uma
+  planilha com caso repetido, extra ou com evidência alterada.
 - `review-render` grava `contact_sheets/<case_id>.png`: os quadros com PTS a
   até ±0,5 s da fronteira, decodificados sem duplicar nem descartar quadros e
   sem áudio. Cada quadro mostra índice, PTS, distância à fronteira e o rótulo
   OmniFall naquele PTS. A borda vermelha marca o primeiro quadro com PTS >=
   fronteira; a azul, o quadro da grade de taxa constante.
-- `review-status` confere hash e fronteiras, avalia cada caso e imprime a
-  contagem de evidência renderizada, confirmados, excluídos, pendentes e
-  bloqueados.
+- `review-status` exige `verify` OK e reconstrói os casos exigidos, o que
+  também leva cerca de seis minutos. Confere a planilha contra eles, avalia
+  cada caso intacto e imprime a contagem de casos exigidos, linhas da planilha,
+  evidência renderizada, confirmados, excluídos, pendentes e bloqueados.
 
 `review-plan` e `review-render` recusam um `--review-dir` que o Git
 versionaria. As contact
@@ -230,5 +255,7 @@ anotado.
    `reviewed_at` e `notes`.
 3. Marcar `Subject_1/Fall/12` como `excluded` ou registrar a divergência, e
    investigar toda `discrepancy` antes de aprovar.
-4. Rodar `review-status` até `APROVADA` e transcrever os julgamentos para esta
+4. Se algum vídeo de estrato for excluído, rodar `review-plan --extend`,
+   gerar as contact sheets das reposições com `review-render` e revisá-las.
+5. Rodar `review-status` até `APROVADA` e transcrever os julgamentos para esta
    página num PR.

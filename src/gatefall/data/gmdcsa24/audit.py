@@ -26,14 +26,15 @@ from gatefall.data.gmdcsa24.probe import (
 )
 from gatefall.data.gmdcsa24.provenance import (
     DEFAULT_REVIEW_DIR,
+    ReviewPlan,
     build_review_plan,
-    check_auto_evidence,
     check_review_target,
+    excluded_videos,
+    extend_review_sheet,
     read_review_sheet,
     report_plan,
     report_status,
-    source_digests,
-    summarize_review,
+    review_status,
     write_review_sheet,
 )
 from gatefall.data.gmdcsa24.review_render import render_review
@@ -123,33 +124,56 @@ def run_probe(root: Path, omnifall: pd.DataFrame | None = None) -> bool:
     return ok
 
 
-def run_review_plan(
-    root: Path, review_dir: Path, force: bool, omnifall: pd.DataFrame | None = None
-) -> bool:
-    try:
-        check_review_target(review_dir, force)
-    except (FileExistsError, ValueError) as exc:
-        print(f"erro: {exc}")
-        return False
+def reconstruct_review_plan(
+    root: Path, excluded: frozenset[str], omnifall: pd.DataFrame | None = None
+) -> ReviewPlan | None:
+    """Casos exigidos, recalculados do clone pinado e do OmniFall a cada execução."""
     if not run_verify(root):
         print("a amostra de revisão só vale para o clone pinado e limpo")
-        return False
+        return None
     inventory = build_inventory(root)
     original = read_original_annotations(root, inventory.annotation_files)
     named = with_label_names(load_omnifall_segments() if omnifall is None else omnifall)
     probes = probe_checkout(root, inventory.videos)
     if bool(probes["error"].notna().any()):
         print("há vídeos que não decodificam; rode `probe` para os detalhes")
-        return False
-    plan = build_review_plan(root, inventory.videos, named, original.segments, probes)
-    report_plan(plan)
+        return None
+    return build_review_plan(root, inventory.videos, named, original.segments, probes, excluded)
+
+
+def run_review_plan(
+    root: Path,
+    review_dir: Path,
+    force: bool,
+    extend: bool = False,
+    omnifall: pd.DataFrame | None = None,
+) -> bool:
     try:
-        sheet = write_review_sheet(plan, review_dir, force)
+        check_review_target(review_dir, force or extend)
     except (FileExistsError, ValueError) as exc:
         print(f"erro: {exc}")
         return False
-    print(f"\nplanilha gravada em {sheet}; todos os casos começam `pending`")
-    return not plan.empty
+    sheet = load_review_sheet(review_dir) if extend else None
+    if extend and sheet is None:
+        return False
+    plan = reconstruct_review_plan(
+        root, frozenset() if sheet is None else excluded_videos(sheet), omnifall
+    )
+    if plan is None:
+        return False
+    report_plan(plan)
+    try:
+        cases = plan.cases if sheet is None else extend_review_sheet(sheet, plan)
+        path = write_review_sheet(cases, review_dir, force or extend)
+    except (FileExistsError, ValueError) as exc:
+        print(f"erro: {exc}")
+        return False
+    if sheet is None:
+        print(f"\nplanilha gravada em {path}; todos os casos começam `pending`")
+    else:
+        added = len(cases) - len(sheet)
+        print(f"\nplanilha estendida em {path}; {added} casos novos `pending`, julgamentos mantidos")
+    return not plan.cases.empty
 
 
 def load_review_sheet(review_dir: Path) -> pd.DataFrame | None:
@@ -180,10 +204,11 @@ def run_review_status(root: Path, review_dir: Path, omnifall: pd.DataFrame | Non
     sheet = load_review_sheet(review_dir)
     if sheet is None:
         return False
-    named = with_label_names(load_omnifall_segments() if omnifall is None else omnifall)
-    digests = source_digests(root, sheet, build_inventory(root).videos)
-    status = summarize_review(sheet, check_auto_evidence(sheet, named, digests))
-    report_status(status, sheet, review_dir)
+    plan = reconstruct_review_plan(root, excluded_videos(sheet), omnifall)
+    if plan is None:
+        return False
+    status = review_status(sheet, plan)
+    report_status(status, plan, sheet, review_dir)
     return status.approved
 
 
@@ -208,8 +233,15 @@ def main() -> None:
         subparser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
         subparser.add_argument("--review-dir", type=Path, default=DEFAULT_REVIEW_DIR)
         if name == "review-plan":
-            subparser.add_argument(
+            mode = subparser.add_mutually_exclusive_group()
+            mode.add_argument(
                 "--force", action="store_true", help="Recria a planilha, apagando a revisão"
+            )
+            mode.add_argument(
+                "--extend",
+                action="store_true",
+                help="Acrescenta os casos exigidos que faltam, como reposições de estrato, "
+                "mantendo os julgamentos",
             )
     subparsers.add_parser("selftest", help="Verifica a auditoria com um clone sintético")
 
@@ -226,7 +258,9 @@ def main() -> None:
         "inventory": lambda: run_inventory(args.root),
         "annotations": lambda: run_annotations(args.root),
         "probe": lambda: run_probe(args.root),
-        "review-plan": lambda: run_review_plan(args.root, args.review_dir, args.force),
+        "review-plan": lambda: run_review_plan(
+            args.root, args.review_dir, args.force, args.extend
+        ),
         "review-render": lambda: run_review_render(args.root, args.review_dir),
         "review-status": lambda: run_review_status(args.root, args.review_dir),
     }
