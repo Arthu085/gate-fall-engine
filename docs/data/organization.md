@@ -7,11 +7,12 @@ execuções. Conteúdo local reconstruível não é versionado.
 data/
 ├── raw/le2i/FallDataset.zip e <ambientes extraídos>/
 ├── raw/figshare_fall/VideoDataset.zip  # opcional; só auditoria de viabilidade
-├── raw/gmdcsa24/GMDCSA24/             # opcional; clone v2.1, só auditoria de viabilidade
+├── raw/gmdcsa24/GMDCSA24/             # opcional; clone v2.1, auditoria e piloto com rótulos fracos
 ├── labels/omnifall/{train,val,test,le2i}.csv e PROVENANCE.json
 ├── labels/omnifall_cv/{train,val,test,le2i}.csv e PROVENANCE.json
 ├── processed/le2i/{manifest,frames}.parquet
 ├── processed/le2i_cv/{manifest,frames}.parquet
+├── processed/gmdcsa24/manifest.json e {videos,frames,window_candidates,windows_t,windows_s}.parquet
 ├── features/le2i/pose/<video_id>.h5
 ├── features/le2i/dinov3/<env>/<video_name>.h5
 └── scratch/                         # inclui gmdcsa24/provenance/ (planilha e contact sheets locais)
@@ -33,6 +34,11 @@ comandos de extração `le2i` podem gravá-las; os consumidores e relatórios
 referência nunca é automática. Veja o [relatório de
 generalização](../analysis/le2i-cv-generalization.md) para o que o protocolo `cv`
 mede.
+
+`data/processed/gmdcsa24/` é a saída isolada do adapter do [piloto com
+rótulos fracos](../analysis/gmdcsa24-weak-label-protocol.md#adapter-e-validacao).
+Ela só contém janelas de treino do GMDCSA24 e nunca grava em
+`data/processed/le2i/`, nas features, nos rótulos ou nos runs.
 
 | Camada | Responsabilidade |
 | --- | --- |

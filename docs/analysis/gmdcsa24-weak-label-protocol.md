@@ -412,6 +412,104 @@ O piloto **não** sustenta, com nenhum resultado:
 A `val` tem 19 vídeos e 13 quedas. Mesmo um GO exploratório é fraco por
 construção.
 
+## Adapter e validação
+
+O adapter do passo 3 é `gatefall.data.gmdcsa24.adapter` (comandos em
+[Referência de comandos](../reference/commands.md#orquestracao-e-preparacao)).
+Ele aplica esta página sem mudar nenhuma regra: a política de exclusão vem de
+`anomaly_reasons`, a grade de `build_time_grid` e `labels_for_grid`, e as
+janelas de `build_window_index` em `TRAIN_STRIDE`. Ele não extrai features,
+não ajusta padronização, não calcula pesos da perda e não treina.
+
+### Saída
+
+Tudo fica em `data/processed/gmdcsa24/`, ignorado pelo Git. O adapter recusa
+gravar sobre `data/processed/le2i*/`, `data/features/`, `data/labels/`,
+`runs/`, as estatísticas de padronização e o diretório da revisão de
+proveniência.
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `videos.parquet` | Os 160 vídeos: `source_sha256`, fps, quadros por `ffprobe -count_frames` e pelo decodificador do adapter, desvio de PTS, exclusão e motivo |
+| `frames.parquet` | Grade de 10 fps dos 145 vídeos incluídos, no esquema de quadros do Le2i, com `split = train` |
+| `window_candidates.parquet` | As janelas rotuladas em `TRAIN_STRIDE` dos 160 vídeos, com cada filtro de T e S |
+| `windows_t.parquet`, `windows_s.parquet` | Índices de janela de T e de S, no esquema do Le2i |
+| `manifest.json` | Proveniência (protocolo, clone, OmniFall, commit do código, Le2i-CS), parâmetros, exclusões com motivo e `source_sha256`, agregados e hash de conteúdo de cada tabela |
+
+O decodificador do adapter usa `ffmpeg -fps_mode passthrough`: o quadro `i`
+do pipe é o `i`-ésimo quadro decodificado, sem as duplicações do pipe do Le2i
+nos MP4 de taxa variável. O `src_index` da grade aponta para esse quadro.
+
+### Checagens
+
+`validate` recalcula tudo das tabelas gravadas e só passa com as cinco
+condições:
+
+- **Integridade:** hash de conteúdo e linhas de cada tabela iguais ao
+  manifesto; T e S iguais aos filtros de `window_candidates.parquet`; resumo
+  do manifesto igual ao recalculado; grade gravada igual à de cada vídeo
+  incluído.
+- **W1:** marca de aprovação nesta página; os 15 vídeos excluídos e os motivos
+  iguais à [tabela](#videos); `review.csv` com o mesmo SHA-256 antes e depois
+  do build.
+- **W2:** igualdade exata com todos os agregados publicados em
+  [Contagem esperada](#contagem-esperada): lista de exclusão, funil, janelas
+  por classe de T e S, vídeos incluídos, com janela em T e com janela `fall`
+  em T e S, e janelas de T por sujeito.
+- **V2:** GMDCSA24 só em `split = train` e só com vídeos incluídos; nenhum
+  `video_id` do GMDCSA24 em `val`/`test` do Le2i-CS e nenhum `source_sha256`
+  igual a um vídeo do manifesto Le2i; treino Le2i-CS com as 5 219 janelas
+  publicadas; hash dos índices de `val` e `test` do Le2i-CS igual ao gravado
+  no build.
+- **V5:** para os 160 vídeos, o decodificador do adapter entrega o mesmo
+  número de quadros que `ffprobe -count_frames`.
+
+O selftest sintético (`adapter selftest`, na CI) cobre alinhamento temporal,
+exclusões, a margem de 0,5 s de S, decodificação sem quadros duplicados,
+adulteração das tabelas e do manifesto, divergência de um único agregado e
+vazamento para `val`/`test`.
+
+### Resultado sobre os dados pinados
+
+Executado em 2026-10-19 sobre o clone `v2.1` (`verify` e `inventory` OK) e o
+OmniFall `labels` na revisão `68e5cee`, com o Le2i-CS canônico local:
+
+- integridade, W1, W2, V2 e V5 passam;
+- as contagens coincidem com todos os agregados publicados, sem nenhuma
+  diferença: 3 231 janelas rotuladas, −945, −142, −171, **T = 1 973**, −411,
+  **S = 1 562**, as contagens por classe e por sujeito, 145 vídeos incluídos,
+  137 com janela em T, 58 com janela `fall` em T e 45 em S;
+- os 15 vídeos excluídos e os motivos são os da [tabela](#videos);
+- V5: nos 160 vídeos, o decodificador do adapter e `ffprobe -count_frames`
+  contam os mesmos quadros;
+- `review.csv` não mudou durante o build;
+- hash de conteúdo das tabelas: `windows_t.parquet`
+  `dd904e1d21af41f36738157fb6bf61cc5792ffa8c6477f1e4dc8e86efff926a8`,
+  `windows_s.parquet`
+  `bf9371715a152d7cbf795155f31a2c28ffef5f98410649aee5ed17c13862efcb`,
+  `window_candidates.parquet`
+  `4493cafd8772cc0df1435b9d188c5d6e67ffed26c0bcb4177c83ffeeedbd07c6`;
+- hash dos índices do Le2i-CS gravado no manifesto: `val`
+  `56f40fe5e32ac6558bcef7e157178ad81dd0fd497da9f53c91a6cffcce90422b`,
+  `test`
+  `36168466d34f6bea11d601b60cbcc3d82d830baeb0b27d209a1cd1b4c617c984`.
+
+W2 confere a montagem do adapter contra os agregados, não as funções
+compartilhadas com o Le2i nem uma tabela por vídeo, como decidido na
+[aprovação](#registro-da-aprovacao).
+
+### O que fica para depois do passo 4
+
+O adapter entrega só o lado GMDCSA24 do treino de T e S. Continuam fora deste
+passo, atrás da autorização separada:
+
+- a extração de pose dos 145 vídeos incluídos, com o decodificador do adapter;
+- a junção das janelas de T ou S com o treino Le2i-CS no carregador de
+  treino, o JSON de padronização e os pesos da perda de cada lado;
+- as partes de V2 que dependem do treino: estatísticas do controle sem
+  GMDCSA24, alarme não recalibrado e índices de `val`/`test` com o hash acima
+  nos dois lados.
+
 ## Aprovação
 
 O protocolo passa a valer só quando estes passos estiverem cumpridos, nesta
@@ -428,11 +526,13 @@ ordem:
    [Receita de contagem](#receita-de-contagem-e-congelamento-w2)). A
    aprovação escolheu a W2 só por agregados, então este passo não se aplica à
    validação inicial do adapter.
-3. **Pendente.** O adapter isolado (`data/processed/gmdcsa24/`), o manifesto
+3. **Implementado, em revisão.** O adapter isolado (`data/processed/gmdcsa24/`), o manifesto
    com a lista de exclusão, a montagem dos treinos de T e S e as checagens W1,
    W2, V2 e V5 são implementados e revisados em PR próprio, com selftests
    sintéticos, sem alterar os selftests e as referências do Le2i. O adapter
-   decodifica sem duplicar quadros.
+   decodifica sem duplicar quadros. A implementação e o resultado sobre os
+   dados pinados estão em [Adapter e validação](#adapter-e-validacao); o
+   passo só se cumpre com a revisão e a integração desse PR.
 4. **Pendente.** A extração, os treinos e qualquer sincronização com o Google
    Drive são autorizados à parte, depois dos passos anteriores.
 
