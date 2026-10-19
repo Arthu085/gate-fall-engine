@@ -18,7 +18,8 @@ referência.
 Pela regra de risco dominante, o piloto declara o que ocupa e o que fica
 parado:
 
-- **Ocupa:** a revisão manual de 52 fronteiras em 30 vídeos
+- **Ocupa:** a revisão manual de 52 fronteiras em 30 vídeos, mais as
+  reposições de estrato que as exclusões exigirem
   ([Revisão de proveniência](gmdcsa24-provenance-review.md)), a extração
   offline de pose YOLO-Pose dos 160 vídeos do GMDCSA24, a implementação de um
   adapter isolado e cinco treinos do braço A.
@@ -68,8 +69,10 @@ Qualquer outra diferença de configuração invalida o piloto.
 
 ## Fronteiras de validação e teste
 
-- `val` e `test` do Le2i-CS são os oficiais do OmniFall, sem nenhuma janela,
-  vídeo ou estatística do GMDCSA24.
+- `val` e `test` do Le2i-CS são os oficiais do OmniFall, sem nenhuma janela
+  ou vídeo do GMDCSA24. A única estatística com GMDCSA24 aplicada a eles é a
+  padronização do tratamento, ajustada só sobre o treino aumentado (ver
+  [Normalização só com treino](#normalizacao-so-com-treino)).
 - O índice de janelas de `val` e `test` precisa ter o mesmo hash no controle e
   no tratamento.
 - Não há avaliação no GMDCSA24 nem nos splits `gmdcsa24-{cs,cv}`. O teste S4
@@ -78,16 +81,44 @@ Qualquer outra diferença de configuração invalida o piloto.
 
 ## Normalização só com treino
 
-- O tratamento recalcula a padronização z-score com
-  `compute_train_stats` sobre todas as janelas do seu treino (Le2i-CS mais
-  GMDCSA24), com o mesmo stride, as mesmas dimensões excluídas e o mesmo
+Os dois braços ajustam a padronização só sobre o próprio treino:
+
+- **Controle:** o JSON de padronização existente, ajustado só sobre o treino
+  Le2i-CS. Ele não é recalculado e não recebe nenhuma janela do GMDCSA24.
+- **Tratamento:** recalcula a padronização z-score com `compute_train_stats`
+  sobre todas as janelas do seu treino aumentado (Le2i-CS mais GMDCSA24
+  elegível), com o mesmo stride, as mesmas dimensões excluídas e o mesmo
   limite de desvio mínimo. O resultado vai para um JSON próprio, nunca para o
   caminho do Le2i.
-- `val` e `test` usam o JSON do lado avaliado. Nenhuma estatística vem de
-  `val`, `test` ou do GMDCSA24 fora do treino.
-- O relatório do piloto mostra a diferença de média e desvio por bloco de
-  features entre os dois JSONs, para separar efeito de dados de efeito de
-  escala.
+- `val` e `test` de cada lado são padronizados com o JSON daquele lado. Para o
+  tratamento, isso significa aplicar a `val` e `test` estatísticas que contêm
+  GMDCSA24. É permitido, porque elas foram ajustadas só sobre o treino
+  aumentado, sem nenhuma amostra de `val` ou `test`. É o terceiro item
+  declarado em [Controle e tratamento](#controle-e-tratamento).
+
+Proibido nos dois braços:
+
+- janela, vídeo ou quadro do GMDCSA24 entre as amostras de `val` ou `test`
+  do Le2i-CS;
+- GMDCSA24 em qualquer estatística do controle (JSON de padronização ou pesos
+  da perda);
+- qualquer JSON de padronização ajustado com janelas de `val` ou `test`;
+- GMDCSA24, `val` ou `test` na calibração do alarme:
+  `BASELINE_A_ALARM_PROTOCOL` fica congelado e não é recalibrado em nenhum
+  dos lados;
+- qualquer decisão tomada com `test`, seja de limiar, época, seed, exclusão
+  ou critério.
+
+O pré-requisito 3 da [viabilidade](gmdcsa24-feasibility.md#pre-requisitos-sem-treino)
+proíbe GMDCSA24 "nas estatísticas de padronização desses testes". Este
+protocolo o lê assim: nenhuma estatística ajustada com amostras de `val` ou
+`test` e nenhuma estatística do controle contém GMDCSA24. A padronização do
+tratamento, ajustada só no treino dele, pode ser aplicada a `val` e `test`
+do tratamento.
+
+O relatório do piloto mostra a diferença de média e desvio por bloco de
+features entre os dois JSONs, para separar efeito de dados de efeito de
+escala.
 
 ## Seleção de janelas e replicação de borda
 
@@ -157,7 +188,7 @@ corrigida antes de repetir o piloto.
 | # | Condição de validade |
 | --- | --- |
 | V1 | `review-status` com proveniência `APROVADA` sobre o clone pinado |
-| V2 | Nenhum `video_id` do GMDCSA24 em `val`, `test` ou em estatística usada para avaliá-los; índices de `val`/`test` com o mesmo hash nos dois lados |
+| V2 | Nenhuma janela ou `video_id` do GMDCSA24 nas amostras de `val`/`test`, nas estatísticas do controle ou na calibração do alarme; JSON de padronização de cada lado ajustado só sobre o treino daquele lado (o do tratamento pode conter GMDCSA24; ver [Normalização](#normalizacao-so-com-treino)); índices de `val`/`test` com o mesmo hash nos dois lados |
 | V3 | Controle aceito pela tabela de `checkpoint_sha256` ou retreinado na mesma máquina |
 | V4 | Configuração idêntica fora dos três itens declarados em [Controle e tratamento](#controle-e-tratamento) |
 | V5 | Para cada vídeo do GMDCSA24, a decodificação do adapter devolve o mesmo número de quadros que `ffprobe -count_frames` (ver [riscos](#riscos-em-aberto)) |
