@@ -14,7 +14,7 @@ data/
 ├── processed/le2i_cv/{manifest,frames}.parquet
 ├── features/le2i/pose/<video_id>.h5
 ├── features/le2i/dinov3/<env>/<video_name>.h5
-└── scratch/
+└── scratch/                         # inclui gmdcsa24/provenance/ (planilha e contact sheets locais)
 
 runs/
 ├── reference/le2i/{baseline_a,baseline_b0,baseline_b1,baseline_c0,baseline_c1}/
