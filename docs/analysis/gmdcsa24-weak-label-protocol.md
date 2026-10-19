@@ -109,8 +109,9 @@ O padrão descrito pela triagem, ainda como hipótese, é este: inícios de
 `fall` marcados antes de o movimento ficar visível (até cerca de 0,4 s) e
 fins de `fall`, `sit_down` e `lie_down` marcados depois de a postura final
 aparecer. Se for real, é ruído de fronteira de alguns décimos de segundo,
-concentrado perto das transições. É isso que a
-[análise de sensibilidade](#analise-de-sensibilidade-predefinida-s) testa.
+concentrado perto das transições. Essa hipótese motivou a
+[análise de sensibilidade](#analise-de-sensibilidade-predefinida-s) e
+informou a margem dela. S não isola esse ruído.
 
 Regras para essa evidência:
 
@@ -119,8 +120,10 @@ Regras para essa evidência:
   `reviewer`, `reviewed_at`, `notes`) é preenchida ou pré-preenchida com a
   triagem, e nenhum caso conta como `confirmed`, `discrepancy` ou `excluded`
   por causa dela.
-- A triagem não entra na política de exclusão, nas condições de validade, no
-  critério de decisão nem na escolha de qualquer parâmetro.
+- A triagem não entra na exclusão de vídeos, nas regras de janela de T, nas
+  condições de validade nem no critério de decisão. A única influência dela
+  num parâmetro é a margem de 0,5 s de S, escolhida depois da triagem e
+  declarada em [S](#analise-de-sensibilidade-predefinida-s).
 - O relatório fica só na máquina local, em
   `data/scratch/gmdcsa24/provenance/gmdcsa24_relatorio_triagem_visual_ia.md`
   (ignorado pelo Git), com SHA-256
@@ -131,8 +134,9 @@ Regras para essa evidência:
 Os rótulos OmniFall pinados entram como estão: **sem reetiquetar, deslocar
 instantes, cortar ou mesclar segmentos**. Onde há anomalia documentada, sai o
 vídeo inteiro; nada é corrigido. Toda regra é recalculada pelo código
-existente a partir do clone pinado e do OmniFall pinado. Nenhuma usa a
-triagem por IA, métrica de modelo ou julgamento caso a caso.
+existente a partir do clone pinado e do OmniFall pinado. Nenhuma regra de
+vídeo ou de janela de T usa a triagem por IA, métrica de modelo ou julgamento
+caso a caso. A margem de S é a exceção declarada: a triagem a informou.
 
 ### Vídeos
 
@@ -154,7 +158,8 @@ triagem por IA, métrica de modelo ou julgamento caso a caso.
    rótulos OmniFall), as sobreposições de arredondamento abaixo de 0,1 s
    (resolvidas por `labels_for_grid`, como no Le2i) e o resultado da triagem.
 
-Os 15 vídeos excluídos, recalculados em 2026-10-19:
+Os 15 vídeos excluídos, recalculados em 2026-10-19 pela análise local de
+[Contagem esperada](#contagem-esperada):
 
 | Vídeo | Motivo |
 | --- | --- |
@@ -188,9 +193,13 @@ sem mudança. O tratamento S remove ainda as janelas perto de fronteira
 
 ### Contagem esperada
 
-Calculada em 2026-10-19 sobre o clone pinado, com a grade de taxa constante
-do `probe` e as regras acima. A mesma conta reproduz a estimativa do
-protocolo verificado (2 119 janelas em 149 vídeos).
+Calculada em 2026-10-19 por uma análise local não versionada, com a
+[receita](#receita-de-contagem-e-congelamento-w2) e as entradas pinadas
+abaixo. Esses números ainda não foram reproduzidos de forma independente. A
+mesma análise, com as regras do protocolo verificado, dá 2 119 janelas em 149
+vídeos, igual à estimativa publicada lá. Essa estimativa também veio de uma
+análise local, então a coincidência mostra consistência, não verificação
+independente.
 
 | Etapa | Janelas |
 | --- | ---: |
@@ -220,9 +229,58 @@ protocolo verificado (2 119 janelas em 149 vídeos).
 - Janelas de T por sujeito: S1 208, S2 759, S3 568, S4 438. Janelas `fall`:
   S1 25, S2 101, S3 72, S4 27.
 
-A lista de vídeos excluídos, com motivo e `source_sha256`, e a contagem por
-classe e por vídeo de T e S são gravadas no manifesto do adapter antes do
-treino e precisam bater com esta página (condição W2).
+### Receita de contagem e congelamento (W2)
+
+Entradas pinadas:
+
+| Entrada | Identidade |
+| --- | --- |
+| Vídeos | GMDCSA24, commit `5abac7693229900cf80f722e878fbb119211fc1c` com `verify` OK; o commit fixa o conteúdo dos 160 MP4 |
+| Rótulos | `simplexsigil2/omnifall`, config `labels`, revisão `68e5cee56a4bad38cca4aea791cac248f96e79a0`, linhas com `dataset == "GMDCSA24"` |
+| Código | GateFall no commit `23b7007`, com `TARGET_FPS = 10`, `TRAIN_STRIDE = 4` e `WINDOW_FRAMES = 24` em `gatefall.config` |
+
+A receita é determinística, sem RNG, e usa só funções existentes da auditoria
+e do pipeline, nunca o adapter:
+
+1. `build_inventory` lista os 160 vídeos; `probe_file` (`probe_video` e
+   `resolve_frame_rate`) dá o número de quadros decodificados e o fps de cada
+   um.
+2. `K` é o tamanho da grade de `build_time_grid(quadros, fps, TARGET_FPS)`. O
+   rótulo de cada quadro vem de `labels_for_grid` sobre os segmentos OmniFall,
+   nos instantes `k / 10`.
+3. Os fins de janela são `window_end_indices(K, TRAIN_STRIDE)`, e o rótulo da
+   janela é o do quadro `k_end`.
+4. Os vídeos excluídos são os que têm motivo em `anomaly_reasons`.
+5. T: janelas de vídeo não excluído com rótulo diferente de `IGNORE_LABEL`,
+   `k_end >= 23` e rótulo fora de `lie_down` e `lying`.
+6. S: janelas de T a mais de 0,5 s, em `k_end / 10`, de toda fronteira de
+   `video_boundaries`. Um vídeo sem fronteira mantém todas as janelas.
+
+Congelamento e comparação com o adapter:
+
+- **Agregados publicados (valem agora).** W2 compara o adapter com o que esta
+  página publica: a lista dos 15 vídeos excluídos, as janelas por classe de T
+  e de S, os 145 vídeos incluídos, os 137 com janela em T e os vídeos com
+  janela `fall` (58 em T e 45 em S). Qualquer diferença bloqueia o treino.
+- **Oráculo por vídeo (ainda não existe).** A análise local não está
+  versionada, e a tabela por vídeo não é publicada. Por isso, hoje W2 não
+  compara por vídeo. Para isso, um PR próprio, antes da implementação do
+  adapter, acrescenta à auditoria (`gatefall.data.gmdcsa24.audit`) um comando
+  que executa a receita acima e grava uma tabela `video_id` × classe com as
+  contagens de T e S. O PR publica a tabela, o SHA-256 dela e o commit do
+  código, e precisa reproduzir exatamente os agregados desta página. Se não
+  reproduzir, a divergência é explicada e reaprovada antes do adapter.
+- **Comparação por vídeo.** Só com o oráculo congelado: o adapter grava a mesma
+  tabela no manifesto, e W2 exige igualdade exata de cada linha. Sem o
+  oráculo, W2 fica restrita aos agregados publicados.
+- **Alcance.** Se o adapter reutilizar `build_time_grid`, `labels_for_grid` e
+  `window_end_indices`, W2 não confere essas funções de forma independente;
+  elas já são cobertas pelos selftests do Le2i. W2 confere a montagem do
+  adapter: seleção e exclusão de vídeos, contagem de quadros e filtros de
+  janela.
+
+O manifesto do adapter também grava a lista de vídeos excluídos, com motivo e
+`source_sha256`, antes do treino.
 
 ## Ruído de rótulo não resolvido
 
@@ -253,14 +311,21 @@ ou menos de alguma fronteira OmniFall do vídeo. A fronteira é a mesma de
 `video_boundaries` na revisão: início de segmento após 0 s ou fim seguido de
 lacuna. Os rótulos não mudam; só saem janelas.
 
-- **Por que 0,5 s.** É a meia largura das contact sheets em que a triagem
-  julgou, e os deslocamentos aparentes que ela descreve (até cerca de 0,4 s)
-  cabem nessa margem. A margem é fixada aqui, antes de qualquer métrica, e
-  nenhuma outra será testada.
-- **O que S não isola.** S remove 46% das janelas `fall` e 21% do total.
-  Volume e balanço de classes também mudam, e os pesos da perda e o JSON de
-  padronização de S são recalculados sobre o treino de S. S qualifica T; não
-  é um teste limpo de ruído.
+- **Como 0,5 s foi escolhido.** A margem foi escolhida depois da triagem por
+  IA e informada por ela: é a meia largura das contact sheets em que a
+  triagem julgou, e cobre os deslocamentos aparentes que ela descreve (até
+  cerca de 0,4 s). A escolha veio antes de qualquer treino, extração de
+  features ou resultado de avaliação de modelo. A margem fica fixa, e nenhuma
+  outra será testada.
+- **O que isso não muda.** Usar a triagem para fixar a margem não transforma
+  julgamento de IA em rótulo verificado. S continua uma análise exploratória
+  sobre rótulos fracos, e nenhuma fronteira passa a ser tratada como
+  confirmada ou errada.
+- **O que S muda além das fronteiras.** S remove as janelas perto de
+  fronteira, mas também muda o tamanho do treino (−21% das janelas), o
+  balanço de classes (−46% das janelas `fall`), os pesos da
+  `CrossEntropyLoss` e as estatísticas do JSON de padronização, recalculados
+  sobre o treino de S. Por isso S não isola o efeito do ruído de fronteira.
 - S roda com as mesmas cinco seeds, a mesma receita e o mesmo controle de T.
 
 ## Critério de decisão
@@ -271,7 +336,7 @@ falha torna o piloto **INVÁLIDO**.
 | # | Condição de validade |
 | --- | --- |
 | W1 | Este protocolo aprovado; lista de vídeos excluídos igual à tabela acima; `review.csv` sem nenhuma alteração feita por esta trilha e sem julgamento de IA nas colunas humanas |
-| W2 | Contagem de janelas por classe e por vídeo do adapter igual à de [Contagem esperada](#contagem-esperada) |
+| W2 | Saída do adapter igual aos agregados publicados em [Receita de contagem](#receita-de-contagem-e-congelamento-w2); por vídeo, só se o oráculo tiver sido congelado antes do adapter |
 | V2–V5 | As do protocolo verificado, aplicadas a T e a S |
 
 Com as condições cumpridas:
@@ -281,8 +346,14 @@ Com as condições cumpridas:
   exploratório**; caso contrário, **NO-GO**.
 - **S contra o controle** tem G1–G4 calculadas e relatadas. Se T dá GO
   exploratório e a média de Δ `macro_f1_restricted` de S for <= 0, o resultado
-  passa a **GO frágil**: o ganho depende das janelas perto de fronteira, que
-  são as mais expostas ao ruído. S nunca transforma NO-GO em GO.
+  passa a **GO frágil**. S nunca transforma NO-GO em GO.
+
+GO frágil é uma regra operacional, não uma explicação causal. Ele significa
+que a melhora de T não se reproduziu sob a distribuição de treino modificada
+de S. Não prova que o ruído das janelas perto de fronteira causou a melhora
+de T: a falha pode vir de qualquer outra mudança de S (tamanho, balanço,
+pesos da perda ou padronização). Do mesmo modo, um S positivo não prova que
+as janelas de fronteira eram ruído.
 
 O relatório mostra também a diferença de média e desvio por bloco de features
 entre o JSON do controle e os de T e S, e as métricas descritivas de `test`,
@@ -319,7 +390,8 @@ O piloto **não** sustenta, com nenhum resultado:
 
 - que as anotações OmniFall do GMDCSA24 estão corretas, nem qualquer taxa de
   erro delas;
-- que o ruído de rótulo não importa (S muda volume e balanço junto);
+- que o ruído de rótulo não importa, nem que o ruído de fronteira explica o
+  resultado de T (S muda tamanho, balanço, pesos e padronização junto);
 - a condição V1, o pré-requisito 2 da viabilidade, a etapa 3 (B0, B1, C0 e
   C1), a promoção ao protocolo canônico ou a troca de alguma referência;
 - qualquer desempenho no GMDCSA24, no Le2i-CV ou em `test` (só descritivo);
@@ -339,15 +411,18 @@ ordem:
 1. Um PR separado muda o status deste documento para aprovado, com a decisão
    explícita do responsável pelo projeto sobre: a aceitação da proveniência
    não verificada só para esta trilha, a política de exclusão e as contagens,
-   a análise S com a margem de 0,5 s, os critérios de parada e os limites das
-   alegações.
-2. O adapter isolado (`data/processed/gmdcsa24/`), o manifesto com a lista de
+   a análise S com a margem de 0,5 s escolhida depois da triagem, os
+   critérios de parada e os limites das alegações.
+2. Se a comparação por vídeo de W2 for exigida, o oráculo de contagem é
+   implementado e congelado em PR próprio, antes do adapter (ver
+   [Receita de contagem](#receita-de-contagem-e-congelamento-w2)).
+3. O adapter isolado (`data/processed/gmdcsa24/`), o manifesto com a lista de
    exclusão, a montagem dos treinos de T e S e as checagens W1, W2, V2 e V5
    são implementados e revisados em PR próprio, com selftests sintéticos, sem
    alterar os selftests e as referências do Le2i. O adapter decodifica sem
    duplicar quadros.
-3. A extração, os treinos e qualquer sincronização com o Google Drive são
-   autorizados à parte, depois dos passos 1 e 2.
+4. A extração, os treinos e qualquer sincronização com o Google Drive são
+   autorizados à parte, depois dos passos anteriores.
 
 ## Riscos em aberto
 
