@@ -400,5 +400,7 @@ Todos aceitam `--root DIR`. O padrão é `data/raw/gmdcsa24/GMDCSA24`.
 
 `inventory`, `annotations` e `probe` leem o OmniFall pelo
 `load_annotation_config` existente, na revisão pinada, pelo cache do Hugging
-Face. Nenhum comando grava em `data/`. O módulo não está em
+Face. Nenhum desses comandos grava em `data/`. Os comandos da
+[revisão de proveniência](gmdcsa24-provenance-review.md) gravam só em
+`data/scratch/gmdcsa24/provenance/`. O módulo não está em
 `SUPPORTED_DATASET_IDENTIFIERS` nem no `gatefall.pipeline`.

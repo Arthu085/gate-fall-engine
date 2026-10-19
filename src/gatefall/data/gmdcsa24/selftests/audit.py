@@ -3,7 +3,8 @@
 Não toca no dataset real nem no Hugging Face: o clone é montado num diretório
 temporário com a árvore `Subject N/{ADL,Fall}/NN.mp4` e os CSVs por sujeito, e
 os segmentos OmniFall são um DataFrame em memória. O CSV sintético reproduz os
-desvios de formato observados na tag v2.1. Requer FFmpeg e Git.
+desvios de formato observados na tag v2.1. Também roda as checagens da
+revisão de proveniência em `selftests/provenance.py`. Requer FFmpeg e Git.
 """
 
 import contextlib
@@ -36,6 +37,7 @@ from gatefall.data.gmdcsa24.probe import (
     probe_checkout,
     report_probe,
 )
+from gatefall.data.gmdcsa24.selftests.provenance import run_provenance_checks
 from gatefall.data.gmdcsa24.source import build_inventory, find_duplicate_videos
 
 _SHORT_FRAMES = 19
@@ -335,6 +337,7 @@ def run_audit_selftest() -> None:
         checks.extend(check_coverage_and_cross_check(root))
         checks.extend(check_probe(root))
         checks.append(check_verify(root))
+    checks.extend(run_provenance_checks())
     if not all(checks):
         print("\nselftest FALHOU", file=sys.stderr)
         sys.exit(1)
