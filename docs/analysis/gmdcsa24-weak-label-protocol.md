@@ -1,14 +1,19 @@
-# Protocolo proposto — piloto exploratório GMDCSA24 com rótulos fracos (braço A)
+# Protocolo aprovado — piloto exploratório GMDCSA24 com rótulos fracos (braço A)
 
-!!! warning "Status: PROPOSTO, não aprovado"
-    Este documento propõe um experimento exploratório separado. Ele não
-    autoriza treino, extração de features nem implementação de adapter. O
+!!! warning "Status: APROVADO em 2026-10-19, só para planejamento e adapter"
+    O responsável pelo projeto aprovou este protocolo exploratório separado
+    (ver [Registro da aprovação](#registro-da-aprovacao)). A aprovação
+    autoriza só o planejamento da implementação e o PR separado do adapter.
+    Ela **não** autoriza extração de features, treino de modelos nem
+    sincronização com o Google Drive; essas atividades continuam proibidas
+    até os [portões seguintes](#o-que-continua-proibido). As anotações
+    OmniFall do GMDCSA24 continuam não verificadas, e a triagem visual por IA
+    nunca vale como confirmação humana. O
     [protocolo verificado](gmdcsa24-pilot-protocol.md) continua PROPOSTO e
     intacto, e a condição V1 dele continua pendente: nada nesta página a dá por
     cumprida. O protocolo canônico do GateFall, a receita congelada, os splits
     Le2i-CS e Le2i-CV, os checkpoints, o protocolo de alarme e as referências
-    A, B0, B1, C0 e C1 não mudam. A aprovação exige os passos de
-    [Aprovação](#aprovacao) e, até lá, a resposta padrão é não.
+    A, B0, B1, C0 e C1 não mudam.
 
 Este protocolo é uma trilha paralela ao protocolo verificado, não uma versão
 dele. Ele troca a revisão manual quadro a quadro por uma decisão explícita de
@@ -262,17 +267,20 @@ Congelamento e comparação com o adapter:
   página publica: a lista dos 15 vídeos excluídos, as janelas por classe de T
   e de S, os 145 vídeos incluídos, os 137 com janela em T e os vídeos com
   janela `fall` (58 em T e 45 em S). Qualquer diferença bloqueia o treino.
-- **Oráculo por vídeo (ainda não existe).** A análise local não está
-  versionada, e a tabela por vídeo não é publicada. Por isso, hoje W2 não
-  compara por vídeo. Para isso, um PR próprio, antes da implementação do
-  adapter, acrescenta à auditoria (`gatefall.data.gmdcsa24.audit`) um comando
-  que executa a receita acima e grava uma tabela `video_id` × classe com as
-  contagens de T e S. O PR publica a tabela, o SHA-256 dela e o commit do
-  código, e precisa reproduzir exatamente os agregados desta página. Se não
-  reproduzir, a divergência é explicada e reaprovada antes do adapter.
-- **Comparação por vídeo.** Só com o oráculo congelado: o adapter grava a mesma
-  tabela no manifesto, e W2 exige igualdade exata de cada linha. Sem o
-  oráculo, W2 fica restrita aos agregados publicados.
+- **Oráculo por vídeo (não exigido na validação inicial).** A análise local
+  não está versionada, e a tabela por vídeo não é publicada. A
+  [aprovação](#registro-da-aprovacao) escolheu a W2 só por agregados para a
+  validação inicial do adapter, sem alegar verificação independente por
+  vídeo. A alternativa fica documentada, mas não foi adotada: um PR próprio,
+  antes da implementação do adapter, acrescentaria à auditoria
+  (`gatefall.data.gmdcsa24.audit`) um comando que executaria a receita acima
+  e gravaria uma tabela `video_id` × classe com as contagens de T e S,
+  publicada com o SHA-256 dela e o commit do código.
+- **Comparação por vídeo.** Só com o oráculo congelado antes do adapter: o
+  adapter gravaria a mesma tabela no manifesto, e W2 exigiria igualdade exata
+  de cada linha. Como o oráculo não foi adotado, W2 fica restrita aos
+  agregados publicados. Uma tabela por vídeo criada depois do adapter não
+  conta como verificação independente.
 - **Alcance.** Se o adapter reutilizar `build_time_grid`, `labels_for_grid` e
   `window_end_indices`, W2 não confere essas funções de forma independente;
   elas já são cobertas pelos selftests do Le2i. W2 confere a montagem do
@@ -336,7 +344,7 @@ falha torna o piloto **INVÁLIDO**.
 | # | Condição de validade |
 | --- | --- |
 | W1 | Este protocolo aprovado; lista de vídeos excluídos igual à tabela acima; `review.csv` sem nenhuma alteração feita por esta trilha e sem julgamento de IA nas colunas humanas |
-| W2 | Saída do adapter igual aos agregados publicados em [Receita de contagem](#receita-de-contagem-e-congelamento-w2); por vídeo, só se o oráculo tiver sido congelado antes do adapter |
+| W2 | Saída do adapter igual aos agregados publicados em [Receita de contagem](#receita-de-contagem-e-congelamento-w2); só por agregados, pela opção escolhida na [aprovação](#registro-da-aprovacao), sem comparação por vídeo |
 | V2–V5 | As do protocolo verificado, aplicadas a T e a S |
 
 Com as condições cumpridas:
@@ -361,7 +369,8 @@ calculadas uma vez depois da decisão.
 
 ## Critérios de parada
 
-1. Nada é extraído nem treinado antes da [aprovação](#aprovacao).
+1. Nada é extraído nem treinado antes de cumpridos os passos de
+   [Aprovação](#aprovacao), inclusive a autorização separada do passo 4.
 2. Antes do treino, falha de `verify`, `inventory`, V5 ou W2 para a trilha. O
    código é corrigido sem mudar a política. Se a correção exigir mudar a
    política, a trilha para e precisa de um novo protocolo.
@@ -408,21 +417,101 @@ construção.
 O protocolo passa a valer só quando estes passos estiverem cumpridos, nesta
 ordem:
 
-1. Um PR separado muda o status deste documento para aprovado, com a decisão
-   explícita do responsável pelo projeto sobre: a aceitação da proveniência
-   não verificada só para esta trilha, a política de exclusão e as contagens,
-   a análise S com a margem de 0,5 s escolhida depois da triagem, os
-   critérios de parada e os limites das alegações.
-2. Se a comparação por vídeo de W2 for exigida, o oráculo de contagem é
-   implementado e congelado em PR próprio, antes do adapter (ver
-   [Receita de contagem](#receita-de-contagem-e-congelamento-w2)).
-3. O adapter isolado (`data/processed/gmdcsa24/`), o manifesto com a lista de
-   exclusão, a montagem dos treinos de T e S e as checagens W1, W2, V2 e V5
-   são implementados e revisados em PR próprio, com selftests sintéticos, sem
-   alterar os selftests e as referências do Le2i. O adapter decodifica sem
-   duplicar quadros.
-4. A extração, os treinos e qualquer sincronização com o Google Drive são
-   autorizados à parte, depois dos passos anteriores.
+1. **Cumprido em 2026-10-19.** Um PR separado muda o status deste documento
+   para aprovado, com a decisão explícita do responsável pelo projeto sobre: a
+   aceitação da proveniência não verificada só para esta trilha, a política de
+   exclusão e as contagens, a análise S com a margem de 0,5 s escolhida depois
+   da triagem, os critérios de parada e os limites das alegações (ver
+   [Registro da aprovação](#registro-da-aprovacao)).
+2. **Não adotado.** Se a comparação por vídeo de W2 for exigida, o oráculo de
+   contagem é implementado e congelado em PR próprio, antes do adapter (ver
+   [Receita de contagem](#receita-de-contagem-e-congelamento-w2)). A
+   aprovação escolheu a W2 só por agregados, então este passo não se aplica à
+   validação inicial do adapter.
+3. **Pendente.** O adapter isolado (`data/processed/gmdcsa24/`), o manifesto
+   com a lista de exclusão, a montagem dos treinos de T e S e as checagens W1,
+   W2, V2 e V5 são implementados e revisados em PR próprio, com selftests
+   sintéticos, sem alterar os selftests e as referências do Le2i. O adapter
+   decodifica sem duplicar quadros.
+4. **Pendente.** A extração, os treinos e qualquer sincronização com o Google
+   Drive são autorizados à parte, depois dos passos anteriores.
+
+### Registro da aprovação
+
+Em 2026-10-19, o responsável pelo projeto aprovou este protocolo e decidiu
+seguir **sem revisão visual manual das anotações** para esta trilha
+exploratória separada. A decisão cobre os itens exigidos no passo 1:
+
+- **Proveniência.** A proveniência não verificada das anotações OmniFall do
+  GMDCSA24 é aceita só para esta trilha, como rótulos fracos. As anotações
+  continuam **não verificadas**: a aprovação não confirma nenhuma fronteira,
+  não estima taxa de erro e não cumpre o pré-requisito 2 da viabilidade.
+- **Protocolo verificado.** O [protocolo verificado](gmdcsa24-pilot-protocol.md)
+  continua PROPOSTO e sem mudança, com a condição V1 pendente. A
+  [revisão de proveniência](gmdcsa24-provenance-review.md) continua PENDENTE.
+- **Triagem por IA.** A triagem visual assistida por IA continua evidência
+  preliminar. Ela **nunca** é tratada como confirmação humana, nunca entra nas
+  colunas humanas de `review.csv` e nunca muda o estado de um caso.
+- **Escopo congelado, sem mudança em relação ao PR #132:**
+    - só o braço A, sem mudança de arquitetura e com a receita congelada;
+    - as 15 exclusões de vídeo predeclaradas em
+      [Vídeos](#videos);
+    - os tratamentos de treino T e S, com 1 973 e 1 562 janelas estimadas do
+      GMDCSA24 e as contagens por classe e por sujeito de
+      [Contagem esperada](#contagem-esperada);
+    - S com a margem de 0,5 s, escolhida depois da triagem por IA e fixa;
+    - seeds 42 a 46, uma execução por seed em T e em S, contra o mesmo
+      controle;
+    - `val` e `test` do Le2i-CS sem mudança e as referências canônicas
+      intactas;
+    - normalização ajustada só sobre o treino de cada lado;
+    - as condições G1–G4, W1, W2 e V2–V5, o critério de decisão e os
+      [critérios de parada](#criterios-de-parada) desta página;
+    - os limites de [O que a evidência sustenta](#o-que-a-evidencia-sustenta).
+- **W2 só por agregados.** A validação inicial do adapter usa a opção já
+  documentada de W2 só por agregados: a lista dos 15 vídeos excluídos, as
+  janelas por classe de T e de S, os 145 vídeos incluídos, os 137 com janela
+  em T e os vídeos com janela `fall` (58 em T e 45 em S). Ela não alega
+  verificação independente por vídeo, e o oráculo por vídeo não é criado.
+- **Divergência bloqueia.** Qualquer diferença entre o adapter e os agregados
+  predeclarados bloqueia o treino e exige investigação. Nem os agregados, nem
+  a lista de exclusão, nem as regras de janela são ajustados depois do fato
+  para coincidir. Se a causa estiver no código, ele é corrigido sem mudar a
+  política. Se a correção exigir mudar a política ou os agregados publicados,
+  a trilha para e precisa de um novo protocolo aprovado
+  ([critério de parada 2](#criterios-de-parada)).
+
+A aprovação autoriza só o planejamento da implementação e o PR separado do
+adapter (passo 3). Ela não autoriza extração de features nem treino de
+modelos.
+
+### O que continua proibido
+
+Até o PR do adapter ser revisado e integrado com as checagens do passo 3, e
+até a autorização separada do passo 4, continuam proibidos:
+
+- extrair features de qualquer vídeo do GMDCSA24, com YOLO-Pose ou com
+  qualquer outro backbone;
+- ajustar os JSON de padronização de T e S, montar os treinos de T e S com
+  features ou treinar T, S ou um novo controle;
+- calcular qualquer métrica de modelo com GMDCSA24 no treino, em `val` ou em
+  `test`;
+- sincronizar dados, features, manifestos ou checkpoints do GMDCSA24 com o
+  Google Drive;
+- implementar o adapter no mesmo PR de uma aprovação ou de uma mudança de
+  protocolo;
+- alterar o [protocolo verificado](gmdcsa24-pilot-protocol.md), `review.csv`,
+  `review-status` ou as colunas humanas da revisão, inclusive com a triagem
+  por IA;
+- alterar os experimentos canônicos do Le2i: receita congelada, splits
+  Le2i-CS e Le2i-CV, checkpoints, calibração, protocolo de alarme,
+  selftests e referências em `runs/reference/`;
+- treinar B0, B1, C0 ou C1 com GMDCSA24, usar outro dataset externo ou testar
+  outra variante de rótulo fraco (outra margem, outra lista de exclusão,
+  reetiquetagem ou deslocamento de rótulo).
+
+Nada desta lista é liberado só pela integração do adapter: a extração, os
+treinos e a sincronização dependem da autorização explícita do passo 4.
 
 ## Riscos em aberto
 
