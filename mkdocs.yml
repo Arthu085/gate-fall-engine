@@ -75,6 +75,7 @@ nav:
       - Bootstrap agrupado por sujeito (IC): analysis/grouped-bootstrap.md
       - Sumário multi-seed: analysis/multiseed-summary.md
       - Viabilidade do dataset Figshare 28596332: analysis/figshare-fall-feasibility.md
+      - Viabilidade do dataset GMDCSA24: analysis/gmdcsa24-feasibility.md
   - Referência:
       - Referência de comandos: reference/commands.md
       - Referências finais do Le2i: reference/le2i-runs.md

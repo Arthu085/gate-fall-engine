@@ -7,6 +7,7 @@ execuções. Conteúdo local reconstruível não é versionado.
 data/
 ├── raw/le2i/FallDataset.zip e <ambientes extraídos>/
 ├── raw/figshare_fall/VideoDataset.zip  # opcional; só auditoria de viabilidade
+├── raw/gmdcsa24/GMDCSA24/             # opcional; clone v2.1, só auditoria de viabilidade
 ├── labels/omnifall/{train,val,test,le2i}.csv e PROVENANCE.json
 ├── labels/omnifall_cv/{train,val,test,le2i}.csv e PROVENANCE.json
 ├── processed/le2i/{manifest,frames}.parquet
