@@ -8,6 +8,11 @@
     não mudam. A aprovação exige os três passos de
     [Aprovação](#aprovacao) e, até lá, a resposta padrão é não.
 
+!!! note "Trilha alternativa"
+    O [piloto exploratório com rótulos fracos](gmdcsa24-weak-label-protocol.md)
+    propõe uma trilha separada, sem revisão manual. Ela não altera este
+    protocolo, não cumpre a condição V1 e não autoriza a etapa 3.
+
 É a etapa 1 da [decisão de viabilidade](gmdcsa24-feasibility.md#decisao):
 um protocolo separado, fixado antes de qualquer treino, para um piloto
 isolado e exploratório só do braço A. O resultado nunca substitui uma

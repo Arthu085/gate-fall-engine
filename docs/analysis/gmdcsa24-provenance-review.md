@@ -9,6 +9,12 @@ quadro a quadro e pelo PTS real.
 **Estado em 2026-10-19: PENDENTE.** Os 52 casos estão `pending`. Nenhuma
 anotação foi confirmada por revisor humano.
 
+Uma triagem visual assistida por IA das 52 contact sheets está registrada como
+evidência preliminar no
+[protocolo exploratório com rótulos fracos](gmdcsa24-weak-label-protocol.md#triagem-visual-assistida-por-ia-evidencia-preliminar).
+Ela não muda o estado de nenhum caso, e nenhum julgamento dela é transcrito
+para as colunas humanas de `review.csv`.
+
 ## Evidência automática e confirmação humana
 
 A planilha `review.csv` separa duas coisas:

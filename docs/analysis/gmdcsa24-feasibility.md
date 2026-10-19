@@ -305,7 +305,10 @@ das três configurações. Esta página não a aprova.
 
 ### Pré-requisitos sem treino
 
-Qualquer falha reprova a etapa 1 de imediato.
+Qualquer falha reprova a etapa 1 de imediato. A única exceção proposta é o
+[piloto exploratório com rótulos fracos](gmdcsa24-weak-label-protocol.md),
+que dispensa o pré-requisito 2 só para si, por decisão registrada do
+responsável pelo projeto.
 
 1. **Rótulos somente do OmniFall** (`labels`, revisão `68e5cee`). O CSV
    original continua só como auditoria.

@@ -78,6 +78,7 @@ nav:
       - Viabilidade do dataset GMDCSA24: analysis/gmdcsa24-feasibility.md
       - Revisão de proveniência GMDCSA24: analysis/gmdcsa24-provenance-review.md
       - Protocolo proposto do piloto GMDCSA24: analysis/gmdcsa24-pilot-protocol.md
+      - Protocolo exploratório GMDCSA24 (rótulos fracos): analysis/gmdcsa24-weak-label-protocol.md
   - Referência:
       - Referência de comandos: reference/commands.md
       - Referências finais do Le2i: reference/le2i-runs.md
