@@ -74,6 +74,7 @@ nav:
       - Sensibilidade do protocolo de alarme: analysis/alarm-protocol-sensitivity.md
       - Bootstrap agrupado por sujeito (IC): analysis/grouped-bootstrap.md
       - Sumário multi-seed: analysis/multiseed-summary.md
+      - Viabilidade do dataset Figshare 28596332: analysis/figshare-fall-feasibility.md
   - Referência:
       - Referência de comandos: reference/commands.md
       - Referências finais do Le2i: reference/le2i-runs.md
