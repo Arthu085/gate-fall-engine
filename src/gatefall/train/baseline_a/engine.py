@@ -15,7 +15,11 @@ from torch.utils.data import DataLoader, Dataset
 from gatefall.features.standardization import StandardizationStats, apply_standardization
 from gatefall.hashing import sha256_file
 from gatefall.runs import validate_local_run_dir
-from gatefall.train.baseline_a.artifacts import REQUIRED_TRAINING_ARTIFACTS, validate_training_run
+from gatefall.train.baseline_a.artifacts import (
+    REQUIRED_TRAINING_ARTIFACTS,
+    TRAINING_SPLITS,
+    validate_training_run,
+)
 from gatefall.train.baseline_a.config import TrainConfig, save_config
 from gatefall.train.shared.determinism import configure_determinism
 from gatefall.train.shared.metrics import (
@@ -105,20 +109,22 @@ def run_training(
     input_dim: int,
     train_source: _WindowSource,
     val_source: _WindowSource,
-    test_source: _WindowSource,
+    test_source: _WindowSource | None,
     stats: StandardizationStats,
     config: TrainConfig,
     run_dir: Path,
     force: bool,
     label_names: tuple[str, ...],
 ) -> dict | None:
+    """Treina e avalia a TCN; com `test_source=None`, `test` nunca é lido nem avaliado."""
     validate_local_run_dir(run_dir)
+    splits = TRAINING_SPLITS if test_source is not None else ("train", "val")
     required = REQUIRED_TRAINING_ARTIFACTS
     present = [name for name in required if (run_dir / name).is_file()]
     if run_dir.exists() and not force:
         if len(present) == len(required):
             try:
-                validate_training_run(run_dir, expected_config=config)
+                validate_training_run(run_dir, expected_config=config, splits=splits)
             except RuntimeError as exc:
                 raise RuntimeError(
                     f"run inconsistente em {run_dir}: artefato inválido ({exc}); "
@@ -141,7 +147,6 @@ def run_training(
 
     train_dataset = _StandardizedTorchDataset(train_source, stats)
     val_dataset = _StandardizedTorchDataset(val_source, stats)
-    test_dataset = _StandardizedTorchDataset(test_source, stats)
 
     generator = torch.Generator()
     generator.manual_seed(config.seed)
@@ -153,7 +158,6 @@ def run_training(
         num_workers=0,
     )
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=0)
-    test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False, num_workers=0)
 
     model = TCNClassifier(
         input_dim=input_dim,
@@ -208,8 +212,15 @@ def run_training(
     final = {
         "train": _evaluate_split(model, train_loader, device, config.num_classes, label_names),
         "val": _evaluate_split(model, val_loader, device, config.num_classes, label_names),
-        "test": _evaluate_split(model, test_loader, device, config.num_classes, label_names),
     }
+    if test_source is not None:
+        test_dataset = _StandardizedTorchDataset(test_source, stats)
+        test_loader = DataLoader(
+            test_dataset, batch_size=config.batch_size, shuffle=False, num_workers=0
+        )
+        final["test"] = _evaluate_split(
+            model, test_loader, device, config.num_classes, label_names
+        )
 
     metrics = {
         "run_name": config.run_name,
@@ -233,7 +244,7 @@ def run_training(
     for name in required:
         if not (temporary_dir / name).is_file():
             raise RuntimeError(f"treino não produziu o artefato obrigatório: {name}")
-    validate_training_run(temporary_dir, expected_config=config)
+    validate_training_run(temporary_dir, expected_config=config, splits=splits)
     run_dir.parent.mkdir(parents=True, exist_ok=True)
     if run_dir.exists():
         if not force:

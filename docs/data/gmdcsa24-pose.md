@@ -7,10 +7,10 @@ braço A, numa saída isolada. O módulo não muda o protocolo, não ajusta
 padronização, não monta treino de T ou S, não calcula métrica de modelo e não
 usa DINOv3 nem SAM 3.
 
-**Estado:** implementação apenas. Nenhuma extração real do GMDCSA24 foi
-executada no PR que introduz este módulo. A extração real só começa depois da
-integração desse PR e de um novo [portão E0](#e0-antes-da-extracao) no commit
-integrado resultante.
+**Estado:** extração real informada pelo responsável no commit integrado
+`5fc8204` (ver [Extração informada para o commit
+5fc8204](#extracao-informada-para-o-commit-5fc8204)). O PR que introduziu este
+módulo não executou extração real.
 
 ## Evidência E0 informada para o commit do PR #135
 
@@ -31,6 +31,29 @@ responsável**, não reexecutada de forma independente neste PR:
 
 Essa evidência vale para o commit `2888cef`. A integração deste módulo cria um
 novo commit integrado, e a extração exige um E0 refeito nele.
+
+## Extração informada para o commit 5fc8204
+
+O responsável pelo projeto informou que extraiu e validou de forma
+independente a pose dos 145 vídeos elegíveis no commit integrado
+`5fc8204ae474d36d849e87000b5d4b52cd3d5177` (merge do PR que introduziu este
+módulo), com as seis condições do `pose_extract validate` aprovadas. É
+**evidência informada pelo responsável**; a extração não foi refeita depois.
+
+Conferido sem gravar nada no PR do [treino de T e
+S](../train/gmdcsa24-weak-label.md#execucao-de-leitura-sobre-os-dados-reais):
+
+- `code.commit` dos manifestos do adapter e da pose igual a
+  `5fc8204ae474d36d849e87000b5d4b52cd3d5177`, com `code.dirty = false`;
+- resumo do manifesto da pose: 145 vídeos, 11 710 quadros da grade e 11 421
+  com pessoa;
+- SHA-256 do `manifest.json` do adapter
+  `f7c741940bc3cb0ebd40996710a04314083a16794f3889040752aa08b71e5c01` e do da
+  pose `7d258616254a9c93500cb3aaaa037f79097510059a44eae191f7cb6e4130263d`;
+- as seis condições do `pose_extract validate` aprovadas sobre essa saída.
+
+O treino usa essa extração como está. Um commit novo do código de treino não
+exige refazer o adapter nem a extração.
 
 ## Contrato congelado do braço A
 

@@ -13,6 +13,7 @@ data/
 ├── processed/le2i/{manifest,frames}.parquet
 ├── processed/le2i_cv/{manifest,frames}.parquet
 ├── processed/gmdcsa24/manifest.json e {videos,frames,window_candidates,windows_t,windows_s}.parquet
+├── processed/gmdcsa24_training/{t,s}/{manifest,pose_stats}.json
 ├── features/le2i/pose/<video_id>.h5
 ├── features/le2i/dinov3/<env>/<video_name>.h5
 ├── features/gmdcsa24/pose/manifest.json e Subject_<n>/<ADL|Fall>/<nn>.h5
@@ -21,7 +22,8 @@ data/
 runs/
 ├── reference/le2i/{baseline_a,baseline_b0,baseline_b1,baseline_c0,baseline_c1}/
 ├── local/le2i/<arma>/           # reprodução local ignorada pelo Git
-└── local/le2i_cv/<arma>/        # reprodução local do protocolo cv, ignorada pelo Git
+├── local/le2i_cv/<arma>/        # reprodução local do protocolo cv, ignorada pelo Git
+└── local/gmdcsa24_weak_label/{t,s}/seed_<n>/  # piloto T/S, ignorado pelo Git
 ```
 
 `data/labels/omnifall_cv/`, `data/processed/le2i_cv/` e
@@ -43,6 +45,10 @@ Ela só contém janelas de treino do GMDCSA24 e nunca grava em
 `data/features/gmdcsa24/pose/` é a saída isolada da [pose do
 GMDCSA24](gmdcsa24-pose.md), só dos 145 vídeos elegíveis; ela nunca grava em
 `data/features/le2i/` nem em `data/processed/`.
+`data/processed/gmdcsa24_training/` e `runs/local/gmdcsa24_weak_label/` são as
+saídas isoladas do [treino de T e S](../train/gmdcsa24-weak-label.md#saidas):
+padronização e manifesto de cada tratamento e os runs dele, sem nunca gravar
+nos artefatos do Le2i nem nos runs do controle.
 
 | Camada | Responsabilidade |
 | --- | --- |

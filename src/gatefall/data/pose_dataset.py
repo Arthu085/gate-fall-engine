@@ -10,21 +10,19 @@ import pandas as pd
 from gatefall.data.windowing import build_window_index, window_frame_indices
 
 
-class PoseWindowDataset:
+class WindowIndexDataset:
+    """Janelas de um índice já montado, no esquema de `build_window_index`."""
+
     def __init__(
-        self,
-        frames: pd.DataFrame,
-        split: str,
-        stride: int,
-        feature_loader: Callable[[str], np.ndarray],
-        drop_ignored: bool = True,
+        self, windows: pd.DataFrame, feature_loader: Callable[[str], np.ndarray]
     ) -> None:
         self._feature_loader = feature_loader
-        split_frames = cast(pd.DataFrame, frames[frames["split"] == split])
-        self._windows = build_window_index(
-            split_frames, stride=stride, drop_ignored=drop_ignored
-        )
+        self._windows = windows
         self._feature_cache: dict[str, np.ndarray] = {}
+
+    @property
+    def windows(self) -> pd.DataFrame:
+        return self._windows
 
     def _features_for_video(self, video_id: str) -> np.ndarray:
         if video_id not in self._feature_cache:
@@ -46,6 +44,22 @@ class PoseWindowDataset:
         frame_indices = window_frame_indices(k_end, n_frames)
         window = self._features_for_video(video_id)[frame_indices].astype(np.float32)
         return window, label, (video_id, k_end)
+
+
+class PoseWindowDataset(WindowIndexDataset):
+    def __init__(
+        self,
+        frames: pd.DataFrame,
+        split: str,
+        stride: int,
+        feature_loader: Callable[[str], np.ndarray],
+        drop_ignored: bool = True,
+    ) -> None:
+        split_frames = cast(pd.DataFrame, frames[frames["split"] == split])
+        super().__init__(
+            build_window_index(split_frames, stride=stride, drop_ignored=drop_ignored),
+            feature_loader,
+        )
 
 
 def main() -> None:
