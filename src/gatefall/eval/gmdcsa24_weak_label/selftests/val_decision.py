@@ -98,6 +98,7 @@ from gatefall.train.gmdcsa24_weak_label.selftests.treatment import (
     _SEED,
     _build,
     _canonical_train,
+    _from_frozen_checkout,
     _prepare,
     _Spy,
     _tree,
@@ -1007,9 +1008,9 @@ def check_decision_rules() -> list[bool]:
 
 def run_val_decision_selftest() -> None:
     checks: list[bool] = []
-    checks.extend(check_decision_rules())
-    checks.extend(check_concurrent_publication())
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with _from_frozen_checkout(checks), tempfile.TemporaryDirectory() as tmp_dir:
+        checks.extend(check_decision_rules())
+        checks.extend(check_concurrent_publication())
         repository = Path(tmp_dir) / "gatefall"
         repository.mkdir()
         world = _build(repository)

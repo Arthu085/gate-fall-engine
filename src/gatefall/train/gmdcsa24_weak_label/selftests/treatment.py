@@ -15,7 +15,7 @@ import json
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
@@ -73,6 +73,7 @@ from gatefall.features.standardization import (
 from gatefall.hashing import sha256_dataframe, sha256_file
 from gatefall.pose.kinematics import POSE_FEATURE_DIM
 from gatefall.pose.loading import pose_path
+from gatefall.runs import REFERENCE_RUN_ROOT
 from gatefall.train.baseline_a.artifacts import validate_training_run
 from gatefall.train.baseline_a.cli import _resolve_config
 from gatefall.train.baseline_a.engine import run_training
@@ -93,8 +94,11 @@ from gatefall.train.gmdcsa24_weak_label.cli import (
     run_train,
 )
 from gatefall.train.gmdcsa24_weak_label.gates import (
+    DECISION_FILE,
+    DEFAULT_RUN_ROOT,
     PREPARED_MANIFEST_FILE,
     PREPARED_STATS_FILE,
+    TEST_DESCRIPTIVE_DIR,
     TREATMENT_RECORD_FILE,
     VALIDATION_SPLITS,
     Assessment,
@@ -458,7 +462,7 @@ class _Prepared:
 
 def _prepare(world: _World, treatment: str) -> tuple[bool, _Prepared | None]:
     inputs = world.inputs(treatment)
-    with _quiet():
+    with contextlib.chdir(world.tmp), _quiet():
         ok = run_prepare(inputs, force=False)
     sources = _assess_data(inputs).sources
     if not ok or sources is None:
@@ -602,7 +606,7 @@ def check_split_isolation(world: _World) -> list[bool]:
             "JSON do tratamento sobre as estatísticas canônicas e run sobre o controle Le2i são recusados",
             "V2" in _failed(_assess_data(world.inputs("T", training_dir=stats_dir)).results)
             and location_problems(Path("runs/local/le2i/baseline_a")) != []
-            and location_problems(Path("runs/reference/le2i/baseline_a")) != []
+            and location_problems(REFERENCE_RUN_ROOT / "le2i" / "baseline_a") != []
             and location_problems(world.tmp / "runs" / "t" / "seed_42") == [],
         ),
     ]
@@ -1391,24 +1395,65 @@ def check_coverage(world: _World) -> list[bool]:
     ]
 
 
+def _listing(root: Path) -> tuple[list[str], dict[str, str]]:
+    return sorted(path.relative_to(root).as_posix() for path in root.rglob("*")), _tree(root)
+
+
+@contextlib.contextmanager
+def _from_frozen_checkout(checks: list[bool]) -> Iterator[None]:
+    """Executa a partir de um checkout de trabalho como o real depois da decisão:
+    `decision.json` e o marcador `test_descriptive/` registrados e ilegíveis. O
+    mundo sintético não pode depender do diretório de execução nem ler, gravar ou
+    apagar esses artefatos."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        checkout = Path(tmp_dir)
+        run_root = checkout / DEFAULT_RUN_ROOT
+        claim = run_root / TEST_DESCRIPTIVE_DIR / "t" / f"seed_{_SEED}" / "claim.json"
+        claim.parent.mkdir(parents=True)
+        claim.write_text('{"treatment": "T"}\n', encoding="utf-8")
+        (run_root / DECISION_FILE).write_text('{"decision": "NO-GO"}\n', encoding="utf-8")
+        before = _listing(checkout)
+        sealed = {
+            path: path.stat().st_mode
+            for path in (run_root / DECISION_FILE, run_root / TEST_DESCRIPTIVE_DIR)
+        }
+        for path in sealed:
+            path.chmod(0)
+        try:
+            with contextlib.chdir(checkout):
+                yield
+        finally:
+            for path, mode in sealed.items():
+                with contextlib.suppress(FileNotFoundError):
+                    path.chmod(mode)
+        checks.append(
+            _check(
+                "executado de um checkout com decision.json e test_descriptive/ registrados, "
+                "o mundo sintético não lê, grava nem apaga nada nele",
+                _listing(checkout) == before,
+            )
+        )
+
+
 def run_treatment_selftest() -> None:
     checks: list[bool] = []
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with _from_frozen_checkout(checks), tempfile.TemporaryDirectory() as tmp_dir:
         repository = Path(tmp_dir) / "gatefall"
         repository.mkdir()
-        world = _build(repository)
-        checks.extend(check_membership(world))
-        checks.extend(check_alignment(world))
-        checks.extend(check_statistics(world))
-        checks.extend(check_split_isolation(world))
-        checks.extend(check_provenance(world))
-        checks.extend(check_control(world))
-        checks.extend(check_preparation_tampering(world))
-        checks.extend(check_outputs(world))
-        checks.extend(check_training(world))
-        checks.extend(check_lifecycle(world))
-        checks.extend(check_run_uniqueness(world))
-        checks.extend(check_coverage(world))
+        with contextlib.chdir(repository):
+            world = _build(repository)
+            checks.extend(check_membership(world))
+            checks.extend(check_alignment(world))
+            checks.extend(check_statistics(world))
+            checks.extend(check_split_isolation(world))
+            checks.extend(check_provenance(world))
+            checks.extend(check_control(world))
+            checks.extend(check_preparation_tampering(world))
+            checks.extend(check_outputs(world))
+            checks.extend(check_training(world))
+            checks.extend(check_lifecycle(world))
+            checks.extend(check_run_uniqueness(world))
+            checks.extend(check_coverage(world))
     if not all(checks):
         print("\nselftest FALHOU", file=sys.stderr)
         sys.exit(1)
