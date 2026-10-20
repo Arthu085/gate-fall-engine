@@ -182,7 +182,7 @@ def run_train(
     if not report(f"preflight do treino de {inputs.treatment}, seed {seed}", assessment.results):
         return False
     sources = cast(TreatmentSources, assessment.sources)
-    run_training(
+    metrics = run_training(
         input_dim=POSE_FEATURE_DIM,
         train_source=sources.train,
         val_source=sources.val,
@@ -193,10 +193,12 @@ def run_train(
         force=force,
         label_names=LE2I_LABEL_NAMES,
     )
-    write_json(
-        run_dir / TREATMENT_RECORD_FILE,
-        treatment_record(inputs, seed, control, assessment.control_checkpoint_sha256, run_dir),
-    )
+    record_path = run_dir / TREATMENT_RECORD_FILE
+    if metrics is not None or not record_path.exists():
+        write_json(
+            record_path,
+            treatment_record(inputs, seed, control, assessment.control_checkpoint_sha256, run_dir),
+        )
     print(f"\n{run_dir}: treino de {inputs.treatment}, seed {seed}; test não avaliado")
     return True
 
