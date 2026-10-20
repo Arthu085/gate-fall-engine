@@ -35,9 +35,10 @@ antes de todas estas conferências:
 | Coerência | A decisão recalculada desses arquivos (seeds, decisão, G1–G4 e medidas por seed) é a registrada |
 | Controle | O controle do `treatment.json` é o que a decisão leu |
 | Run | Os portões de [`evaluate`](gmdcsa24-weak-label-val.md#o-que-evaluate-confere-antes-de-avaliar): as 11 condições do `preflight`, run completo e `event_metrics.json` canônico do controle válido; o par `alarm_protocol.yaml`/`val_event_metrics.json` íntegro; e run, preparação e controle sem mudança durante a conferência |
-| Saída | Diretório do resultado fora dos artefatos protegidos e ignorado pelo Git |
+| Saída | Nenhum link simbólico em `test_descriptive/`, no diretório do tratamento, no diretório da seed nem em `claim.json`, `test_metrics.json` ou `.test.lock`; o diretório da seed resolve para o próprio caminho canônico sob a raiz dos runs; marcador e diretório da seed, pelos caminhos resolvidos, não são, não contêm e não estão dentro dos runs de T e S, das preparações, dos controles pareados (o da seed e os lidos pela decisão), de `decision.json`, de `.decision.lock` nem das entradas do piloto; caminho ignorado pelo Git. Conferido antes da decisão e de novo antes do lock, sem criar diretório, lock nem reserva |
 
-Qualquer falha recusa o comando sem criar nada em `test_descriptive/`.
+Qualquer falha recusa o comando sem criar nada em `test_descriptive/`. O lock
+da seed também nunca é aberto através de um link simbólico (`O_NOFOLLOW`).
 Só as recusas do estado da própria seed (tabela abaixo) acontecem depois de o
 diretório da seed existir, e nenhuma delas lê `test`.
 
@@ -96,7 +97,8 @@ sustenta.
 
 ## Depois de acessar `test`
 
-Com `runs/local/gmdcsa24_weak_label/test_descriptive/` presente, nada que
+Com `runs/local/gmdcsa24_weak_label/test_descriptive/` presente, inclusive
+como link simbólico com o alvo ausente, nada que
 sustenta a decisão é refeito, mesmo que `decision.json` seja removido:
 `decide` não registra decisão nova, e `prepare`, `train` e `evaluate` recusam
 gravar ou recuperar, mesmo com `--force`. Com `decision.json` presente, um
@@ -178,6 +180,13 @@ com uma leitura de features que reprova `test` até ser liberada, ele cobre:
   checkout sujo e
   relatório de `val`, `event_metrics.json` do controle ou `treatment.json`
   alterados depois da decisão;
+- saída com link simbólico ou sobreposta (diretório da seed para o run de T,
+  o controle ou um diretório qualquer, marcador para os runs de T, diretório
+  do tratamento para as preparações, `.test.lock` para o `metrics.json` do run
+  e marcador como link pendente) recusada sem ler `test`, sem lock, reserva ou
+  resultado em lugar nenhum e com runs, preparações, controle e decisão
+  intactos byte a byte; e o marcador pendente congelando `decide` e
+  `evaluate --force`;
 - publicação com só o vídeo de `test` lido, proveniência completa, controle
   igual ao `test` canônico publicado, e o caminho do tratamento aplicado ao
   controle reproduzindo `final.test` e `splits.test` canônicos;

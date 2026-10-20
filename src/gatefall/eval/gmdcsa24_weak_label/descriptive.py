@@ -19,7 +19,7 @@ import hashlib
 import json
 import os
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
@@ -39,6 +39,7 @@ from gatefall.eval.analysis.multiseed_summary import validate_run_event_artifact
 from gatefall.eval.baseline_a.cli import _load_model, _predict_with_identity
 from gatefall.eval.gmdcsa24_weak_label.cli import (
     DECISION_CRITERION,
+    DECISION_LOCK_FILE,
     RUN_INPUT_FILES,
     changed_inputs,
     decision_lock,
@@ -73,6 +74,7 @@ from gatefall.train.gmdcsa24_weak_label.cli import refuse
 from gatefall.train.gmdcsa24_weak_label.gates import (
     DECISION_FILE,
     DEFAULT_RUN_ROOT,
+    DEFAULT_TRAINING_DIR,
     TEST_DESCRIPTIVE_DIR,
     TREATMENT_RECORD_FILE,
     ControlRun,
@@ -81,6 +83,7 @@ from gatefall.train.gmdcsa24_weak_label.gates import (
     code_problems,
     execution_root_problems,
     location_problems,
+    overlaps,
     report,
 )
 from gatefall.train.gmdcsa24_weak_label.lifecycle import _recorded_at_problems, run_artifacts
@@ -120,6 +123,57 @@ FeatureReader = Callable[[str], np.ndarray]
 def result_dir(treatment: str, seed: int) -> Path:
     """O único local do resultado de `test` de um tratamento e uma seed."""
     return DEFAULT_RUN_ROOT / TEST_DESCRIPTIVE_DIR / treatment.lower() / f"seed_{seed}"
+
+
+def protected_paths(inputs: TreatmentInputs, controls: Iterable[Path]) -> dict[str, Path]:
+    """O que a saída de `test` nunca pode alcançar: runs de T e S, preparações,
+    controles pareados, artefatos da decisão e as entradas do piloto."""
+    return {
+        "runs de T": DEFAULT_RUN_ROOT / "t",
+        "runs de S": DEFAULT_RUN_ROOT / "s",
+        "decision.json": DEFAULT_RUN_ROOT / DECISION_FILE,
+        "lock da decisão": DEFAULT_RUN_ROOT / DECISION_LOCK_FILE,
+        "--training-dir": inputs.training_dir,
+        "preparações padrão": DEFAULT_TRAINING_DIR,
+        "adapter do GMDCSA24": inputs.adapter_dir,
+        "pose do GMDCSA24": inputs.pose_dir,
+        "pose do Le2i-CS": inputs.le2i.pose_root,
+        "grade do Le2i-CS": inputs.le2i.frames_path,
+        "JSON de padronização do controle": inputs.le2i.stats_path,
+        **{f"controle {control}": control for control in controls},
+    }
+
+
+def output_isolation_problems(
+    inputs: TreatmentInputs, seed: int, controls: Iterable[Path]
+) -> list[str]:
+    """A saída de `test` da seed fica no layout canônico sob a raiz dos runs, sem
+    link simbólico em nenhum componente, e não alcança, pelos caminhos
+    resolvidos, nada protegido; conferido antes de criar diretório, lock ou reserva."""
+    directory = result_dir(inputs.treatment, seed)
+    marker = DEFAULT_RUN_ROOT / TEST_DESCRIPTIVE_DIR
+    components = [
+        marker,
+        marker / inputs.treatment.lower(),
+        directory,
+        *(directory / name for name in (TEST_CLAIM_FILE, TEST_METRICS_FILE, TEST_LOCK_FILE)),
+    ]
+    problems = [
+        f"{path} é link simbólico; a saída de test não segue links"
+        for path in components
+        if path.is_symlink()
+    ]
+    expected = DEFAULT_RUN_ROOT.resolve() / directory.relative_to(DEFAULT_RUN_ROOT)
+    if directory.resolve() != expected:
+        problems.append(f"{directory} resolve para {directory.resolve()}, não para {expected}")
+    for name, target in protected_paths(inputs, controls).items():
+        problems.extend(
+            f"{path} (resolve para {path.resolve()}) se sobrepõe a {name} ({target})"
+            for path in (marker, directory)
+            if overlaps(path, target)
+        )
+    problems.extend(location_problems(directory))
+    return problems
 
 
 def record_problems(record: Mapping[str, object], inputs: TreatmentInputs) -> list[str]:
@@ -386,14 +440,20 @@ def descriptive_delta(treatment: Mapping[str, dict], control: Mapping[str, dict]
 
 @contextlib.contextmanager
 def exclusive_lock(directory: Path) -> Iterator[None]:
-    """Lock entre processos do resultado de uma seed; espera em vez de falhar."""
+    """Lock entre processos do resultado de uma seed; espera em vez de falhar.
+    O arquivo de lock nunca é aberto através de um link simbólico."""
     directory.mkdir(parents=True, exist_ok=True)
-    with (directory / TEST_LOCK_FILE).open("a+", encoding="utf-8") as stream:
-        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+    descriptor = os.open(
+        directory / TEST_LOCK_FILE, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o644
+    )
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
         try:
             yield
         finally:
-            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
 
 
 def write_claim(path: Path, claim: Mapping[str, object]) -> None:
@@ -583,6 +643,7 @@ def run_test_description(
     if control is None:
         return refuse(command, problems)
     problems = execution_root_problems(inputs, seed, control)
+    problems.extend(output_isolation_problems(inputs, seed, [control.run_dir]))
     if problems:
         return refuse(command, problems)
     directory = result_dir(inputs.treatment, seed)
@@ -602,7 +663,13 @@ def run_test_description(
             return False
         run = cast(CheckedRun, check.run)
         _, problems = val_report(run)
-        problems.extend(location_problems(directory))
+        recorded = cast(dict[str, dict[str, dict[str, str]]], decision["inputs"])
+        controls = [
+            Path(entry["control_run_dir"])
+            for by_seed in recorded.values()
+            for entry in by_seed.values()
+        ]
+        problems.extend(output_isolation_problems(inputs, seed, [control.run_dir, *controls]))
         if snapshot(run.run_dir, control, inputs) != files:
             problems.append("run, controle ou preparação mudaram durante a conferência")
         if problems:

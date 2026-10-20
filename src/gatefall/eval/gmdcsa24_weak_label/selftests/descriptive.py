@@ -53,6 +53,7 @@ from gatefall.train.gmdcsa24_weak_label.gates import (
     TEST_DESCRIPTIVE_DIR,
     TREATMENT_RECORD_FILE,
     canonical_run_dir,
+    test_access_problems,
 )
 from gatefall.train.gmdcsa24_weak_label.selftests.treatment import (
     _SEED,
@@ -254,6 +255,117 @@ def check_decision_safeguards(context: _Context) -> list[bool]:
             and context.refused_untouched(context.describe(checkout=("e" * 40, ["?? arquivo"]))),
         ),
         _check("decision.json intacto depois das recusas", decision.read_bytes() == before),
+    ]
+
+
+def _remove_marker(context: _Context) -> None:
+    """Remove o marcador plantado sem seguir links: alvos ficam intactos."""
+    if context.test_root.is_symlink():
+        context.test_root.unlink()
+    elif context.test_root.exists():
+        shutil.rmtree(context.test_root)
+
+
+def _stray_outputs(world: _World) -> list[Path]:
+    """Locks e reservas de `test` em qualquer lugar do mundo sintético."""
+    return [
+        path
+        for name in (descriptive.TEST_LOCK_FILE, TEST_CLAIM_FILE, TEST_METRICS_FILE)
+        for path in world.tmp.rglob(name)
+        if not path.is_symlink()
+    ]
+
+
+def check_output_isolation(context: _Context) -> list[bool]:
+    """Saída de `test` com link simbólico ou sobreposta a algo protegido: recusa
+    antes de criar diretório, lock ou reserva, sem ler `test` e sem mudar nada."""
+    world = context.world
+    root = world.tmp / DEFAULT_RUN_ROOT
+    run_dir = world.tmp / canonical_run_dir("T", _SEED)
+    elsewhere = world.tmp / "elsewhere"
+    elsewhere.mkdir()
+
+    def seed_link(target: Path) -> Callable[[], None]:
+        def plant() -> None:
+            (context.test_root / "t").mkdir(parents=True)
+            (context.test_root / "t" / f"seed_{_SEED}").symlink_to(target)
+
+        return plant
+
+    def treatment_link(target: Path) -> Callable[[], None]:
+        def plant() -> None:
+            context.test_root.mkdir()
+            (context.test_root / "t").symlink_to(target)
+
+        return plant
+
+    def lock_link() -> None:
+        directory = context.test_root / "t" / f"seed_{_SEED}"
+        directory.mkdir(parents=True)
+        (directory / descriptive.TEST_LOCK_FILE).symlink_to(run_dir / "metrics.json")
+
+    cases: dict[str, tuple[Callable[[], None], str]] = {
+        "seed → run de T": (seed_link(run_dir), "link simbólico"),
+        "marcador → runs de T": (lambda: context.test_root.symlink_to(root / "t"), "se sobrepõe"),
+        "tratamento → preparações": (treatment_link(world.tmp / "training"), "se sobrepõe"),
+        "seed → controle": (seed_link(world.control.run_dir), "se sobrepõe"),
+        "seed → diretório qualquer": (seed_link(elsewhere), "link simbólico"),
+        "lock → metrics.json do run": (lock_link, "link simbólico"),
+        "marcador pendente": (
+            lambda: context.test_root.symlink_to(world.tmp / "missing"),
+            "link simbólico",
+        ),
+    }
+    protected = _protected(world)
+    outcomes: dict[str, bool] = {}
+    for name, (plant, reason) in cases.items():
+        plant()
+        refusals: list[str] = []
+
+        def spy(command: str, problems: list[str]) -> bool:
+            refusals.extend(problems)
+            return False
+
+        with patch.object(descriptive, "refuse", spy):
+            refused = context.refused_unread(context.describe("T"))
+        outcomes[name] = (
+            refused
+            and any(reason in problem for problem in refusals)
+            and _protected(world) == protected
+            and not _stray_outputs(world)
+            and not any(elsewhere.iterdir())
+            and not (root / "t" / "t").exists()
+            and not (world.tmp / "missing").exists()
+        )
+        _remove_marker(context)
+
+    context.test_root.symlink_to(world.tmp / "missing")
+    frozen = bool(test_access_problems(root))
+    with _tampered(context.decision_path, lambda path: path.unlink()):
+        decide_refused = not _decide(world) and not context.decision_path.exists()
+        report = run_dir / VAL_EVENT_METRICS_FILE
+        with _tampered(report, lambda path: path.unlink()):
+            evaluate_refused = not _evaluate(world, "T", force=True) and not report.exists()
+    dangling_intact = context.test_root.is_symlink() and not (world.tmp / "missing").exists()
+    _remove_marker(context)
+    shutil.rmtree(elsewhere)
+    return [
+        _check(
+            f"saída de test recusada antes de diretório, lock ou reserva ({name}), sem ler test "
+            "e com runs, preparações, controle e decisão intactos",
+            ok,
+        )
+        for name, ok in outcomes.items()
+    ] + [
+        _check(
+            "marcador test_descriptive/ como link pendente congela a decisão: decide e "
+            "evaluate --force recusam sem gravar",
+            frozen and decide_refused and evaluate_refused and dangling_intact,
+        ),
+        _check(
+            "nenhum marcador restante antes do caminho canônico",
+            not context.test_root.exists() and not context.test_root.is_symlink(),
+        ),
     ]
 
 
@@ -490,6 +602,7 @@ def run_descriptive_selftest() -> None:
         checks.append(_setup_decision(context))
         if checks[-1]:
             checks.extend(check_decision_safeguards(context))
+            checks.extend(check_output_isolation(context))
             checks.extend(check_description(context))
             checks.extend(check_once(context))
             checks.extend(check_interrupted(context))

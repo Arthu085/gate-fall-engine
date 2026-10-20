@@ -326,9 +326,10 @@ def execution_root_problems(inputs: TreatmentInputs, seed: int, control: Control
 
 
 def test_access_problems(root: Path = DEFAULT_RUN_ROOT) -> list[str]:
-    """Depois de qualquer acesso a `test`, nada que sustenta a decisão é refeito."""
+    """Depois de qualquer acesso a `test`, nada que sustenta a decisão é refeito.
+    Um link simbólico no lugar do marcador conta, mesmo com o alvo ausente."""
     path = root / TEST_DESCRIPTIVE_DIR
-    if path.exists():
+    if path.exists() or path.is_symlink():
         return [
             f"{path}: test do Le2i-CS já acessado; a decisão, a preparação, os runs e as "
             "avaliações que a sustentam não são mais gravados, recuperados nem refeitos"
