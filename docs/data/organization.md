@@ -23,7 +23,7 @@ runs/
 ├── reference/le2i/{baseline_a,baseline_b0,baseline_b1,baseline_c0,baseline_c1}/
 ├── local/le2i/<arma>/           # reprodução local ignorada pelo Git
 ├── local/le2i_cv/<arma>/        # reprodução local do protocolo cv, ignorada pelo Git
-└── local/gmdcsa24_weak_label/{t,s}/seed_<n>/  # piloto T/S, ignorado pelo Git
+└── local/gmdcsa24_weak_label/{t,s}/seed_<n>/ e decision.json  # piloto T/S, ignorado pelo Git
 ```
 
 `data/labels/omnifall_cv/`, `data/processed/le2i_cv/` e
@@ -48,7 +48,9 @@ GMDCSA24](gmdcsa24-pose.md), só dos 145 vídeos elegíveis; ela nunca grava em
 `data/processed/gmdcsa24_training/` e `runs/local/gmdcsa24_weak_label/` são as
 saídas isoladas do [treino de T e S](../train/gmdcsa24-weak-label.md#saidas):
 padronização e manifesto de cada tratamento e os runs dele, sem nunca gravar
-nos artefatos do Le2i nem nos runs do controle.
+nos artefatos do Le2i nem nos runs do controle. Os runs recebem também os
+[eventos só de `val`](../eval/gmdcsa24-weak-label-val.md#saidas), e
+`decision.json` registra a decisão GO/NO-GO.
 
 | Camada | Responsabilidade |
 | --- | --- |
