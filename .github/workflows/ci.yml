@@ -28,6 +28,7 @@ jobs:
           uv run python -m gatefall.data.figshare_fall.audit selftest
           uv run python -m gatefall.data.gmdcsa24.audit selftest
           uv run python -m gatefall.data.gmdcsa24.adapter selftest
+          uv run python -m gatefall.data.gmdcsa24.pose_extract selftest
           uv run python -m gatefall.pose.selection selftest
           uv run python -m gatefall.pose.loading selftest
           uv run python -m gatefall.pose.manual_bbox_audit selftest

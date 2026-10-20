@@ -54,6 +54,7 @@ nav:
       - Fundação SAM 3 (braço C): data/sam3-foundation.md
       - Índice de qualidade SAM 3: data/sam3-quality.md
       - Padronização do descritor SAM 3: data/sam3-standardization.md
+      - Pose do GMDCSA24 (rótulos fracos): data/gmdcsa24-pose.md
   - Treino:
       - Braço A (TCN): train/baseline-a.md
       - Braço B0 (fusão pose + DINOv3): train/baseline-b0.md
