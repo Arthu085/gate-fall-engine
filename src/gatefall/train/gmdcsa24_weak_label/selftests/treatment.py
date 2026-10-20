@@ -10,6 +10,7 @@ passam por uma leitura espiã que registra cada vídeo lido, o que prova que
 Requer FFmpeg.
 """
 
+import contextlib
 import json
 import shutil
 import sys
@@ -84,7 +85,12 @@ from gatefall.train.gmdcsa24_weak_label.assembly import (
     gmdcsa24_windows,
     le2i_windows,
 )
-from gatefall.train.gmdcsa24_weak_label.cli import run_prepare, run_train
+from gatefall.train.gmdcsa24_weak_label.cli import (
+    build_parser,
+    run_canonical_train,
+    run_prepare,
+    run_train,
+)
 from gatefall.train.gmdcsa24_weak_label.gates import (
     PREPARED_MANIFEST_FILE,
     PREPARED_STATS_FILE,
@@ -96,7 +102,9 @@ from gatefall.train.gmdcsa24_weak_label.gates import (
     TreatmentInputs,
     assess_data,
     assess_training,
+    canonical_run_dir,
     config_problems,
+    execution_root_problems,
     location_problems,
     membership_problems,
     output_problems,
@@ -786,12 +794,27 @@ def check_control(world: _World) -> list[bool]:
     ]
 
 
+def _canonical_train(
+    world: _World,
+    root: Path,
+    force: bool = False,
+    reason: str | None = None,
+    inputs: TreatmentInputs | None = None,
+) -> bool:
+    """O `train` do CLI executado com `root` como diretório de execução."""
+    with contextlib.chdir(root), _quiet():
+        return run_canonical_train(inputs or world.inputs("T"), _SEED, world.control, force, reason)
+
+
+def _canonical_run(world: _World) -> Path:
+    return world.tmp / canonical_run_dir("T", _SEED)
+
+
 def check_training(world: _World) -> list[bool]:
     world.spy.loaded.clear()
     inputs = world.inputs("T")
-    run_dir = world.tmp / "runs" / "t" / "seed_42"
-    with _quiet():
-        trained = run_train(inputs, _SEED, world.control, run_dir, force=False)
+    run_dir = _canonical_run(world)
+    trained = _canonical_train(world, world.tmp)
     loaded = world.spy.videos()
     if not trained:
         return [
@@ -812,8 +835,7 @@ def check_training(world: _World) -> list[bool]:
     )
 
     world.spy.loaded.clear()
-    with _quiet():
-        rerun = run_train(inputs, _SEED, world.control, run_dir, force=False)
+    rerun = _canonical_train(world, world.tmp)
     return [
         _check("treino de T com a receita congelada termina e grava o run e o registro", trained),
         _check(
@@ -1051,7 +1073,7 @@ def _train(world: _World, run_dir: Path, force: bool = False, reason: str | None
 
 def check_lifecycle(world: _World) -> list[bool]:
     tmp = world.tmp / "lifecycle"
-    trained = world.tmp / "runs" / "t" / "seed_42"
+    trained = _canonical_run(world)
     before = _tree(trained)
 
     def case(name: str, mutate: Callable[[Path], object]) -> Path:
@@ -1190,6 +1212,87 @@ def check_lifecycle(world: _World) -> list[bool]:
     ]
 
 
+def check_run_uniqueness(world: _World) -> list[bool]:
+    """O CLI só treina no run canônico sob o diretório de execução; outra raiz
+    ignorada não abre um segundo run da mesma seed."""
+    canonical = _canonical_run(world)
+    before = _tree(canonical)
+    try:
+        with _quiet():
+            build_parser().parse_args(
+                [
+                    "train",
+                    "--treatment",
+                    "T",
+                    "--seed",
+                    str(_SEED),
+                    "--control-run-dir",
+                    str(world.control.run_dir),
+                    "--run-dir",
+                    str(world.tmp / "alternate" / "t" / "seed_42"),
+                ]
+            )
+        run_dir_refused = False
+    except SystemExit as exc:
+        run_dir_refused = exc.code == 2
+
+    alternate = world.tmp / "alternate"
+    alternate.mkdir()
+    linked = world.tmp / "linked"
+    linked.mkdir()
+    (linked / "inputs").symlink_to(world.tmp, target_is_directory=True)
+    through_link = linked / "inputs"
+    linked_inputs = world.inputs(
+        "T",
+        adapter_dir=through_link / world.adapter_dir.relative_to(world.tmp),
+        pose_dir=through_link / world.pose_dir.relative_to(world.tmp),
+        training_dir=through_link / "training",
+        le2i=replace(
+            world.le2i,
+            pose_root=through_link / world.le2i.pose_root.relative_to(world.tmp),
+            frames_path=through_link / world.le2i.frames_path.relative_to(world.tmp),
+            stats_path=through_link / world.le2i.stats_path.relative_to(world.tmp),
+        ),
+    )
+    alternate_refused = not _canonical_train(world, alternate) and not _canonical_train(
+        world, alternate, True, "segunda tentativa"
+    )
+    linked_refused = not _canonical_train(world, linked, inputs=linked_inputs)
+    with contextlib.chdir(alternate):
+        alternate_problems = execution_root_problems(world.inputs("T"), world.control)
+    with contextlib.chdir(linked):
+        linked_problems = execution_root_problems(linked_inputs, world.control)
+    with contextlib.chdir(world.tmp):
+        canonical_problems = execution_root_problems(world.inputs("T"), world.control)
+    skipped = _canonical_train(world, world.tmp)
+    forced_refused = not _canonical_train(world, world.tmp, True, "segunda tentativa")
+    return [
+        _check("o CLI de train não aceita --run-dir", run_dir_refused),
+        _check(
+            "o run canônico de T, seed 42, é <raiz>/runs/local/gmdcsa24_weak_label/t/seed_42",
+            canonical_run_dir("T", _SEED) == Path("runs/local/gmdcsa24_weak_label/t/seed_42")
+            and canonical_run_dir("S", 43) == Path("runs/local/gmdcsa24_weak_label/s/seed_43"),
+        ),
+        _check(
+            "segundo run da mesma seed a partir de outra raiz ignorada é recusado, com e sem "
+            "--force, e a outra raiz não ganha run",
+            alternate_refused and len(alternate_problems) == 7 and not any(alternate.iterdir()),
+        ),
+        _check(
+            "outra raiz que alcança as mesmas entradas por link simbólico também é recusada",
+            linked_refused and len(linked_problems) == 7 and not (linked / "runs").exists(),
+        ),
+        _check(
+            "no diretório de execução das entradas, o run canônico é aceito",
+            canonical_problems == [] and skipped,
+        ),
+        _check(
+            "run canônico completo continua imutável: pulado sem --force e recusado com --force",
+            forced_refused and _tree(canonical) == before,
+        ),
+    ]
+
+
 def check_coverage(world: _World) -> list[bool]:
     tables = {name: gmdcsa24_windows(world.adapter_dir, name) for name in WINDOW_FILES}
     hashes = {name: sha256_dataframe(frame) for name, frame in tables.items()}
@@ -1238,6 +1341,7 @@ def run_treatment_selftest() -> None:
         checks.extend(check_outputs(world))
         checks.extend(check_training(world))
         checks.extend(check_lifecycle(world))
+        checks.extend(check_run_uniqueness(world))
         checks.extend(check_coverage(world))
     if not all(checks):
         print("\nselftest FALHOU", file=sys.stderr)

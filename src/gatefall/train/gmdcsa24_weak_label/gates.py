@@ -283,6 +283,32 @@ def output_problems(
     return problems
 
 
+def canonical_run_dir(treatment: str, seed: int) -> Path:
+    """O único local de execução do run de um tratamento e uma seed no CLI."""
+    return DEFAULT_RUN_ROOT / treatment.lower() / f"seed_{seed}"
+
+
+def execution_root_problems(inputs: TreatmentInputs, control: ControlRun) -> list[str]:
+    """No CLI, todas as entradas ficam sob o diretório de execução, que fixa o run
+    canônico; outra raiz com saídas ignoradas não reaproveita as mesmas entradas."""
+    root = Path.cwd().resolve()
+    paths = {
+        "adapter do GMDCSA24": inputs.adapter_dir,
+        "pose do GMDCSA24": inputs.pose_dir,
+        "--training-dir": inputs.training_dir,
+        "pose do Le2i-CS": inputs.le2i.pose_root,
+        "grade do Le2i-CS": inputs.le2i.frames_path,
+        "JSON de padronização do controle": inputs.le2i.stats_path,
+        "run do controle": control.run_dir,
+    }
+    return [
+        f"{name} ({path}) fora do diretório de execução {root}, que guarda o run canônico "
+        "de cada tratamento e seed"
+        for name, path in paths.items()
+        if root not in path.resolve().parents
+    ]
+
+
 def checkout_problems(checkout: tuple[str, list[str]]) -> list[str]:
     """O treino registra o commit do código; só exige checkout limpo, não o commit da extração."""
     _, status = checkout

@@ -6,7 +6,8 @@ mudar nenhuma decisão do protocolo: monta o treino aumentado de T ou S, ajusta
 padronização e pesos da perda só sobre ele, confere os portões de pré-treino e
 treina uma seed com a receita congelada do braço A. O treino avalia só
 `train` e `val`; `test` não é lido nem avaliado antes da decisão GO/NO-GO.
-Grava só em `data/processed/gmdcsa24_training/` e `runs/local/gmdcsa24_weak_label/`.
+Grava só em `data/processed/gmdcsa24_training/` e, no run canônico de cada
+tratamento e seed, em `runs/local/gmdcsa24_weak_label/<t|s>/seed_<n>/`.
 """
 
 import argparse
@@ -44,7 +45,6 @@ from gatefall.train.gmdcsa24_weak_label.assembly import (
     treatment_stats,
 )
 from gatefall.train.gmdcsa24_weak_label.gates import (
-    DEFAULT_RUN_ROOT,
     DEFAULT_TRAINING_DIR,
     PINNED_TRAINING_GATE,
     PREPARED_MANIFEST_FILE,
@@ -55,6 +55,8 @@ from gatefall.train.gmdcsa24_weak_label.gates import (
     TreatmentInputs,
     assess_data,
     assess_training,
+    canonical_run_dir,
+    execution_root_problems,
     output_problems,
     preparation_problems,
     report,
@@ -121,6 +123,7 @@ def print_preparation(record: dict[str, object], differences: dict[str, dict[str
 
 def run_preflight(inputs: TreatmentInputs, seed: int, control: ControlRun) -> bool:
     assessment = assess_training(inputs, seed, control)
+    assessment.results["saídas"].extend(execution_root_problems(inputs, control))
     return report(f"preflight do treino de {inputs.treatment}, seed {seed}", assessment.results)
 
 
@@ -264,6 +267,22 @@ def run_train(
     return True
 
 
+def run_canonical_train(
+    inputs: TreatmentInputs,
+    seed: int,
+    control: ControlRun,
+    force: bool = False,
+    recovery_reason: str | None = None,
+) -> bool:
+    """O `train` do CLI: sempre no run canônico do tratamento e da seed, sob o
+    diretório de execução que contém todas as entradas."""
+    problems = execution_root_problems(inputs, control)
+    if problems:
+        return refuse("train", problems)
+    run_dir = canonical_run_dir(inputs.treatment, seed)
+    return run_train(inputs, seed, control, run_dir, force, recovery_reason)
+
+
 def run_coverage(adapter_dir: Path, pose_dir: Path, gate: TrainingGate) -> bool:
     le2i = load_le2i_side()
     validation = validate_pose_output(pose_dir, adapter_dir, le2i.reference, gate.extraction)
@@ -311,7 +330,7 @@ def build_inputs(args: argparse.Namespace) -> TreatmentInputs:
     )
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -346,7 +365,6 @@ def main() -> None:
     )
     add_inputs(train_parser)
     add_control(train_parser)
-    train_parser.add_argument("--run-dir", type=Path, default=None)
     train_parser.add_argument(
         "--force",
         action="store_true",
@@ -363,8 +381,11 @@ def main() -> None:
     coverage_parser.add_argument("--adapter-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     coverage_parser.add_argument("--pose-dir", type=Path, default=DEFAULT_POSE_DIR)
     subparsers.add_parser("selftest", help="Verifica montagem e portões com dados sintéticos")
+    return parser
 
-    args = parser.parse_args()
+
+def main() -> None:
+    args = build_parser().parse_args()
     if args.command == "selftest":
         from gatefall.train.gmdcsa24_weak_label.selftests.treatment import run_treatment_selftest
 
@@ -382,11 +403,8 @@ def main() -> None:
                 if args.command == "preflight":
                     ok = run_preflight(inputs, args.seed, control)
                 else:
-                    run_dir = args.run_dir or (
-                        DEFAULT_RUN_ROOT / args.treatment.lower() / f"seed_{args.seed}"
-                    )
-                    ok = run_train(
-                        inputs, args.seed, control, run_dir, args.force, args.recovery_reason
+                    ok = run_canonical_train(
+                        inputs, args.seed, control, args.force, args.recovery_reason
                     )
     except FileNotFoundError as exc:
         print(f"erro: {exc}", file=sys.stderr)

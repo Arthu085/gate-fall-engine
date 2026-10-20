@@ -134,21 +134,28 @@ acima, de `data/processed/le2i*/`, da saída do adapter, de `data/features/`,
 pesos, ao controle pareado e ao commit do código. Nada disso é sincronizado
 com o Google Drive.
 
+`train` não tem `--run-dir`: cada tratamento e seed têm um único local de
+execução, `runs/local/gmdcsa24_weak_label/<t|s>/seed_<n>/` sob o diretório
+em que o comando roda. `train` e `preflight` recusam qualquer entrada (adapter,
+pose, `--training-dir`, grade, pose e JSON do Le2i-CS e controle) cujo
+caminho resolvido, inclusive por link simbólico, fique fora desse diretório.
+Assim outra raiz de saída ignorada não reaproveita as mesmas entradas para
+abrir um segundo run da mesma seed; isso só seria possível copiando todos os
+dados para outra árvore.
+
 Antes de gravar, `prepare` e `train` também recusam, com caminhos resolvidos
 (inclusive links simbólicos) e em qualquer relação de ancestral ou
 descendente:
 
 - `--training-dir` sobre as entradas, o controle escolhido ou
   `runs/local/gmdcsa24_weak_label/`;
-- `--run-dir` sobre as entradas, o controle escolhido, `--training-dir` ou
-  `data/processed/gmdcsa24_training/`;
-- `--run-dir` igual ou acima de `runs/local/gmdcsa24_weak_label/{,t/,s/}`,
-  com subdiretórios, dentro de outro run ou fora do layout
-  `<raiz>/<t|s>/seed_<seed>` do tratamento e da seed pedidos.
+- o run sobre as entradas, o controle escolhido, `--training-dir` ou
+  `data/processed/gmdcsa24_training/`, com subdiretórios ou dentro de outro
+  run.
 
 ## Um run por seed
 
-`train` classifica o `--run-dir` depois do preflight:
+`train` classifica o run canônico depois do preflight:
 
 | Estado | Sem `--force` | Com `--force --recovery-reason` |
 | --- | --- | --- |
@@ -184,8 +191,8 @@ uv run python -m gatefall.train.gmdcsa24_weak_label train --treatment T --seed 4
   --control-run-dir runs/local/le2i/baseline_a_multiseed/seed_42
 ```
 
-`train` roda o mesmo preflight antes de treinar e grava em
-`runs/local/gmdcsa24_weak_label/t/seed_42/` por padrão. Pelo
+`train` roda o mesmo preflight antes de treinar e grava só em
+`runs/local/gmdcsa24_weak_label/t/seed_42/`, o run canônico. Pelo
 [critério de parada 3](../analysis/gmdcsa24-weak-label-protocol.md#criterios-de-parada),
 `--force` só serve para repetir a mesma seed depois de uma falha técnica, com
 o motivo registrado (ver [Um run por seed](#um-run-por-seed)):
@@ -268,8 +275,11 @@ um controle e um run de T com a receita congelada. Ele cobre:
 - cada campo de `standardization`, `code` e `created_at` do manifesto
   preparado alterado ou ausente reprovando só "padronização e pesos", e a
   preparação inalterada passando;
-- recusa de `--training-dir` e `--run-dir` sobrepostos, por link simbólico,
-  com outros runs ou fora do layout, sem gravar nem alterar artefato;
+- recusa de `--training-dir` e de run sobrepostos, por link simbólico, com
+  outros runs ou fora do layout, sem gravar nem alterar artefato;
+- `train` sem `--run-dir`, com o run canônico aceito e um segundo run da mesma
+  seed recusado a partir de outra raiz ignorada, inclusive com as entradas
+  alcançadas por link simbólico;
 - run completo nunca refeito com `--force`, `treatment.json` adulterado
   recusado com e sem `--force`, run incompleto recusado sem motivo e
   recuperado com motivo registrado, e recuperação de outra configuração ou
