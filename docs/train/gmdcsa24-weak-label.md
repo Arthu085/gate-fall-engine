@@ -207,7 +207,9 @@ principal (dados reais), rodaram só comandos que não montam features:
   W1, W2, V2, V3, V4, V5 e tratamento passam nos dez casos. Só
   "padronização e pesos" reprova, porque nenhum `prepare` rodou; por isso a
   comparação de V4 entre a configuração do tratamento e a do controle ainda
-  não foi feita sobre os dados reais.
+  não foi feita sobre os dados reais. Repetido depois das salvaguardas de
+  ciclo de vida e de isolamento, com o mesmo resultado e "saídas" passando
+  nos dez casos.
 
 Nenhum arquivo foi gravado em `data/processed/gmdcsa24_training/` nem em
 `runs/local/gmdcsa24_weak_label/`.
