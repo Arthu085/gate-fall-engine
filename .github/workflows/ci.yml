@@ -45,6 +45,7 @@ jobs:
           uv run python -m gatefall.features.standardize selftest
           uv run python -m gatefall.features.standardize_dinov3 selftest
           uv run python -m gatefall.train.baseline_a selftest
+          uv run python -m gatefall.train.gmdcsa24_weak_label selftest
           uv run python -m gatefall.train.baseline_b0 selftest
           # Agregado da arma B1: roda os oito selftests de componente
           # (quality sequence, quality extract, gated fusion dataset,

@@ -15,6 +15,7 @@ from gatefall.train.shared.metrics import RESTRICTED_CLASSES
 from gatefall.train.shared.tcn import TCNClassifier
 
 REQUIRED_TRAINING_ARTIFACTS = ("config.yaml", "metrics.json", "checkpoint.pt")
+TRAINING_SPLITS: tuple[str, ...] = ("train", "val", "test")
 
 
 def _require_mapping(value: object, field: str) -> Mapping[str, Any]:
@@ -28,6 +29,7 @@ def validate_training_metrics(
     config: TrainConfig,
     config_path: Path | None = None,
     checkpoint_path: Path | None = None,
+    splits: tuple[str, ...] = TRAINING_SPLITS,
 ) -> None:
     metrics = _require_mapping(data, "metrics.json")
     if metrics.get("run_name") != config.run_name:
@@ -64,7 +66,10 @@ def validate_training_metrics(
         raise ValueError("metrics.json: checkpoint_sha256 incompatível")
 
     final = _require_mapping(metrics.get("final"), "metrics.json.final")
-    for split in ("train", "val", "test"):
+    unexpected = sorted(set(TRAINING_SPLITS) & set(final) - set(splits))
+    if unexpected:
+        raise ValueError(f"metrics.json.final: splits não esperados: {', '.join(unexpected)}")
+    for split in splits:
         split_metrics = _require_mapping(
             final.get(split), f"metrics.json.final.{split}"
         )
@@ -137,6 +142,7 @@ def validate_training_run(
     run_dir: Path,
     expected_config: TrainConfig | None = None,
     fields_allowed_to_differ: frozenset[str] = frozenset(),
+    splits: tuple[str, ...] = TRAINING_SPLITS,
 ) -> TrainConfig:
     present = [
         name for name in REQUIRED_TRAINING_ARTIFACTS if (run_dir / name).is_file()
@@ -176,6 +182,7 @@ def validate_training_run(
             config,
             config_path=run_dir / "config.yaml",
             checkpoint_path=run_dir / "checkpoint.pt",
+            splits=splits,
         )
     except (OSError, TypeError, ValueError, KeyError) as exc:
         raise RuntimeError(f"metrics.json inválido em {run_dir}: {exc}") from exc
