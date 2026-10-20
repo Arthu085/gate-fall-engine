@@ -85,11 +85,15 @@ do controle.
 | V3 | Controle da mesma seed (42 a 46) válido para a receita congelada e com o `checkpoint_sha256` do [sumário multi-seed](../analysis/multiseed-summary.md#resultado-da-execucao-real); com `--control-retrained`, um checkpoint diferente só passa se `torch_version` e dispositivo do controle forem os desta máquina |
 | V4 | Fingerprint da configuração do controle igual ao publicado e configuração do tratamento igual à do controle fora de `standardization_stats_path` e `standardization_stats_sha256` |
 | tratamento | Janelas de T ou S, S contido em T, totais de 5 219, 1 973 ou 1 562 e 7 192 ou 6 781, `env` e `split` do GMDCSA24, nenhuma janela com borda replicada, `lie_down`, `lying` ou `IGNORE_LABEL`, e K de cada vídeo igual ao da pose |
-| padronização e pesos | Manifesto preparado igual ao recalculado (proveniência, índices, contagens e pesos), SHA-256 do JSON igual ao registrado e JSON igual à padronização recalculada sobre o treino aumentado |
+| padronização e pesos | Manifesto preparado igual ao recalculado (proveniência, índices, contagens e pesos), sem campo a mais ou a menos; `standardization` com `path`, `sha256`, `window_count` e `frames_hash` iguais aos do JSON preparado e da padronização recalculada; `code` com `commit` completo, descendente da extração validada e ancestral do HEAD atual, e `dirty = false`; `created_at` válido; JSON igual à padronização recalculada sobre o treino aumentado |
+| saídas | `--training-dir` fora das entradas (adapter, pose, grade, pose e JSON do Le2i-CS), do controle escolhido e da raiz dos runs do tratamento, comparando caminhos resolvidos e relações de ancestral e descendente |
 
 `prepare` exige as condições que não dependem da seed (checkout,
-proveniência, W1, W2, V2, V5 e tratamento). Qualquer falha bloqueia o comando
-sem gravar nada.
+proveniência, W1, W2, V2, V5 e tratamento) e o isolamento de `--training-dir`.
+Qualquer falha bloqueia o comando sem gravar nada. Uma preparação existente
+que passa em "padronização e pesos" é pulada, com ou sem `--force`, porque o
+`treatment.json` dos runs registra o SHA-256 do manifesto preparado; `--force`
+só recria uma preparação que reprova.
 
 ## Isolamento de `test`
 
@@ -130,6 +134,43 @@ acima, de `data/processed/le2i*/`, da saída do adapter, de `data/features/`,
 pesos, ao controle pareado e ao commit do código. Nada disso é sincronizado
 com o Google Drive.
 
+Antes de gravar, `prepare` e `train` também recusam, com caminhos resolvidos
+(inclusive links simbólicos) e em qualquer relação de ancestral ou
+descendente:
+
+- `--training-dir` sobre as entradas, o controle escolhido ou
+  `runs/local/gmdcsa24_weak_label/`;
+- `--run-dir` sobre as entradas, o controle escolhido, `--training-dir` ou
+  `data/processed/gmdcsa24_training/`;
+- `--run-dir` igual ou acima de `runs/local/gmdcsa24_weak_label/{,t/,s/}`,
+  com subdiretórios, dentro de outro run ou fora do layout
+  `<raiz>/<t|s>/seed_<seed>` do tratamento e da seed pedidos.
+
+## Um run por seed
+
+`train` classifica o `--run-dir` depois do preflight:
+
+| Estado | Sem `--force` | Com `--force --recovery-reason` |
+| --- | --- | --- |
+| Ausente | Treina | Recusa: não há run a recuperar |
+| Completo: run do braço A válido sem `test` e `treatment.json` igual ao recalculado | Pula | Recusa: o protocolo admite um único run por seed |
+| Registro divergente: run válido com `treatment.json` ilegível ou diferente | Recusa | Recusa: exige inspeção manual |
+| Incompleto: artefato ausente ou inválido, ou `treatment.json` ausente | Recusa | Refaz, se a identidade confere |
+
+O `treatment.json` é conferido campo a campo: tratamento, seed, SHA-256 do
+manifesto preparado e do JSON de padronização, índice de treino, pesos, hash
+de `val`, `evaluated_splits`, checkpoint do run e do controle e aceitação do
+controle, sem campo a mais. O `code` precisa ter `commit` completo,
+descendente do commit da preparação e ancestral do HEAD atual, e
+`dirty = false`.
+
+A recuperação só refaz o run da mesma seed, tratamento e configuração: o
+`config.yaml` existente precisa ser legível e igual à configuração do
+tratamento, e um `treatment.json` legível precisa ter o mesmo tratamento e a
+mesma seed. `--force` e `--recovery-reason` só valem juntos. O run refeito
+grava em `treatment.json` o bloco `recovery`, com o motivo, a data e o
+SHA-256 de cada arquivo substituído.
+
 ## Como executar
 
 Na raiz de um checkout limpo, para T e depois para S:
@@ -144,11 +185,16 @@ uv run python -m gatefall.train.gmdcsa24_weak_label train --treatment T --seed 4
 ```
 
 `train` roda o mesmo preflight antes de treinar e grava em
-`runs/local/gmdcsa24_weak_label/t/seed_42/` por padrão. Sem `--force`, um run
-completo é preservado e um run parcial é recusado. Pelo
+`runs/local/gmdcsa24_weak_label/t/seed_42/` por padrão. Pelo
 [critério de parada 3](../analysis/gmdcsa24-weak-label-protocol.md#criterios-de-parada),
-`--force` só serve para repetir a mesma seed depois de uma falha técnica
-registrada.
+`--force` só serve para repetir a mesma seed depois de uma falha técnica, com
+o motivo registrado (ver [Um run por seed](#um-run-por-seed)):
+
+```bash
+uv run python -m gatefall.train.gmdcsa24_weak_label train --treatment T --seed 42 \
+  --control-run-dir runs/local/le2i/baseline_a_multiseed/seed_42 \
+  --force --recovery-reason "<falha técnica observada>"
+```
 
 ## Execução de leitura sobre os dados reais
 
@@ -217,6 +263,15 @@ um controle e um run de T com a receita congelada. Ele cobre:
 - recusa de proveniência adulterada (commit, `dirty`, tabela, manifesto da
   pose, manifesto preparado e JSON) e aceitação de outro commit de treino em
   checkout limpo;
+- cada campo de `standardization`, `code` e `created_at` do manifesto
+  preparado alterado ou ausente reprovando só "padronização e pesos", e a
+  preparação inalterada passando;
+- recusa de `--training-dir` e `--run-dir` sobrepostos, por link simbólico,
+  com outros runs ou fora do layout, sem gravar nem alterar artefato;
+- run completo nunca refeito com `--force`, `treatment.json` adulterado
+  recusado com e sem `--force`, run incompleto recusado sem motivo e
+  recuperado com motivo registrado, e recuperação de outra configuração ou
+  seed recusada;
 - controle pareado (checkpoint, seed, receita, fingerprint, alarme e
   `--control-retrained`) e V4;
 - nenhuma feature de `test` lida em preflight e treino, run sem `test` e o

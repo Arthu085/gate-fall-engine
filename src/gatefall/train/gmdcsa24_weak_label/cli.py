@@ -50,14 +50,24 @@ from gatefall.train.gmdcsa24_weak_label.gates import (
     PREPARED_MANIFEST_FILE,
     PREPARED_STATS_FILE,
     TREATMENT_RECORD_FILE,
-    VALIDATION_SPLITS,
     ControlRun,
     TrainingGate,
     TreatmentInputs,
     assess_data,
     assess_training,
-    location_problems,
+    output_problems,
+    preparation_problems,
     report,
+)
+from gatefall.train.gmdcsa24_weak_label.lifecycle import (
+    RUN_ABSENT,
+    RUN_COMPLETE,
+    RUN_DIVERGENT,
+    RunState,
+    identity_problems,
+    run_artifacts,
+    run_state,
+    treatment_record,
 )
 
 
@@ -115,6 +125,9 @@ def run_preflight(inputs: TreatmentInputs, seed: int, control: ControlRun) -> bo
 
 
 def run_prepare(inputs: TreatmentInputs, force: bool) -> bool:
+    problems = output_problems(inputs)
+    if problems:
+        return refuse("prepare", problems)
     assessment = assess_data(inputs)
     if not report(f"portões de dados de {inputs.treatment}", assessment.results):
         return False
@@ -122,8 +135,16 @@ def run_prepare(inputs: TreatmentInputs, force: bool) -> bool:
     record = cast(dict[str, object], assessment.record)
     manifest_path = inputs.prepared_dir / PREPARED_MANIFEST_FILE
     stats_path = inputs.prepared_dir / PREPARED_STATS_FILE
-    if manifest_path.exists() and not force:
-        return refuse("prepare", [f"{manifest_path} já existe; use --force para recriar"])
+    if manifest_path.exists() or stats_path.exists():
+        existing = preparation_problems(inputs, assessment)
+        if not existing:
+            print(f"\nskip {inputs.prepared_dir} (preparação existente conferida; não é refeita)")
+            return True
+        if not force:
+            return refuse(
+                "prepare",
+                [*existing, f"{inputs.prepared_dir} já existe; use --force para recriar"],
+            )
     stats = treatment_stats(sources.train, inputs.le2i.frames_path)
     inputs.prepared_dir.mkdir(parents=True, exist_ok=True)
     manifest_path.unlink(missing_ok=True)
@@ -146,41 +167,76 @@ def run_prepare(inputs: TreatmentInputs, force: bool) -> bool:
     return True
 
 
-def treatment_record(
-    inputs: TreatmentInputs, seed: int, control: ControlRun, checkpoint: str | None, run_dir: Path
-) -> dict[str, object]:
-    record = read_json(inputs.prepared_dir / PREPARED_MANIFEST_FILE)
-    windows = section(record, "windows")
-    return {
-        "treatment": inputs.treatment,
-        "seed": seed,
-        "prepared_manifest_sha256": sha256_file(inputs.prepared_dir / PREPARED_MANIFEST_FILE),
-        "standardization_stats_sha256": section(record, "standardization").get("sha256"),
-        "train_index_sha256": windows.get("train_index_sha256"),
-        "class_weights": record.get("class_weights"),
-        "eval_index_sha256": {"val": section(record, "eval_index_sha256").get("val")},
-        "evaluated_splits": list(VALIDATION_SPLITS),
-        "checkpoint_sha256": sha256_file(run_dir / "checkpoint.pt"),
-        "control": {
-            "run_dir": control.run_dir.as_posix(),
-            "checkpoint_sha256": checkpoint,
-            "acceptance": (
-                "retreinado nesta máquina" if control.retrained else "checkpoint_sha256 publicado"
-            ),
-        },
-        "code": {"commit": inputs.checkout[0], "dirty": bool(inputs.checkout[1])},
+def recovery_plan(
+    inputs: TreatmentInputs,
+    seed: int,
+    run_dir: Path,
+    state: RunState,
+    config: TrainConfig,
+    recovery_reason: str | None,
+) -> tuple[list[str], dict[str, object] | None]:
+    """Problemas que impedem treinar e, numa recuperação aceita, o que ela registra."""
+    if state.status == RUN_COMPLETE:
+        if recovery_reason is None:
+            return [], None
+        return [
+            f"{run_dir}: run completo e íntegro; o protocolo admite um único run por seed, "
+            "que --force não substitui"
+        ], None
+    if state.status == RUN_DIVERGENT:
+        return [
+            f"{run_dir}: run treinado com registro do tratamento divergente; nem --force o "
+            "substitui, inspecione manualmente",
+            *state.problems,
+        ], None
+    if state.status == RUN_ABSENT:
+        if recovery_reason is not None:
+            return [f"{run_dir} não existe; não há run a recuperar com --force"], None
+        return [], None
+    if recovery_reason is None:
+        return [
+            f"{run_dir}: run incompleto",
+            *state.problems,
+            'depois de falha técnica, refaça com --force --recovery-reason "<motivo>"',
+        ], None
+    identity = identity_problems(inputs, seed, run_dir, config)
+    if identity:
+        return identity, None
+    return [], {
+        "reason": recovery_reason,
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "replaced": {"problems": state.problems, "artifacts": run_artifacts(run_dir)},
     }
 
 
 def run_train(
-    inputs: TreatmentInputs, seed: int, control: ControlRun, run_dir: Path, force: bool
+    inputs: TreatmentInputs,
+    seed: int,
+    control: ControlRun,
+    run_dir: Path,
+    force: bool = False,
+    recovery_reason: str | None = None,
 ) -> bool:
-    problems = location_problems(run_dir)
+    reason = (recovery_reason or "").strip() or None
+    if force != (reason is not None):
+        return refuse(
+            "train", ["--force exige --recovery-reason com o motivo da falha técnica, e vice-versa"]
+        )
+    problems = output_problems(inputs, control, run_dir, seed)
     if problems:
         return refuse("train", problems)
     assessment = assess_training(inputs, seed, control)
     if not report(f"preflight do treino de {inputs.treatment}, seed {seed}", assessment.results):
         return False
+    config = cast(TrainConfig, assessment.config)
+    expected = treatment_record(inputs, seed, control, assessment.control_checkpoint_sha256)
+    state = run_state(inputs, run_dir, config, expected)
+    problems, recovery = recovery_plan(inputs, seed, run_dir, state, config, reason)
+    if problems:
+        return refuse("train", problems)
+    if state.status == RUN_COMPLETE:
+        print(f"\nskip {run_dir} (run de {inputs.treatment}, seed {seed} completo e conferido)")
+        return True
     sources = cast(TreatmentSources, assessment.sources)
     metrics = run_training(
         input_dim=POSE_FEATURE_DIM,
@@ -188,17 +244,22 @@ def run_train(
         val_source=sources.val,
         test_source=None,
         stats=cast(StandardizationStats, assessment.stats),
-        config=cast(TrainConfig, assessment.config),
+        config=config,
         run_dir=run_dir,
-        force=force,
+        force=recovery is not None,
         label_names=LE2I_LABEL_NAMES,
     )
-    record_path = run_dir / TREATMENT_RECORD_FILE
-    if metrics is not None or not record_path.exists():
-        write_json(
-            record_path,
-            treatment_record(inputs, seed, control, assessment.control_checkpoint_sha256, run_dir),
-        )
+    if metrics is None:
+        return refuse("train", [f"{run_dir}: o motor de treino não treinou o run"])
+    head, status = inputs.checkout
+    record: dict[str, object] = {
+        **expected,
+        "checkpoint_sha256": sha256_file(run_dir / "checkpoint.pt"),
+        "code": {"commit": head, "dirty": bool(status)},
+    }
+    if recovery is not None:
+        record["recovery"] = recovery
+    write_json(run_dir / TREATMENT_RECORD_FILE, record)
     print(f"\n{run_dir}: treino de {inputs.treatment}, seed {seed}; test não avaliado")
     return True
 
@@ -287,7 +348,14 @@ def main() -> None:
     add_control(train_parser)
     train_parser.add_argument("--run-dir", type=Path, default=None)
     train_parser.add_argument(
-        "--force", action="store_true", help="Refaz o run só depois de falha técnica registrada"
+        "--force",
+        action="store_true",
+        help="Refaz um run incompleto depois de falha técnica; nunca um run completo",
+    )
+    train_parser.add_argument(
+        "--recovery-reason",
+        default=None,
+        help="Motivo da falha técnica, gravado no treatment.json; obrigatório com --force",
     )
     coverage_parser = subparsers.add_parser(
         "coverage", help="Relata a cobertura descritiva da detecção de pose dos 145 vídeos"
@@ -317,7 +385,9 @@ def main() -> None:
                     run_dir = args.run_dir or (
                         DEFAULT_RUN_ROOT / args.treatment.lower() / f"seed_{args.seed}"
                     )
-                    ok = run_train(inputs, args.seed, control, run_dir, args.force)
+                    ok = run_train(
+                        inputs, args.seed, control, run_dir, args.force, args.recovery_reason
+                    )
     except FileNotFoundError as exc:
         print(f"erro: {exc}", file=sys.stderr)
         ok = False

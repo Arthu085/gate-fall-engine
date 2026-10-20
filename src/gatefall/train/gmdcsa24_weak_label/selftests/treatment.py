@@ -99,6 +99,7 @@ from gatefall.train.gmdcsa24_weak_label.gates import (
     config_problems,
     location_problems,
     membership_problems,
+    output_problems,
 )
 
 WALK, FALL, FALLEN, SITTING, STAND_UP, STANDING, OTHER = (
@@ -115,6 +116,16 @@ _LE2I_VIDEOS: dict[str, tuple[str, str, int, list[tuple[int, int]]]] = {
 }
 _TEST_VIDEOS = {video for video, (split, *_) in _LE2I_VIDEOS.items() if split == "test"}
 _SEED = 42
+_MISSING = object()
+_HEAD = "e" * 40
+# História sintética do GateFall: extração, depois o HEAD da preparação e do treino.
+_HISTORY = (_COMMIT, _HEAD, "f" * 40)
+
+
+def _lineage(ancestor: str, descendant: str) -> bool:
+    return {ancestor, descendant} <= set(_HISTORY) and _HISTORY.index(ancestor) <= _HISTORY.index(
+        descendant
+    )
 
 
 class _Spy:
@@ -148,9 +159,10 @@ class _World:
             pose_dir=self.pose_dir,
             training_dir=self.tmp / "training",
             le2i=self.le2i,
-            checkout=("e" * 40, []),
+            checkout=(_HEAD, []),
             gate=self.gate,
             load_features=self.spy,
+            lineage=_lineage,
         )
         return replace(base, **changes)
 
@@ -463,8 +475,11 @@ def check_statistics(world: _World) -> list[bool]:
     kept = ~np.asarray(t.stats.excluded_mask) & ~np.asarray(t.stats.guarded_mask)
     mean = np.asarray(t.stats.mean)[kept]
     weights = cast(list[float], t.manifest["class_weights"])
+    prepared = world.inputs("T").prepared_dir
+    before = _tree(prepared)
     with _quiet():
-        refused = not run_prepare(world.inputs("T"), force=False)
+        skipped = run_prepare(world.inputs("T"), force=False)
+        forced = run_prepare(world.inputs("T"), force=True)
     return [
         _check(
             "prepare de T e S grava padronização e manifesto em diretórios próprios", t_ok and s_ok
@@ -490,14 +505,26 @@ def check_statistics(world: _World) -> list[bool]:
             and t.manifest["class_weights"] != s.manifest["class_weights"]
             and sha256_file(world.le2i.stats_path) == control_stats_sha,
         ),
-        _check("prepare não sobrescreve uma preparação existente sem --force", refused),
+        _check(
+            "prepare pula a preparação existente conferida, com ou sem --force, sem regravá-la",
+            skipped and forced and _tree(prepared) == before,
+        ),
     ]
 
 
-def _copy_with(source: Path, target: Path, mutate: Callable[[Path], None]) -> Path:
+def _copy_with(source: Path, target: Path, mutate: Callable[[Path], object]) -> Path:
     shutil.copytree(source, target)
     mutate(target)
     return target
+
+
+def _tree(root: Path) -> dict[str, str]:
+    """SHA-256 de cada arquivo sob `root`, para provar que nada foi gravado."""
+    return {
+        path.relative_to(root).as_posix(): sha256_file(path)
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
 
 
 def _edit_json(name: str, update: Callable[[dict[str, Any]], None]) -> Callable[[Path], None]:
@@ -508,6 +535,21 @@ def _edit_json(name: str, update: Callable[[dict[str, Any]], None]) -> Callable[
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     return mutate
+
+
+def _relocated(world: _World, training_dir: Path, mutate: Callable[[Path], object]) -> Path:
+    """Cópia da preparação de T em outro `--training-dir`, com `standardization.path`
+    apontando para a cópia, e depois a alteração do caso."""
+
+    def move_path(manifest: dict[str, Any]) -> None:
+        manifest["standardization"]["path"] = (training_dir / "t" / PREPARED_STATS_FILE).as_posix()
+
+    def relocate(directory: Path) -> None:
+        _edit_json(PREPARED_MANIFEST_FILE, move_path)(directory)
+        mutate(directory)
+
+    _copy_with(world.inputs("T").prepared_dir, training_dir / "t", relocate)
+    return training_dir
 
 
 def check_split_isolation(world: _World) -> list[bool]:
@@ -659,8 +701,7 @@ def check_provenance(world: _World) -> list[bool]:
         "JSON de padronização adulterado": tamper_stats,
         "JSON de padronização adulterado com SHA-256 refeito no manifesto": resign_stats,
     }.items():
-        training_dir = tmp / f"training_{len(checks)}"
-        _copy_with(prepared, training_dir / "t", mutate)
+        training_dir = _relocated(world, tmp / f"training_{len(checks)}", mutate)
         results = _assess_training(
             world.inputs("T", training_dir=training_dir), control=world.control
         ).results
@@ -807,6 +848,348 @@ def check_training(world: _World) -> list[bool]:
     ]
 
 
+def check_preparation_tampering(world: _World) -> list[bool]:
+    tmp = world.tmp / "preparation_tampering"
+    tmp.mkdir()
+
+    def standardization(field: str, value: object) -> Callable[[Path], None]:
+        def update(manifest: dict[str, Any]) -> None:
+            if value is _MISSING:
+                del manifest["standardization"][field]
+            else:
+                manifest["standardization"][field] = value
+
+        return _edit_json(PREPARED_MANIFEST_FILE, update)
+
+    def top_level(field: str, value: object) -> Callable[[Path], None]:
+        def update(manifest: dict[str, Any]) -> None:
+            if value is _MISSING:
+                del manifest[field]
+            else:
+                manifest[field] = value
+
+        return _edit_json(PREPARED_MANIFEST_FILE, update)
+
+    window_count = world.gate.training_windows["T"]
+    variants: dict[str, Callable[[Path], object]] = {
+        "standardization.path de outro arquivo": standardization(
+            "path", (tmp / "outro" / PREPARED_STATS_FILE).as_posix()
+        ),
+        "standardization.sha256 alterado": standardization("sha256", "0" * 64),
+        "standardization.window_count alterado": standardization("window_count", window_count + 1),
+        "standardization.frames_hash alterado": standardization("frames_hash", "0" * 64),
+        "campo extra em standardization": standardization("note", "x"),
+        "code.commit fora da história entre a extração e o HEAD": top_level(
+            "code", {"commit": "a" * 40, "dirty": False}
+        ),
+        "code.commit abreviado": top_level("code", {"commit": _HEAD[:12], "dirty": False}),
+        "code.dirty verdadeiro": top_level("code", {"commit": _HEAD, "dirty": True}),
+        "code com campo extra": top_level("code", {"commit": _HEAD, "dirty": False, "branch": "x"}),
+        "created_at inválido": top_level("created_at", "ontem"),
+        "campo extra no manifesto": top_level("note", "x"),
+        "manifesto ilegível": lambda directory: (directory / PREPARED_MANIFEST_FILE).write_text(
+            "{", encoding="utf-8"
+        ),
+    }
+    for field in ("path", "sha256", "window_count", "frames_hash"):
+        variants[f"standardization.{field} ausente"] = standardization(field, _MISSING)
+    for field in ("code", "standardization", "created_at"):
+        variants[f"{field} ausente"] = top_level(field, _MISSING)
+
+    def unchanged(_: Path) -> None:
+        return None
+
+    clean = _assess_training(
+        world.inputs("T", training_dir=_relocated(world, tmp / "unchanged", unchanged)),
+        control=world.control,
+    )
+    checks = [
+        _check(
+            "preparação inalterada, copiada para outro --training-dir, passa em todos os portões",
+            clean.passed,
+        )
+    ]
+    for position, (name, mutate) in enumerate(variants.items()):
+        training_dir = _relocated(world, tmp / f"case_{position}", mutate)
+        results = _assess_training(
+            world.inputs("T", training_dir=training_dir), control=world.control
+        ).results
+        checks.append(
+            _check(
+                f"padronização e pesos reprova {name}, e só ela",
+                _failed(results) == {"padronização e pesos"},
+            )
+        )
+    return checks
+
+
+def _refuses_train(
+    world: _World,
+    run_dir: Path,
+    expected: str,
+    seed: int = _SEED,
+    **changes: Any,
+) -> bool:
+    inputs = world.inputs("T", **changes)
+    problems = output_problems(inputs, world.control, run_dir, seed)
+    with _quiet():
+        refused = not run_train(inputs, seed, world.control, run_dir)
+    return refused and any(expected in problem for problem in problems)
+
+
+def check_outputs(world: _World) -> list[bool]:
+    tmp = world.tmp / "outputs"
+    tmp.mkdir()
+    control_parent = world.control.run_dir.parent
+    (tmp / "alias").mkdir()
+    (tmp / "alias" / "t").symlink_to(control_parent, target_is_directory=True)
+    (tmp / "sub" / "t" / "seed_42" / "outro").mkdir(parents=True)
+    (tmp / "nest").mkdir()
+    (tmp / "nest" / "checkpoint.pt").write_bytes(b"run anterior")
+    protected = {
+        "adapter": world.adapter_dir,
+        "pose": world.pose_dir,
+        "controle": control_parent,
+        "preparação": world.inputs("T").prepared_dir,
+        "nest": tmp / "nest",
+        "sub": tmp / "sub",
+    }
+    before = {name: _tree(path) for name, path in protected.items()}
+
+    def refuses_prepare(training_dir: Path, expected: str) -> bool:
+        inputs = world.inputs("T", training_dir=training_dir)
+        problems = output_problems(inputs)
+        with _quiet():
+            refused = not run_prepare(inputs, force=True)
+        return refused and any(expected in problem for problem in problems)
+
+    checks = [
+        _check(
+            "prepare recusa --training-dir igual à pose, dentro do adapter, ancestral das "
+            "entradas do Le2i-CS ou sobre a raiz dos runs do tratamento",
+            refuses_prepare(world.pose_dir, "pose do GMDCSA24")
+            and refuses_prepare(world.adapter_dir / "training", "adapter do GMDCSA24")
+            and refuses_prepare(world.tmp, "grade do Le2i-CS")
+            and refuses_prepare(Path("runs/local/gmdcsa24_weak_label/prep"), "raiz dos runs"),
+        ),
+        _check(
+            "train e preflight recusam --training-dir dentro ou ancestral do controle escolhido",
+            _refuses_train(
+                world,
+                tmp / "runs2" / "t" / "seed_42",
+                "run do controle",
+                training_dir=world.control.run_dir / "training",
+            )
+            and _refuses_train(
+                world,
+                tmp / "runs2" / "t" / "seed_42",
+                "run do controle",
+                training_dir=control_parent,
+            )
+            and "saídas"
+            in _failed(
+                _assess_training(
+                    world.inputs("T", training_dir=world.control.run_dir / "training"),
+                    control=world.control,
+                ).results
+            ),
+        ),
+        _check(
+            "train recusa --run-dir sobre o controle por link simbólico, dentro ou ancestral "
+            "da preparação e sobre as preparações padrão",
+            _refuses_train(world, tmp / "alias" / "t" / "seed_42", "run do controle")
+            and _refuses_train(
+                world, world.inputs("T").prepared_dir / "t" / "seed_42", "--training-dir"
+            )
+            and _refuses_train(
+                world,
+                tmp / "iso" / "t" / "seed_42",
+                "--training-dir",
+                training_dir=tmp / "iso" / "t" / "seed_42" / "training",
+            )
+            and _refuses_train(
+                world, Path("data/processed/gmdcsa24_training/t/seed_42"), "preparações padrão"
+            ),
+        ),
+        _check(
+            "train recusa --run-dir que contém outros runs, está dentro de outro run ou foge "
+            "do layout <raiz>/<tratamento>/seed_<seed>",
+            _refuses_train(world, Path("runs/local/gmdcsa24_weak_label/t"), "contém os runs")
+            and _refuses_train(world, tmp / "sub" / "t" / "seed_42", "subdiretórios")
+            and _refuses_train(world, tmp / "nest" / "t" / "seed_42", "dentro de outro run")
+            and _refuses_train(world, tmp / "runs2" / "t" / "seed_43", "fora do layout")
+            and _refuses_train(world, tmp / "runs2" / "s" / "seed_42", "fora do layout"),
+        ),
+        _check(
+            "--run-dir e --training-dir separados das entradas e do controle passam",
+            output_problems(
+                world.inputs("T", training_dir=tmp / "prep"),
+                world.control,
+                tmp / "runs2" / "t" / "seed_42",
+                _SEED,
+            )
+            == [],
+        ),
+        _check(
+            "nenhuma recusa grava, apaga ou altera artefato existente nem cria a saída recusada",
+            {name: _tree(path) for name, path in protected.items()} == before
+            and not (world.adapter_dir / "training").exists()
+            and not (world.control.run_dir / "training").exists()
+            and not (tmp / "iso").exists()
+            and not (tmp / "runs2").exists()
+            and not Path("runs/local/gmdcsa24_weak_label").exists()
+            and not Path("data/processed/gmdcsa24_training/t/seed_42").exists(),
+        ),
+    ]
+    return checks
+
+
+def _train(world: _World, run_dir: Path, force: bool = False, reason: str | None = None) -> bool:
+    with _quiet():
+        return run_train(world.inputs("T"), _SEED, world.control, run_dir, force, reason)
+
+
+def check_lifecycle(world: _World) -> list[bool]:
+    tmp = world.tmp / "lifecycle"
+    trained = world.tmp / "runs" / "t" / "seed_42"
+    before = _tree(trained)
+
+    def case(name: str, mutate: Callable[[Path], object]) -> Path:
+        return _copy_with(trained, tmp / name / "t" / "seed_42", mutate)
+
+    def drop(name: str) -> Callable[[Path], None]:
+        return lambda directory: (directory / name).unlink()
+
+    def record(update: Callable[[dict[str, Any]], None]) -> Callable[[Path], None]:
+        return _edit_json(TREATMENT_RECORD_FILE, update)
+
+    def setter(field: str, value: object) -> Callable[[dict[str, Any]], None]:
+        return lambda data: data.update({field: value})
+
+    def epochs(directory: Path) -> None:
+        path = directory / "config.yaml"
+        config = yaml.safe_load(path.read_text(encoding="utf-8"))
+        config["epochs"] = 29
+        path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    complete_refused = not _train(world, trained, True, "nova tentativa")
+    tampered = {
+        "seed": record(setter("seed", 43)),
+        "class_weights": record(setter("class_weights", [1.0] * len(LE2I_LABEL_NAMES))),
+        "checkpoint_sha256": record(setter("checkpoint_sha256", "0" * 64)),
+        "prepared_manifest_sha256": record(setter("prepared_manifest_sha256", "0" * 64)),
+        "evaluated_splits": record(setter("evaluated_splits", ["train", "val", "test"])),
+        "controle": record(lambda data: data["control"].update(checkpoint_sha256="0" * 64)),
+        "code.dirty": record(setter("code", {"commit": _HEAD, "dirty": True})),
+        "code.commit fora da história": record(
+            setter("code", {"commit": "a" * 40, "dirty": False})
+        ),
+        "recovery sem motivo": record(
+            setter(
+                "recovery",
+                {"reason": " ", "recorded_at": "2026-10-19T00:00:00+00:00", "replaced": {}},
+            )
+        ),
+        "campo extra": record(setter("note", "x")),
+        "JSON ilegível": lambda directory: (directory / TREATMENT_RECORD_FILE).write_text(
+            "{", encoding="utf-8"
+        ),
+    }
+    tampered_refused = {}
+    for name, mutate in tampered.items():
+        run_dir = case(f"tampered_{len(tampered_refused)}", mutate)
+        snapshot = _tree(run_dir)
+        tampered_refused[name] = (
+            not _train(world, run_dir)
+            and not _train(world, run_dir, True, "registro corrompido")
+            and _tree(run_dir) == snapshot
+        )
+
+    missing_record = case("missing_record", drop(TREATMENT_RECORD_FILE))
+    missing_checkpoint = case("missing_checkpoint", drop("checkpoint.pt"))
+    other_config = case(
+        "other_config",
+        lambda directory: (epochs(directory), drop(TREATMENT_RECORD_FILE)(directory)),
+    )
+    other_seed = case(
+        "other_seed",
+        lambda directory: (record(setter("seed", 43))(directory), drop("checkpoint.pt")(directory)),
+    )
+    partial = tmp / "partial" / "t" / "seed_42"
+    partial.mkdir(parents=True)
+    shutil.copy2(trained / "metrics.json", partial / "metrics.json")
+    snapshots = {
+        path: _tree(path)
+        for path in (missing_record, missing_checkpoint, other_config, other_seed, partial)
+    }
+    incomplete_refused = all(
+        not _train(world, path) for path in (missing_record, missing_checkpoint, partial)
+    )
+    flag_mismatch = not _train(world, missing_record, True, None) and not _train(
+        world, missing_record, False, "falha de disco"
+    )
+    identity_refused = all(
+        not _train(world, path, True, "falha de disco")
+        for path in (other_config, other_seed, partial)
+    )
+    untouched = all(_tree(path) == snapshot for path, snapshot in snapshots.items())
+    absent = tmp / "absent" / "t" / "seed_42"
+    absent_refused = not _train(world, absent, True, "falha de disco") and not absent.exists()
+
+    old_artifacts = _tree(missing_checkpoint)
+    recovered = _train(world, missing_checkpoint, True, "  checkpoint perdido em falha de disco ")
+    recovery = (
+        json.loads((missing_checkpoint / TREATMENT_RECORD_FILE).read_text(encoding="utf-8")).get(
+            "recovery", {}
+        )
+        if recovered
+        else {}
+    )
+    after_recovery = _tree(missing_checkpoint)
+    rerun = _train(world, missing_checkpoint)
+    second_force = not _train(world, missing_checkpoint, True, "outra tentativa")
+    return [
+        _check(
+            "run completo e íntegro não é refeito com --force, nem com motivo registrado",
+            complete_refused and _tree(trained) == before,
+        ),
+        *[
+            _check(
+                f"registro do tratamento adulterado ({name}) é recusado com e sem --force, "
+                "sem alterar o run",
+                refused,
+            )
+            for name, refused in tampered_refused.items()
+        ],
+        _check(
+            "run incompleto (sem registro, sem checkpoint ou parcial) é recusado sem --force",
+            incomplete_refused,
+        ),
+        _check(
+            "--force exige --recovery-reason, e o motivo exige --force",
+            flag_mismatch,
+        ),
+        _check(
+            "recuperação de run com outra configuração, outra seed ou sem config.yaml é recusada",
+            identity_refused,
+        ),
+        _check("nenhuma recusa altera o run incompleto existente", untouched),
+        _check("--force sem run existente é recusado e não cria o run", absent_refused),
+        _check(
+            "recuperação com motivo refaz a mesma seed e registra motivo e artefatos substituídos",
+            recovered
+            and recovery.get("reason") == "checkpoint perdido em falha de disco"
+            and recovery.get("replaced", {}).get("artifacts")
+            == {name: sha for name, sha in old_artifacts.items()}
+            and _validates(missing_checkpoint, VALIDATION_SPLITS),
+        ),
+        _check(
+            "run recuperado fica completo: rodar de novo pula e --force é recusado",
+            rerun and second_force and _tree(missing_checkpoint) == after_recovery,
+        ),
+    ]
+
+
 def check_coverage(world: _World) -> list[bool]:
     tables = {name: gmdcsa24_windows(world.adapter_dir, name) for name in WINDOW_FILES}
     hashes = {name: sha256_dataframe(frame) for name, frame in tables.items()}
@@ -851,7 +1234,10 @@ def run_treatment_selftest() -> None:
         checks.extend(check_split_isolation(world))
         checks.extend(check_provenance(world))
         checks.extend(check_control(world))
+        checks.extend(check_preparation_tampering(world))
+        checks.extend(check_outputs(world))
         checks.extend(check_training(world))
+        checks.extend(check_lifecycle(world))
         checks.extend(check_coverage(world))
     if not all(checks):
         print("\nselftest FALHOU", file=sys.stderr)

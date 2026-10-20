@@ -11,7 +11,11 @@ features, predições ou métricas.
 """
 
 import json
+import re
+import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 
@@ -50,10 +54,10 @@ from gatefall.features.standardization import (
     validate_stats_layout,
 )
 from gatefall.hashing import sha256_dataframe, sha256_file
-from gatefall.runs import LOCAL_RUN_ROOTS, REFERENCE_RUN_ROOT
+from gatefall.runs import LOCAL_RUN_ROOTS, REFERENCE_RUN_ROOT, REPOSITORY_ROOT
 from gatefall.train.baseline_a.cli import _resolve_config
-from gatefall.train.baseline_a.config import TrainConfig
 from gatefall.train.baseline_a.artifacts import validate_training_run
+from gatefall.train.baseline_a.config import TrainConfig
 from gatefall.train.gmdcsa24_weak_label.assembly import (
     FeatureLoader,
     Le2iSide,
@@ -101,6 +105,7 @@ PREPARED_MANIFEST_FILE = "manifest.json"
 PREPARED_STATS_FILE = "pose_stats.json"
 TREATMENT_RECORD_FILE = "treatment.json"
 VALIDATION_SPLITS = ("train", "val")
+COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 
 FORBIDDEN_TRAINING_DIRS = (
     *PROTOCOL_PROCESSED_DIRS.values(),
@@ -126,6 +131,7 @@ CONDITIONS = (
     "V5",
     "tratamento",
     "padronização e pesos",
+    "saídas",
 )
 
 
@@ -157,6 +163,16 @@ PINNED_TRAINING_GATE = TrainingGate(
 )
 
 
+def git_lineage(ancestor: str, descendant: str) -> bool:
+    """`ancestor` é o próprio `descendant` ou um commit anterior na história dele."""
+    result = subprocess.run(
+        ["git", "-C", str(REPOSITORY_ROOT), "merge-base", "--is-ancestor", ancestor, descendant],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
 @dataclass(frozen=True)
 class TreatmentInputs:
     treatment: str
@@ -167,6 +183,7 @@ class TreatmentInputs:
     checkout: tuple[str, list[str]]
     gate: TrainingGate = PINNED_TRAINING_GATE
     load_features: FeatureLoader = arm_a_features
+    lineage: Callable[[str, str], bool] = git_lineage
 
     @property
     def prepared_dir(self) -> Path:
@@ -210,6 +227,59 @@ def location_problems(path: Path) -> list[str]:
         ensure_ignored_output(path)
     except ValueError as exc:
         problems.append(str(exc))
+    return problems
+
+
+def overlaps(first: Path, second: Path) -> bool:
+    """Mesmo caminho resolvido, ou um é ancestral do outro."""
+    first, second = first.resolve(), second.resolve()
+    return first == second or first in second.parents or second in first.parents
+
+
+def output_problems(
+    inputs: TreatmentInputs,
+    control: ControlRun | None = None,
+    run_dir: Path | None = None,
+    seed: int | None = None,
+) -> list[str]:
+    """Preparação, run do tratamento e run do controle separados entre si e das
+    entradas; conferido antes de qualquer gravação."""
+    problems = [f"--training-dir: {problem}" for problem in location_problems(inputs.training_dir)]
+    inputs_read = {
+        "adapter do GMDCSA24": inputs.adapter_dir,
+        "pose do GMDCSA24": inputs.pose_dir,
+        "pose do Le2i-CS": inputs.le2i.pose_root,
+        "grade do Le2i-CS": inputs.le2i.frames_path,
+        "JSON de padronização do controle": inputs.le2i.stats_path,
+    }
+    if control is not None:
+        inputs_read["run do controle"] = control.run_dir
+    for name, path in {**inputs_read, "raiz dos runs do tratamento": DEFAULT_RUN_ROOT}.items():
+        if overlaps(inputs.training_dir, path):
+            problems.append(f"--training-dir {inputs.training_dir} se sobrepõe a {name} ({path})")
+    if run_dir is None:
+        return problems
+    problems.extend(f"--run-dir: {problem}" for problem in location_problems(run_dir))
+    outputs = {"--training-dir": inputs.training_dir, "preparações padrão": DEFAULT_TRAINING_DIR}
+    for name, path in {**inputs_read, **outputs}.items():
+        if overlaps(run_dir, path):
+            problems.append(f"--run-dir {run_dir} se sobrepõe a {name} ({path})")
+    resolved = run_dir.resolve()
+    for root in (DEFAULT_RUN_ROOT, *(DEFAULT_RUN_ROOT / name.lower() for name in WINDOW_FILES)):
+        if resolved == root.resolve() or resolved in root.resolve().parents:
+            problems.append(f"--run-dir {run_dir} contém os runs de outras seeds em {root}")
+    if run_dir.parent.name != inputs.treatment.lower() or run_dir.name != f"seed_{seed}":
+        problems.append(
+            f"--run-dir {run_dir} fora do layout <raiz>/{inputs.treatment.lower()}/seed_{seed}"
+        )
+    if run_dir.exists() and not run_dir.is_dir():
+        problems.append(f"--run-dir {run_dir} não é um diretório")
+    elif run_dir.is_dir() and any(child.is_dir() for child in run_dir.iterdir()):
+        problems.append(f"--run-dir {run_dir} contém subdiretórios; um run é um diretório plano")
+    for parent in resolved.parents:
+        if (parent / TREATMENT_RECORD_FILE).exists() or (parent / "checkpoint.pt").exists():
+            problems.append(f"--run-dir {run_dir} está dentro de outro run ({parent})")
+            break
     return problems
 
 
@@ -397,8 +467,28 @@ def preparation_record(inputs: TreatmentInputs, sources: TreatmentSources) -> di
     }
 
 
+def code_problems(
+    inputs: TreatmentInputs, code: object, label: str, after: str | None = None
+) -> list[str]:
+    """Commit limpo e completo entre `after` (padrão: o da extração validada) e o HEAD atual."""
+    if not isinstance(code, dict) or set(code) != {"commit", "dirty"}:
+        return [f"{label}: code deve ter exatamente commit e dirty, obtido {code!r}"]
+    commit, dirty = code["commit"], code["dirty"]
+    problems = [] if dirty is False else [f"{label}: gerado com code.dirty = {dirty!r}"]
+    if not isinstance(commit, str) or not COMMIT_PATTERN.fullmatch(commit):
+        return [*problems, f"{label}: code.commit {commit!r} não é um SHA-1 completo"]
+    head = inputs.checkout[0]
+    after = after or inputs.gate.extraction_commit
+    if not inputs.lineage(after, commit):
+        problems.append(f"{label}: commit {commit} não descende de {after}")
+    if not inputs.lineage(commit, head):
+        problems.append(f"{label}: commit {commit} não é ancestral do HEAD atual {head}")
+    return problems
+
+
 def preparation_problems(inputs: TreatmentInputs, assessment: Assessment) -> list[str]:
-    """Manifesto e JSON preparados conferidos contra o treino aumentado recalculado."""
+    """Manifesto e JSON preparados conferidos contra o treino aumentado recalculado,
+    inclusive o commit da preparação e todos os campos de `standardization`."""
     sources = cast(TreatmentSources, assessment.sources)
     record = cast(dict[str, object], assessment.record)
     manifest_path = inputs.prepared_dir / PREPARED_MANIFEST_FILE
@@ -407,22 +497,44 @@ def preparation_problems(inputs: TreatmentInputs, assessment: Assessment) -> lis
         return [
             f"{inputs.prepared_dir} não preparado; rode `prepare --treatment {inputs.treatment}`"
         ]
-    manifest = read_json(manifest_path)
-    problems = compare_expected(record, {key: manifest.get(key) for key in record})
-    stats = load_stats(stats_path)
     try:
+        manifest = read_json(manifest_path)
+        stats = load_stats(stats_path)
         validate_stats_layout(stats)
-    except ValueError as exc:
-        return [*problems, f"{stats_path}: {exc}"]
-    standardization = section(manifest, "standardization")
-    if standardization.get("sha256") != sha256_file(stats_path):
-        problems.append(f"{stats_path} diverge do SHA-256 registrado no manifesto preparado")
-    if stats != treatment_stats(sources.train, inputs.le2i.frames_path):
+    except (OSError, TypeError, KeyError, ValueError) as exc:
+        return [f"{inputs.prepared_dir}: preparação ilegível ({exc})"]
+    if not isinstance(manifest, dict):
+        return [f"{manifest_path}: não é um objeto JSON"]
+    recomputed = treatment_stats(sources.train, inputs.le2i.frames_path)
+    expected = {
+        **record,
+        "standardization": {
+            "path": stats_path.as_posix(),
+            "sha256": sha256_file(stats_path),
+            "window_count": recomputed.window_count,
+            "frames_hash": recomputed.frames_hash,
+        },
+    }
+    observed = {key: value for key, value in manifest.items() if key not in ("created_at", "code")}
+    standardization = observed.get("standardization")
+    if isinstance(standardization, dict) and isinstance(standardization.get("path"), str):
+        recorded_path = Path(cast(str, standardization["path"]))
+        if recorded_path.resolve() == stats_path.resolve():
+            observed["standardization"] = {**standardization, "path": stats_path.as_posix()}
+    problems = compare_expected(expected, observed, "manifesto preparado: ")
+    created_at = manifest.get("created_at")
+    try:
+        datetime.fromisoformat(cast(str, created_at))
+    except (TypeError, ValueError):
+        problems.append(f"manifesto preparado: created_at inválido {created_at!r}")
+    problems.extend(code_problems(inputs, manifest.get("code"), "manifesto preparado"))
+    if stats != recomputed:
         problems.append(
             f"{stats_path} diverge da padronização recalculada sobre o treino aumentado de "
             f"{inputs.treatment}"
         )
-    assessment.stats = stats
+    if not problems:
+        assessment.stats = stats
     return problems
 
 
@@ -509,6 +621,7 @@ def assess_training(inputs: TreatmentInputs, seed: int, control: ControlRun) -> 
     for condition, problems in control_checks.items():
         results[condition].extend(problems)
     assessment.control_checkpoint_sha256 = checkpoint
+    results["saídas"] = output_problems(inputs, control)
     if assessment.sources is None:
         results["padronização e pesos"] = ["não verificado: proveniência ou adapter reprovados"]
         return assessment
