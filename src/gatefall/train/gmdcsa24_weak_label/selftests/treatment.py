@@ -88,6 +88,7 @@ from gatefall.train.gmdcsa24_weak_label.assembly import (
 from gatefall.train.gmdcsa24_weak_label.cli import (
     build_parser,
     run_canonical_train,
+    run_preflight,
     run_prepare,
     run_train,
 )
@@ -171,6 +172,7 @@ class _World:
             gate=self.gate,
             load_features=self.spy,
             lineage=_lineage,
+            repository_root=self.tmp,
         )
         return replace(base, **changes)
 
@@ -801,7 +803,8 @@ def _canonical_train(
     reason: str | None = None,
     inputs: TreatmentInputs | None = None,
 ) -> bool:
-    """O `train` do CLI executado com `root` como diretório de execução."""
+    """O `train` do CLI executado com `root` como diretório de execução; a raiz do
+    repositório é a do mundo sintético, injetada só por `TreatmentInputs`."""
     with contextlib.chdir(root), _quiet():
         return run_canonical_train(inputs or world.inputs("T"), _SEED, world.control, force, reason)
 
@@ -1213,8 +1216,8 @@ def check_lifecycle(world: _World) -> list[bool]:
 
 
 def check_run_uniqueness(world: _World) -> list[bool]:
-    """O CLI só treina no run canônico sob o diretório de execução; outra raiz
-    ignorada não abre um segundo run da mesma seed."""
+    """O CLI só treina no run canônico da raiz do repositório; outra raiz ignorada
+    ou um ancestral dela não abre um segundo run da mesma seed."""
     canonical = _canonical_run(world)
     before = _tree(canonical)
     try:
@@ -1241,29 +1244,56 @@ def check_run_uniqueness(world: _World) -> list[bool]:
     linked = world.tmp / "linked"
     linked.mkdir()
     (linked / "inputs").symlink_to(world.tmp, target_is_directory=True)
-    through_link = linked / "inputs"
-    linked_inputs = world.inputs(
-        "T",
-        adapter_dir=through_link / world.adapter_dir.relative_to(world.tmp),
-        pose_dir=through_link / world.pose_dir.relative_to(world.tmp),
-        training_dir=through_link / "training",
-        le2i=replace(
-            world.le2i,
-            pose_root=through_link / world.le2i.pose_root.relative_to(world.tmp),
-            frames_path=through_link / world.le2i.frames_path.relative_to(world.tmp),
-            stats_path=through_link / world.le2i.stats_path.relative_to(world.tmp),
-        ),
-    )
+    linked_inputs = _through(world, linked / "inputs")
     alternate_refused = not _canonical_train(world, alternate) and not _canonical_train(
         world, alternate, True, "segunda tentativa"
     )
     linked_refused = not _canonical_train(world, linked, inputs=linked_inputs)
     with contextlib.chdir(alternate):
-        alternate_problems = execution_root_problems(world.inputs("T"), world.control)
+        alternate_problems = execution_root_problems(world.inputs("T"), _SEED, world.control)
     with contextlib.chdir(linked):
-        linked_problems = execution_root_problems(linked_inputs, world.control)
+        linked_problems = execution_root_problems(linked_inputs, _SEED, world.control)
+
+    # O ancestral do repositório sintético contém todas as entradas, direto e por
+    # link simbólico; só a identidade da raiz do repositório o recusa.
+    parent = world.tmp.parent
+    (parent / "inputs").symlink_to(world.tmp, target_is_directory=True)
+    parent_inputs = _through(world, parent / "inputs")
+    parent_before = sorted(path.name for path in parent.iterdir())
+    beneath_parent = all(
+        parent.resolve() in path.resolve().parents
+        for inputs in (world.inputs("T"), parent_inputs)
+        for path in (
+            inputs.adapter_dir,
+            inputs.pose_dir,
+            inputs.training_dir,
+            inputs.le2i.pose_root,
+            inputs.le2i.frames_path,
+            inputs.le2i.stats_path,
+            world.control.run_dir,
+        )
+    )
+    parent_refused = (
+        not _canonical_train(world, parent)
+        and not _canonical_train(world, parent, True, "segunda tentativa")
+        and not _canonical_train(world, parent, inputs=parent_inputs)
+    )
+    with contextlib.chdir(parent), _quiet():
+        parent_problems = execution_root_problems(world.inputs("T"), _SEED, world.control)
+        linked_parent_problems = execution_root_problems(parent_inputs, _SEED, world.control)
+        parent_preflight = run_preflight(world.inputs("T"), _SEED, world.control)
+
+    escaped = world.tmp / "escaped"
+    escaped.mkdir()
+    elsewhere = world.tmp / "elsewhere"
+    elsewhere.mkdir()
+    (escaped / "runs").symlink_to(elsewhere, target_is_directory=True)
+    escaped_inputs = world.inputs("T", repository_root=escaped)
+    escaped_refused = not _canonical_train(world, escaped, inputs=escaped_inputs)
+    with contextlib.chdir(escaped):
+        escaped_problems = execution_root_problems(escaped_inputs, _SEED, world.control)
     with contextlib.chdir(world.tmp):
-        canonical_problems = execution_root_problems(world.inputs("T"), world.control)
+        canonical_problems = execution_root_problems(world.inputs("T"), _SEED, world.control)
     skipped = _canonical_train(world, world.tmp)
     forced_refused = not _canonical_train(world, world.tmp, True, "segunda tentativa")
     return [
@@ -1276,14 +1306,32 @@ def check_run_uniqueness(world: _World) -> list[bool]:
         _check(
             "segundo run da mesma seed a partir de outra raiz ignorada é recusado, com e sem "
             "--force, e a outra raiz não ganha run",
-            alternate_refused and len(alternate_problems) == 7 and not any(alternate.iterdir()),
+            alternate_refused and len(alternate_problems) == 1 and not any(alternate.iterdir()),
         ),
         _check(
             "outra raiz que alcança as mesmas entradas por link simbólico também é recusada",
-            linked_refused and len(linked_problems) == 7 and not (linked / "runs").exists(),
+            linked_refused and len(linked_problems) == 1 and not (linked / "runs").exists(),
         ),
         _check(
-            "no diretório de execução das entradas, o run canônico é aceito",
+            "ancestral do repositório com todas as entradas sob ele, direto ou por link "
+            "simbólico, é recusado em train e preflight sem gravar run",
+            beneath_parent
+            and parent_refused
+            and not parent_preflight
+            and len(parent_problems) == len(linked_parent_problems) == 1
+            and sorted(path.name for path in parent.iterdir()) == parent_before
+            and not (parent / "runs").exists(),
+        ),
+        _check(
+            "entradas fora da raiz do repositório e run canônico que escapa dela por link "
+            "simbólico são recusados sem gravar",
+            escaped_refused
+            and len(escaped_problems) == 8
+            and sum("run canônico" in problem for problem in escaped_problems) == 1
+            and not any(elsewhere.iterdir()),
+        ),
+        _check(
+            "na raiz do repositório, o run canônico é aceito",
             canonical_problems == [] and skipped,
         ),
         _check(
@@ -1291,6 +1339,22 @@ def check_run_uniqueness(world: _World) -> list[bool]:
             forced_refused and _tree(canonical) == before,
         ),
     ]
+
+
+def _through(world: _World, link: Path) -> TreatmentInputs:
+    """As entradas do mundo sintético alcançadas por `link`, que aponta para `world.tmp`."""
+    return world.inputs(
+        "T",
+        adapter_dir=link / world.adapter_dir.relative_to(world.tmp),
+        pose_dir=link / world.pose_dir.relative_to(world.tmp),
+        training_dir=link / "training",
+        le2i=replace(
+            world.le2i,
+            pose_root=link / world.le2i.pose_root.relative_to(world.tmp),
+            frames_path=link / world.le2i.frames_path.relative_to(world.tmp),
+            stats_path=link / world.le2i.stats_path.relative_to(world.tmp),
+        ),
+    )
 
 
 def check_coverage(world: _World) -> list[bool]:
@@ -1330,7 +1394,9 @@ def check_coverage(world: _World) -> list[bool]:
 def run_treatment_selftest() -> None:
     checks: list[bool] = []
     with tempfile.TemporaryDirectory() as tmp_dir:
-        world = _build(Path(tmp_dir))
+        repository = Path(tmp_dir) / "gatefall"
+        repository.mkdir()
+        world = _build(repository)
         checks.extend(check_membership(world))
         checks.extend(check_alignment(world))
         checks.extend(check_statistics(world))

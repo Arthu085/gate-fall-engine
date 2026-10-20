@@ -135,13 +135,17 @@ pesos, ao controle pareado e ao commit do código. Nada disso é sincronizado
 com o Google Drive.
 
 `train` não tem `--run-dir`: cada tratamento e seed têm um único local de
-execução, `runs/local/gmdcsa24_weak_label/<t|s>/seed_<n>/` sob o diretório
-em que o comando roda. `train` e `preflight` recusam qualquer entrada (adapter,
-pose, `--training-dir`, grade, pose e JSON do Le2i-CS e controle) cujo
-caminho resolvido, inclusive por link simbólico, fique fora desse diretório.
+execução, `runs/local/gmdcsa24_weak_label/<t|s>/seed_<n>/` na raiz do
+repositório GateFall. `train` e `preflight` exigem que o diretório de execução
+resolvido seja essa raiz, a do código importado, e não só que contenha as
+entradas; um diretório ancestral do repositório é recusado mesmo que todas as
+entradas resolvam sob ele. Também recusam qualquer entrada (adapter, pose,
+`--training-dir`, grade, pose e JSON do Le2i-CS e controle) e o run canônico
+cujo caminho resolvido, inclusive por link simbólico, fique fora da raiz.
 Assim outra raiz de saída ignorada não reaproveita as mesmas entradas para
-abrir um segundo run da mesma seed; isso só seria possível copiando todos os
-dados para outra árvore.
+abrir um segundo run da mesma seed; isso só seria possível com outro clone do
+repositório e cópia de todos os dados. Os selftests usam uma raiz sintética
+injetada pela API Python, sem opção correspondente no CLI.
 
 Antes de gravar, `prepare` e `train` também recusam, com caminhos resolvidos
 (inclusive links simbólicos) e em qualquer relação de ancestral ou
@@ -216,7 +220,11 @@ principal (dados reais), rodaram só comandos que não montam features:
   comparação de V4 entre a configuração do tratamento e a do controle ainda
   não foi feita sobre os dados reais. Repetido depois das salvaguardas de
   ciclo de vida e de isolamento, com o mesmo resultado e "saídas" passando
-  nos dez casos.
+  nos dez casos. Com a exigência da raiz do repositório, o mesmo preflight,
+  executado do checkout principal com o ambiente de um worktree, reprova
+  "saídas" para T e S na seed 42: a raiz do código importado é o worktree.
+  `preflight` e `train` reais rodam da raiz do checkout cujo código está
+  instalado no ambiente usado.
 
 Nenhum arquivo foi gravado em `data/processed/gmdcsa24_training/` nem em
 `runs/local/gmdcsa24_weak_label/`.
@@ -277,9 +285,10 @@ um controle e um run de T com a receita congelada. Ele cobre:
   preparação inalterada passando;
 - recusa de `--training-dir` e de run sobrepostos, por link simbólico, com
   outros runs ou fora do layout, sem gravar nem alterar artefato;
-- `train` sem `--run-dir`, com o run canônico aceito e um segundo run da mesma
-  seed recusado a partir de outra raiz ignorada, inclusive com as entradas
-  alcançadas por link simbólico;
+- `train` sem `--run-dir`, com o run canônico aceito na raiz do repositório e
+  um segundo run da mesma seed recusado a partir de outra raiz ignorada ou de
+  um ancestral do repositório, inclusive com as entradas alcançadas por link
+  simbólico, e com o run canônico escapando da raiz por link simbólico;
 - run completo nunca refeito com `--force`, `treatment.json` adulterado
   recusado com e sem `--force`, run incompleto recusado sem motivo e
   recuperado com motivo registrado, e recuperação de outra configuração ou

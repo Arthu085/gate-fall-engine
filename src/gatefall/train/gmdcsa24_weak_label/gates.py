@@ -184,6 +184,7 @@ class TreatmentInputs:
     gate: TrainingGate = PINNED_TRAINING_GATE
     load_features: FeatureLoader = arm_a_features
     lineage: Callable[[str, str], bool] = git_lineage
+    repository_root: Path = REPOSITORY_ROOT
 
     @property
     def prepared_dir(self) -> Path:
@@ -288,10 +289,17 @@ def canonical_run_dir(treatment: str, seed: int) -> Path:
     return DEFAULT_RUN_ROOT / treatment.lower() / f"seed_{seed}"
 
 
-def execution_root_problems(inputs: TreatmentInputs, control: ControlRun) -> list[str]:
-    """No CLI, todas as entradas ficam sob o diretório de execução, que fixa o run
-    canônico; outra raiz com saídas ignoradas não reaproveita as mesmas entradas."""
-    root = Path.cwd().resolve()
+def execution_root_problems(inputs: TreatmentInputs, seed: int, control: ControlRun) -> list[str]:
+    """No CLI, o diretório de execução é a raiz do repositório GateFall, que fixa o
+    run canônico; nenhum ancestral nem outra raiz reaproveita as mesmas entradas."""
+    root = inputs.repository_root.resolve()
+    cwd = Path.cwd().resolve()
+    problems = []
+    if cwd != root:
+        problems.append(
+            f"diretório de execução {cwd} difere da raiz do repositório GateFall {root}, "
+            "que guarda o run canônico de cada tratamento e seed"
+        )
     paths = {
         "adapter do GMDCSA24": inputs.adapter_dir,
         "pose do GMDCSA24": inputs.pose_dir,
@@ -301,12 +309,18 @@ def execution_root_problems(inputs: TreatmentInputs, control: ControlRun) -> lis
         "JSON de padronização do controle": inputs.le2i.stats_path,
         "run do controle": control.run_dir,
     }
-    return [
-        f"{name} ({path}) fora do diretório de execução {root}, que guarda o run canônico "
-        "de cada tratamento e seed"
+    problems.extend(
+        f"{name} ({path}) fora da raiz do repositório GateFall {root}"
         for name, path in paths.items()
         if root not in path.resolve().parents
-    ]
+    )
+    run_dir = root / canonical_run_dir(inputs.treatment, seed)
+    if root not in run_dir.resolve().parents:
+        problems.append(
+            f"run canônico {run_dir} resolve para {run_dir.resolve()}, fora da raiz do "
+            f"repositório GateFall {root}"
+        )
+    return problems
 
 
 def checkout_problems(checkout: tuple[str, list[str]]) -> list[str]:

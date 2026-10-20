@@ -7,7 +7,8 @@ padronização e pesos da perda só sobre ele, confere os portões de pré-trein
 treina uma seed com a receita congelada do braço A. O treino avalia só
 `train` e `val`; `test` não é lido nem avaliado antes da decisão GO/NO-GO.
 Grava só em `data/processed/gmdcsa24_training/` e, no run canônico de cada
-tratamento e seed, em `runs/local/gmdcsa24_weak_label/<t|s>/seed_<n>/`.
+tratamento e seed, em `runs/local/gmdcsa24_weak_label/<t|s>/seed_<n>/` da raiz
+do repositório.
 """
 
 import argparse
@@ -123,7 +124,7 @@ def print_preparation(record: dict[str, object], differences: dict[str, dict[str
 
 def run_preflight(inputs: TreatmentInputs, seed: int, control: ControlRun) -> bool:
     assessment = assess_training(inputs, seed, control)
-    assessment.results["saídas"].extend(execution_root_problems(inputs, control))
+    assessment.results["saídas"].extend(execution_root_problems(inputs, seed, control))
     return report(f"preflight do treino de {inputs.treatment}, seed {seed}", assessment.results)
 
 
@@ -274,9 +275,9 @@ def run_canonical_train(
     force: bool = False,
     recovery_reason: str | None = None,
 ) -> bool:
-    """O `train` do CLI: sempre no run canônico do tratamento e da seed, sob o
-    diretório de execução que contém todas as entradas."""
-    problems = execution_root_problems(inputs, control)
+    """O `train` do CLI: sempre no run canônico do tratamento e da seed, executado
+    da raiz do repositório GateFall, que contém todas as entradas."""
+    problems = execution_root_problems(inputs, seed, control)
     if problems:
         return refuse("train", problems)
     run_dir = canonical_run_dir(inputs.treatment, seed)
