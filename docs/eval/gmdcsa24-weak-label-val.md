@@ -155,9 +155,11 @@ Com a decisão registrada, `prepare` e `train` também recusam gravar ou
 recuperar qualquer preparação ou run do piloto, mesmo com `--force`; as
 leituras de resultados inalterados continuam aceitas.
 
-O registro é a decisão. As métricas descritivas de `test`, calculadas uma vez
-depois dela, ficam para uma implementação própria, que não existe neste
-módulo; nenhum comando aqui avalia `test`.
+O registro é a decisão. As métricas descritivas de `test` são calculadas uma
+vez depois dela pelo [`describe-test`](gmdcsa24-weak-label-test.md), que não
+muda o registro; `evaluate` e `decide` não avaliam `test`. Depois de qualquer
+acesso a `test`, `decide` não registra decisão nova, mesmo sem
+`decision.json`.
 
 ## Saídas
 

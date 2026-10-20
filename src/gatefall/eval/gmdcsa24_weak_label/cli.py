@@ -8,8 +8,9 @@ e dos controles pareados, exige as cinco seeds do controle e todos os
 portões, aplica o
 [critério de decisão](docs/analysis/gmdcsa24-weak-label-protocol.md#criterio-de-decisao)
 e registra a decisão uma única vez em
-`runs/local/gmdcsa24_weak_label/decision.json`. As métricas descritivas de
-`test`, calculadas uma vez depois da decisão, não fazem parte deste módulo.
+`runs/local/gmdcsa24_weak_label/decision.json`. `describe-test`
+(`descriptive`) calcula as métricas descritivas de `test` uma vez por
+tratamento e seed, só depois da decisão registrada, sem mudar nada dela.
 """
 
 import argparse
@@ -68,6 +69,7 @@ from gatefall.train.gmdcsa24_weak_label.gates import (
     execution_root_problems,
     location_problems,
     report,
+    test_access_problems,
 )
 
 DECISION_LOCK_FILE = ".decision.lock"
@@ -332,7 +334,8 @@ def comparable(record: Mapping[str, object]) -> object:
 
 def record_decision(path: Path, record: dict[str, object]) -> bool:
     """Grava a decisão uma única vez, sob lock exclusivo: recalculá-la igual é
-    aceito, diferente é recusado, e uma decisão existente nunca é substituída."""
+    aceito, diferente é recusado, e uma decisão existente nunca é substituída.
+    Depois de qualquer acesso a `test`, nenhuma decisão nova é registrada."""
     problems = location_problems(path.parent)
     if problems:
         return refuse("decide", problems)
@@ -350,7 +353,7 @@ def record_decision(path: Path, record: dict[str, object]) -> bool:
                 print(f"\nskip {path} (decisão já registrada e igual à recalculada)")
                 return True
             return refuse("decide", differs)
-        problems = changed_inputs(record)
+        problems = [*test_access_problems(path.parent), *changed_inputs(record)]
         if problems:
             return refuse("decide", problems)
         if not publish_once(path, record):
@@ -362,6 +365,10 @@ def record_decision(path: Path, record: dict[str, object]) -> bool:
 def run_decide(inputs_by_treatment: Mapping[str, TreatmentInputs]) -> bool:
     inputs_t = inputs_by_treatment["T"]
     seeds = sorted(inputs_t.gate.control_checkpoint_sha256)
+    if not (DEFAULT_RUN_ROOT / DECISION_FILE).exists():
+        problems = test_access_problems()
+        if problems:
+            return refuse("decide", problems)
     problems = [problem for treatment in TREATMENTS for problem in on_disk_problems(treatment, seeds)]
     if problems:
         return refuse("decide", problems)
@@ -459,8 +466,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Aplica o critério GO/NO-GO em val às cinco seeds de T e S e registra a decisão",
     )
     add_inputs(decide_parser)
+    describe_parser = subparsers.add_parser(
+        "describe-test",
+        help="Depois da decisão registrada, descreve test uma única vez para um tratamento e seed",
+    )
+    describe_parser.add_argument("--treatment", required=True, choices=TREATMENTS)
+    describe_parser.add_argument("--seed", type=int, required=True)
+    describe_parser.add_argument(
+        "--recovery-reason",
+        help="Motivo técnico para refazer uma tentativa interrompida antes da publicação",
+    )
+    add_inputs(describe_parser)
     subparsers.add_parser(
-        "selftest", help="Verifica a avaliação só em val e a decisão com dados sintéticos"
+        "selftest",
+        help="Verifica a avaliação só em val, a decisão e o test descritivo com dados sintéticos",
     )
     return parser
 
@@ -468,16 +487,25 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "selftest":
+        from gatefall.eval.gmdcsa24_weak_label.selftests.descriptive import (
+            run_descriptive_selftest,
+        )
         from gatefall.eval.gmdcsa24_weak_label.selftests.val_decision import (
             run_val_decision_selftest,
         )
 
         run_val_decision_selftest()
+        run_descriptive_selftest()
         return
     try:
         if args.command == "evaluate":
             control = ControlRun(args.control_run_dir, args.control_retrained)
             ok = run_val_evaluation(build_inputs(args, args.treatment), args.seed, control, args.force)
+        elif args.command == "describe-test":
+            from gatefall.eval.gmdcsa24_weak_label.descriptive import run_test_description
+
+            inputs = build_inputs(args, args.treatment)
+            ok = run_test_description(inputs, args.seed, args.recovery_reason)
         else:
             inputs = build_inputs(args, "T")
             ok = run_decide({"T": inputs, "S": replace(inputs, treatment="S")})
