@@ -303,7 +303,11 @@ um controle e um run de T com a receita congelada. Ele cobre:
   `--control-retrained`) e V4;
 - nenhuma feature de `test` lida em preflight e treino, run sem `test` e o
   controle canônico ainda avaliando `test`;
-- cobertura descritiva sem mudar T nem S.
+- cobertura descritiva sem mudar T nem S;
+- execução a partir de um checkout de trabalho com `decision.json` e o
+  marcador `test_descriptive/` registrados e ilegíveis, como o real depois da
+  decisão: o mundo sintético roda com o repositório temporário como diretório
+  de execução e não lê, grava nem apaga nada nesse checkout.
 
 ## O que fica para depois
 

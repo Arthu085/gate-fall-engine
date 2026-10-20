@@ -60,6 +60,7 @@ from gatefall.train.gmdcsa24_weak_label.selftests.treatment import (
     _TEST_VIDEOS,
     _build,
     _canonical_train,
+    _from_frozen_checkout,
     _tree,
     _World,
 )
@@ -595,7 +596,7 @@ def check_interrupted(context: _Context) -> list[bool]:
 
 def run_descriptive_selftest() -> None:
     checks: list[bool] = []
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with _from_frozen_checkout(checks), tempfile.TemporaryDirectory() as tmp_dir:
         repository = Path(tmp_dir) / "gatefall"
         repository.mkdir()
         context = _Context(_build(repository))

@@ -237,7 +237,11 @@ controle e cobre:
   quando um arquivo lido mudou;
 - oito `decide` concorrentes com resultados diferentes (um publica, os iguais
   confirmam, os diferentes são recusados), o registro esperando o lock
-  exclusivo e a publicação que nunca substitui um arquivo existente.
+  exclusivo e a publicação que nunca substitui um arquivo existente;
+- como no selftest do treino, este e o do `test` descritivo partindo de um
+  checkout de trabalho com `decision.json` e `test_descriptive/` registrados e
+  ilegíveis, sem ler, gravar nem apagar nada nele: a preparação, o treino e a
+  avaliação sintéticos rodam no repositório temporário.
 
 Os selftests canônicos das armas (`gatefall.eval.baseline_a` e os demais)
 continuam cobrindo a orquestração com `val` e `test`.
