@@ -93,7 +93,10 @@ proveniência, W1, W2, V2, V5 e tratamento) e o isolamento de `--training-dir`.
 Qualquer falha bloqueia o comando sem gravar nada. Uma preparação existente
 que passa em "padronização e pesos" é pulada, com ou sem `--force`, porque o
 `treatment.json` dos runs registra o SHA-256 do manifesto preparado; `--force`
-só recria uma preparação que reprova.
+só recria uma preparação que reprova. Depois da
+[decisão registrada](../eval/gmdcsa24-weak-label-val.md#registro), `prepare` e
+`train` recusam gravar, mesmo com `--force`; preparação conferida e run
+completo continuam sendo pulados.
 
 ## Isolamento de `test`
 
@@ -109,9 +112,11 @@ piloto não avalia:
 - `test` só aparece pelo hash do índice de janelas, calculado da grade, como o
   adapter já fazia. Nenhuma feature, predição ou métrica de `test` é calculada.
 
-O módulo não tem comando de avaliação em `test`. As métricas descritivas de
-`test`, calculadas uma vez depois da decisão GO/NO-GO em `val`, ficam para uma
-implementação própria.
+O módulo não tem comando de avaliação em `test`. A avaliação de eventos em
+`val` e a decisão GO/NO-GO ficam em
+[Eventos em `val` e decisão](../eval/gmdcsa24-weak-label-val.md), que também
+não avalia `test`. As métricas descritivas de `test`, calculadas uma vez
+depois da decisão em `val`, ficam para uma implementação própria.
 
 ## Saídas
 
@@ -301,9 +306,10 @@ um controle e um run de T com a receita congelada. Ele cobre:
 
 ## O que fica para depois
 
-- `prepare` de T e S e os dez treinos sobre os dados reais.
-- A avaliação de eventos em `val` dos runs de T e S, necessária para G2 e G3.
-  O avaliador de eventos do braço A avalia `val` e `test` juntos, então ele
-  não pode ser usado nesses runs antes da decisão.
-- A decisão GO/NO-GO e as métricas descritivas de `test`, calculadas uma vez
-  depois dela.
+- Os dez treinos sobre os dados reais. O responsável pelo projeto informou
+  que o `prepare` real de T e S terminou, com manifestos e JSON de
+  padronização registrados por SHA-256, e que os dez `preflight` passaram nas
+  11 condições; essa evidência não foi reexecutada nos PRs.
+- A avaliação de eventos em `val` dos dez runs e a decisão GO/NO-GO, com os
+  comandos de [Eventos em `val` e decisão](../eval/gmdcsa24-weak-label-val.md).
+- As métricas descritivas de `test`, calculadas uma vez depois da decisão.

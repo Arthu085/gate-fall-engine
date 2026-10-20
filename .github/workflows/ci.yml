@@ -60,6 +60,7 @@ jobs:
           uv run python -m gatefall.eval.baseline_b0 selftest
           uv run python -m gatefall.eval.baseline_b1 selftest
           uv run python -m gatefall.eval.baseline_c1 selftest
+          uv run python -m gatefall.eval.gmdcsa24_weak_label selftest
           uv run python -m gatefall.eval.analysis.qualitative selftest
           uv run python -m gatefall.eval.analysis.alarm_protocol_sensitivity selftest
           uv run python -m gatefall.eval.analysis.gate_degradation selftest

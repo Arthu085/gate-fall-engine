@@ -2,8 +2,8 @@
 
 import json
 import uuid
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
@@ -17,6 +17,7 @@ from gatefall.eval.shared.alarm_protocol import (
     save_alarm_protocol,
 )
 from gatefall.eval.shared.event_artifacts import (
+    EVENT_SPLITS,
     EventEvaluationLock,
     EventRunConfig,
     _promote_event_outputs,
@@ -33,15 +34,24 @@ SplitEvaluator = Callable[[str], tuple[int, Predictions]]
 
 @dataclass(frozen=True)
 class EventEvaluation:
+    """Avaliação de eventos de um run. Os padrões são os das armas canônicas
+    (`val` e `test` em `event_metrics.json`); um caminho experimental restringe
+    os splits, troca o arquivo, acrescenta campos de proveniência ao relatório e
+    confere os splits calculados antes da publicação."""
+
     config: EventRunConfig
     prepare: Callable[[], tuple[pd.DataFrame, SplitEvaluator]]
+    splits: tuple[str, ...] = EVENT_SPLITS
+    metrics_file: str = "event_metrics.json"
+    provenance: Mapping[str, object] = field(default_factory=dict)
+    check_splits: Callable[[dict[str, dict]], None] | None = None
 
 
 def _existing_pair_valid(
     force: bool,
     arm: str,
     run_dir: Path,
-    config: EventRunConfig,
+    evaluation: EventEvaluation,
     checkpoint_path: Path,
     alarm_protocol_path: Path,
     event_metrics_path: Path,
@@ -60,11 +70,13 @@ def _existing_pair_valid(
                 existing_report = json.load(stream)
             validate_event_metrics(
                 existing_report,
-                config,
+                evaluation.config,
                 checkpoint_path,
                 alarm_protocol_path,
                 training_metrics_path=run_dir / "metrics.json",
                 require_hashes=True,
+                splits=evaluation.splits,
+                provenance=evaluation.provenance,
             )
         except (OSError, ValueError, TypeError, KeyError) as exc:
             if not force:
@@ -102,9 +114,13 @@ def _n_fall_segments_in_annotation(frames: pd.DataFrame, split: str) -> int:
     return total_segments
 
 
-def _split_reports(frames: pd.DataFrame, evaluate_split: SplitEvaluator) -> dict[str, dict]:
+def _split_reports(
+    frames: pd.DataFrame,
+    evaluate_split: SplitEvaluator,
+    split_names: tuple[str, ...] = EVENT_SPLITS,
+) -> dict[str, dict]:
     splits: dict[str, dict] = {}
-    for split in ("val", "test"):
+    for split in split_names:
         usable_windows, predictions = evaluate_split(split)
         split_frames = cast(pd.DataFrame, frames[frames["split"] == split])
         total_windows = len(
@@ -141,23 +157,25 @@ def _split_reports(frames: pd.DataFrame, evaluate_split: SplitEvaluator) -> dict
 def _publish_report(
     run_dir: Path,
     lock: EventEvaluationLock,
-    config: EventRunConfig,
+    evaluation: EventEvaluation,
     splits: dict[str, dict],
     previous_pair_valid: bool,
     checkpoint_path: Path,
     alarm_protocol_path: Path,
     event_metrics_path: Path,
 ) -> None:
+    config = evaluation.config
     report = {
         "run_name": config.run_name,
         "checkpoint_path": str(checkpoint_path),
         "alarm_protocol_path": str(alarm_protocol_path),
         "splits": splits,
     }
+    report.update(evaluation.provenance)
     run_dir.mkdir(parents=True, exist_ok=True)
     token = uuid.uuid4().hex
     protocol_tmp = run_dir / f".alarm_protocol.pending-{token}.yaml"
-    metrics_tmp = run_dir / f".event_metrics.pending-{token}.json"
+    metrics_tmp = run_dir / f".{Path(event_metrics_path.name).stem}.pending-{token}.json"
     save_alarm_protocol(BASELINE_A_ALARM_PROTOCOL, protocol_tmp, force=True)
     report["checkpoint_sha256"] = sha256_file(checkpoint_path)
     report["training_metrics_sha256"] = sha256_file(run_dir / "metrics.json")
@@ -176,6 +194,8 @@ def _publish_report(
         training_metrics_path=run_dir / "metrics.json",
         protocol_file_path=protocol_tmp,
         require_hashes=True,
+        splits=evaluation.splits,
+        provenance=evaluation.provenance,
     )
     _promote_event_outputs(
         protocol_tmp,
@@ -202,12 +222,12 @@ def run_event_evaluation(
     evaluation = load_run()
     checkpoint_path = run_dir / "checkpoint.pt"
     alarm_protocol_path = run_dir / "alarm_protocol.yaml"
-    event_metrics_path = run_dir / "event_metrics.json"
+    event_metrics_path = run_dir / evaluation.metrics_file
     previous_pair_valid, skip = _existing_pair_valid(
         force,
         arm,
         run_dir,
-        evaluation.config,
+        evaluation,
         checkpoint_path,
         alarm_protocol_path,
         event_metrics_path,
@@ -215,11 +235,13 @@ def run_event_evaluation(
     if skip:
         return
     frames, evaluate_split = evaluation.prepare()
-    splits = _split_reports(frames, evaluate_split)
+    splits = _split_reports(frames, evaluate_split, evaluation.splits)
+    if evaluation.check_splits is not None:
+        evaluation.check_splits(splits)
     _publish_report(
         run_dir,
         lock,
-        evaluation.config,
+        evaluation,
         splits,
         previous_pair_valid,
         checkpoint_path,

@@ -15,6 +15,7 @@ class EventRunConfig(Protocol):
     run_name: str
 
 
+EVENT_SPLITS: tuple[str, ...] = ("val", "test")
 EVENT_LOCK_FILE = ".event-evaluation.lock"
 EVENT_TRANSACTION_FILE = ".event-evaluation-transaction.json"
 
@@ -108,6 +109,8 @@ def validate_event_metrics(
     training_metrics_path: Path | None = None,
     protocol_file_path: Path | None = None,
     require_hashes: bool = False,
+    splits: tuple[str, ...] = EVENT_SPLITS,
+    provenance: Mapping[str, object] | None = None,
 ) -> None:
     if not isinstance(data, Mapping):
         raise ValueError("event_metrics.json deve ser um objeto")
@@ -130,11 +133,14 @@ def validate_event_metrics(
         for field, expected in expected_hashes.items():
             if data.get(field) != expected:
                 raise ValueError(f"event_metrics.json: {field} incompatível")
-    splits = data.get("splits")
-    if not isinstance(splits, Mapping) or set(splits) != {"val", "test"}:
-        raise ValueError("event_metrics.json: splits deve conter val e test")
-    for split in ("val", "test"):
-        split_data = splits[split]
+    for field, expected in (provenance or {}).items():
+        if data.get(field) != expected:
+            raise ValueError(f"event_metrics.json: {field} incompatível")
+    split_reports = data.get("splits")
+    if not isinstance(split_reports, Mapping) or set(split_reports) != set(splits):
+        raise ValueError(f"event_metrics.json: splits deve conter {' e '.join(splits)}")
+    for split in splits:
+        split_data = split_reports[split]
         if not isinstance(split_data, Mapping):
             raise ValueError(f"event_metrics.json: split {split} deve ser objeto")
         missing = EVENT_SPLIT_FIELDS - set(split_data)

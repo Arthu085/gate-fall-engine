@@ -104,6 +104,7 @@ DEFAULT_RUN_ROOT = Path("runs/local/gmdcsa24_weak_label")
 PREPARED_MANIFEST_FILE = "manifest.json"
 PREPARED_STATS_FILE = "pose_stats.json"
 TREATMENT_RECORD_FILE = "treatment.json"
+DECISION_FILE = "decision.json"
 VALIDATION_SPLITS = ("train", "val")
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 
@@ -321,6 +322,17 @@ def execution_root_problems(inputs: TreatmentInputs, seed: int, control: Control
             f"repositório GateFall {root}"
         )
     return problems
+
+
+def decision_problems() -> list[str]:
+    """Com a decisão GO/NO-GO registrada, nada que a sustenta é recriado."""
+    path = DEFAULT_RUN_ROOT / DECISION_FILE
+    if path.exists():
+        return [
+            f"{path}: decisão GO/NO-GO registrada; preparação, runs e avaliações que a "
+            "sustentam não são mais gravados nem recuperados"
+        ]
+    return []
 
 
 def checkout_problems(checkout: tuple[str, list[str]]) -> list[str]:
