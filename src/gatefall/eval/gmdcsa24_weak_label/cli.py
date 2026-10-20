@@ -49,7 +49,7 @@ from gatefall.eval.gmdcsa24_weak_label.validation import (
     val_event_evaluation,
     val_report,
 )
-from gatefall.eval.shared.event_artifacts import EventEvaluationLock
+from gatefall.eval.shared.event_artifacts import EVENT_TRANSACTION_FILE, EventEvaluationLock
 from gatefall.eval.shared.orchestration import run_event_evaluation
 from gatefall.hashing import sha256_file
 from gatefall.runs import REPOSITORY_ROOT
@@ -115,7 +115,9 @@ def run_val_evaluation(
     """O `evaluate` do CLI: só o run canônico do tratamento e da seed, da raiz do
     repositório, depois dos portões de pré-treino e do run completo. Um par
     completo e íntegro é imutável, inclusive com `--force`; `--force` só
-    recupera um par parcial ou inconsistente, e só antes da decisão registrada."""
+    recupera um par parcial ou inconsistente, ou uma publicação interrompida, e
+    só antes da decisão registrada. Tudo é decidido sob o lock do run, antes de
+    a orquestração compartilhada tocar no journal."""
     problems = execution_root_problems(inputs, seed, control)
     if problems:
         return refuse("evaluate", problems)
@@ -124,25 +126,38 @@ def run_val_evaluation(
     if not report(title, check.results) or check.run is None:
         return False
     run = check.run
+    journal = run.run_dir / EVENT_TRANSACTION_FILE
     with decision_lock(DEFAULT_RUN_ROOT, exclusive=False):
-        complete = complete_pair(run)
-        if complete and force:
-            return refuse(
-                "evaluate",
-                [
-                    f"{run.run_dir / VAL_EVENT_METRICS_FILE}: avaliação completa e íntegra é "
-                    "imutável; --force só recupera um par parcial ou inconsistente"
-                ],
-            )
-        if complete:
-            print(f"\nskip {run.run_dir / VAL_EVENT_METRICS_FILE} (avaliação completa e íntegra)")
-            return True
-        problems = decision_problems()
-        if problems:
-            return refuse("evaluate", problems)
-        evaluation = val_event_evaluation(inputs, run)
         try:
             with EventEvaluationLock(run.run_dir) as lock:
+                complete = complete_pair(run)
+                if complete and force:
+                    return refuse(
+                        "evaluate",
+                        [
+                            f"{run.run_dir / VAL_EVENT_METRICS_FILE}: avaliação completa e "
+                            "íntegra é imutável; --force só recupera um par parcial ou "
+                            "inconsistente"
+                        ],
+                    )
+                if complete:
+                    print(
+                        f"\nskip {run.run_dir / VAL_EVENT_METRICS_FILE} "
+                        "(avaliação completa e íntegra)"
+                    )
+                    return True
+                problems = decision_problems()
+                if problems:
+                    return refuse("evaluate", problems)
+                if journal.exists() and not force:
+                    return refuse(
+                        "evaluate",
+                        [
+                            f"{journal}: publicação interrompida pendente; nada foi alterado; "
+                            "use --force para recuperá-la antes da decisão"
+                        ],
+                    )
+                evaluation = val_event_evaluation(inputs, run)
                 run_event_evaluation(force, "A", run.run_dir, lock, lambda: evaluation)
         except (RuntimeError, ValueError) as exc:
             return refuse("evaluate", [str(exc)])

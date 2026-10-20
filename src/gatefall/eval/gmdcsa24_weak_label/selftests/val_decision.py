@@ -73,6 +73,7 @@ from gatefall.eval.shared.event_artifacts import (
     EventEvaluationLock,
     validate_event_metrics,
 )
+from gatefall.eval.shared import orchestration
 from gatefall.eval.shared.orchestration import (
     EventEvaluation,
     Predictions,
@@ -99,6 +100,7 @@ from gatefall.train.gmdcsa24_weak_label.selftests.treatment import (
     _canonical_train,
     _prepare,
     _Spy,
+    _tree,
     _World,
 )
 
@@ -508,7 +510,12 @@ def check_evaluation_lifecycle(world: _World) -> list[bool]:
 
     journal = run_dir / EVENT_TRANSACTION_FILE
     journal.write_text("{}", encoding="utf-8")
-    pending_refused = bool(_val_report(world, "T")) and not _evaluate(world, "T")
+    pending_refused = (
+        bool(_val_report(world, "T"))
+        and not _evaluate(world, "T")
+        and not _evaluate(world, "T", force=True)
+        and journal.read_text(encoding="utf-8") == "{}"
+    )
     journal.unlink()
     return [
         _check(
@@ -525,8 +532,88 @@ def check_evaluation_lifecycle(world: _World) -> list[bool]:
             inconsistent_refused and inconsistent_recovered,
         ),
         _check(
-            "publicação interrompida pendente invalida o par e bloqueia evaluate",
+            "journal malformado invalida o par e bloqueia evaluate, com e sem --force, sem mudar",
             pending_refused,
+        ),
+    ]
+
+
+class _Crash(BaseException):
+    """Queda do processo no meio da promoção: escapa do `except Exception` que
+    recupera a publicação, deixando o journal como um processo morto deixaria."""
+
+
+_INTERRUPTED = "interrupted_publication"
+
+
+def _interrupt(world: _World, step: str) -> bool:
+    """Publicação real de `evaluate --force` interrompida depois de `step`."""
+    original = orchestration._promote_event_outputs
+
+    def crash(name: str) -> None:
+        if name == step:
+            raise _Crash(name)
+
+    def promote(*args: Any, **kwargs: Any) -> None:
+        original(*args, **{**kwargs, "after_step": crash})
+
+    with patch.object(orchestration, "_promote_event_outputs", promote):
+        try:
+            _evaluate(world, "T", force=True)
+        except _Crash:
+            return True
+    return False
+
+
+def _journal_valid(run_dir: Path) -> bool:
+    """Journal versão 1 de uma promoção parada entre o protocolo e as métricas."""
+    journal = json.loads((run_dir / EVENT_TRANSACTION_FILE).read_text(encoding="utf-8"))
+    return (
+        journal.get("version") == 1
+        and journal["metrics_path"] == VAL_EVENT_METRICS_FILE
+        and journal["staged_metrics"].startswith(".val_event_metrics.pending-")
+        and (run_dir / journal["staged_metrics"]).is_file()
+        and (run_dir / journal["metrics_backup"]).is_file()
+        and sha256_file(run_dir / ALARM_PROTOCOL_FILE) == journal["new_protocol_sha256"]
+        and not (run_dir / VAL_EVENT_METRICS_FILE).exists()
+    )
+
+
+def _leftovers(run_dir: Path) -> list[Path]:
+    return [
+        path
+        for path in run_dir.iterdir()
+        if path.name == EVENT_TRANSACTION_FILE or ".backup-" in path.name or ".pending-" in path.name
+    ]
+
+
+def check_interrupted_publication(world: _World) -> list[bool]:
+    """Antes da decisão, uma publicação interrompida com journal válido só é
+    recuperada com --force; sem --force, nada muda."""
+    run_dir = _run_dir(world, "T")
+    _edit_json(_other_seed)(run_dir / VAL_EVENT_METRICS_FILE)
+    interrupted = _interrupt(world, "publish_protocol")
+    if not interrupted or not _journal_valid(run_dir):
+        return [_check("publicação real interrompida deixa um journal válido", False)]
+    shutil.copytree(run_dir, world.tmp / _INTERRUPTED)
+    snapshot = _tree(run_dir)
+    decision_path = world.tmp / DEFAULT_RUN_ROOT / DECISION_FILE
+    untouched = not _evaluate(world, "T") and _tree(run_dir) == snapshot
+    undecided = not _decide(world) and not decision_path.exists() and _tree(run_dir) == snapshot
+    recovered = (
+        _evaluate(world, "T", force=True) and not _val_report(world, "T") and not _leftovers(run_dir)
+    )
+    return [
+        _check("publicação real interrompida deixa um journal válido", True),
+        _check(
+            "evaluate sem --force não finaliza, restaura nem limpa a publicação interrompida: "
+            "artefatos e journal intactos",
+            untouched,
+        ),
+        _check("decide recusa com a publicação pendente, sem registrar nem alterar nada", undecided),
+        _check(
+            "evaluate --force recupera antes da decisão: par íntegro sem journal, backup nem staging",
+            recovered,
         ),
     ]
 
@@ -676,6 +763,19 @@ def check_post_decision(world: _World) -> list[bool]:
             prepare_refused = not run_prepare(_inputs(world, "T"), force=True)
         prepare_refused = prepare_refused and stats.read_bytes() == shifted
 
+    def interrupted_state(path: Path) -> None:
+        shutil.rmtree(path)
+        shutil.copytree(world.tmp / _INTERRUPTED, path)
+
+    with _tampered(run_dir, interrupted_state):
+        snapshot = _tree(run_dir)
+        no_recovery = (
+            not _evaluate(world, "T")
+            and not _evaluate(world, "T", force=True)
+            and _tree(run_dir) == snapshot
+            and _journal_valid(run_dir)
+        )
+
     record = json.loads(decision)
     record["inputs"]["T"][str(_SEED)]["val_event_metrics_sha256"] = "0" * 64
     other = world.tmp / "other_decision" / DECISION_FILE
@@ -693,6 +793,11 @@ def check_post_decision(world: _World) -> list[bool]:
         _check(
             "depois da decisão, par parcial ou inconsistente não é recuperado, nem com --force",
             partial and inconsistent,
+        ),
+        _check(
+            "depois da decisão, publicação interrompida com journal válido não é recuperada, "
+            "nem com --force: artefatos e journal intactos",
+            no_recovery,
         ),
         _check(
             "depois da decisão, train --force e prepare --force recusam sem gravar",
@@ -914,6 +1019,7 @@ def run_val_decision_selftest() -> None:
             checks.extend(check_evaluation(world))
             checks.extend(check_report_tampering(world))
             checks.extend(check_evaluation_lifecycle(world))
+            checks.extend(check_interrupted_publication(world))
             checks.extend(check_decide(world))
             checks.extend(check_post_decision(world))
     if not all(checks):

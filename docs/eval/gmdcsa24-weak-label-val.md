@@ -73,6 +73,12 @@ forem os recalculados, sem publicação interrompida pendente.
 | Completo e íntegro | Só conferido (pula) | Recusa: avaliação completa é imutável |
 | Ausente | Avalia, antes da decisão | Recusa depois da decisão |
 | Parcial ou inconsistente | Recusa | Reconstrói o par, nunca o run, só antes da decisão |
+| Publicação interrompida (journal pendente) | Recusa sem finalizar, restaurar nem limpar nada | Recupera o journal e reconstrói o par, só antes da decisão |
+
+O estado do par, a decisão registrada e o journal são conferidos sob o lock
+do run, antes de a orquestração compartilhada tocar no journal: só `--force`
+autoriza a recuperação de uma publicação interrompida, que nas armas
+canônicas continua automática.
 
 Com `decision.json` registrado, `evaluate` só confere um par completo; nada
 que sustenta a decisão é gravado ou recuperado, nem com `--force`. A
@@ -216,11 +222,15 @@ controle e cobre:
 - `decide` registrando uma vez, pulando a decisão igual, recusando a
   diferente, recusando sem registro cada entrada incompleta ou adulterada e
   registrando INVÁLIDO com V2 ou V4 reprovadas;
-- par completo imutável com `--force`, par parcial, inconsistente ou com
-  publicação pendente recusado sem `--force` e recuperado com `--force` antes
-  da decisão;
+- par completo imutável com `--force`, par parcial ou inconsistente recusado
+  sem `--force` e recuperado com `--force` antes da decisão, e journal
+  malformado recusado com e sem `--force`;
+- publicação real interrompida no meio da promoção, com journal válido:
+  `evaluate` sem `--force` e `decide` não alteram artefatos nem journal, e
+  `evaluate --force` recupera antes da decisão;
 - depois da decisão: leituras de resultados inalterados aceitas, e
-  `evaluate --force`, recuperação de par parcial ou inconsistente,
+  `evaluate --force`, recuperação de par parcial ou inconsistente ou de
+  publicação interrompida com journal válido,
   `train --force` e `prepare --force` recusados sem gravar; registro recusado
   quando um arquivo lido mudou;
 - oito `decide` concorrentes com resultados diferentes (um publica, os iguais
