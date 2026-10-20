@@ -94,9 +94,10 @@ Qualquer falha bloqueia o comando sem gravar nada. Uma preparação existente
 que passa em "padronização e pesos" é pulada, com ou sem `--force`, porque o
 `treatment.json` dos runs registra o SHA-256 do manifesto preparado; `--force`
 só recria uma preparação que reprova. Depois da
-[decisão registrada](../eval/gmdcsa24-weak-label-val.md#registro), `prepare` e
-`train` recusam gravar, mesmo com `--force`; preparação conferida e run
-completo continuam sendo pulados.
+[decisão registrada](../eval/gmdcsa24-weak-label-val.md#registro) ou de qualquer
+acesso a [`test`](../eval/gmdcsa24-weak-label-test.md#depois-de-acessar-test),
+`prepare` e `train` recusam gravar, mesmo com `--force`; preparação conferida e
+run completo continuam sendo pulados.
 
 ## Isolamento de `test`
 

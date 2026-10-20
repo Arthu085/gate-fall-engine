@@ -70,6 +70,7 @@ nav:
       - Braço C0 (protocolo de alarme): eval/baseline-c0-events.md
       - Braço C1 (protocolo de alarme): eval/baseline-c1-events.md
       - Piloto GMDCSA24 T/S (val e decisão): eval/gmdcsa24-weak-label-val.md
+      - Piloto GMDCSA24 T/S (test descritivo): eval/gmdcsa24-weak-label-test.md
   - Análises:
       - Degradação do gate B1/C1: analysis/gate-degradation.md
       - Generalização entre ambientes (Le2i-CV): analysis/le2i-cv-generalization.md
