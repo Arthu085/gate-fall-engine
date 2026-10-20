@@ -93,7 +93,10 @@ proveniência, W1, W2, V2, V5 e tratamento) e o isolamento de `--training-dir`.
 Qualquer falha bloqueia o comando sem gravar nada. Uma preparação existente
 que passa em "padronização e pesos" é pulada, com ou sem `--force`, porque o
 `treatment.json` dos runs registra o SHA-256 do manifesto preparado; `--force`
-só recria uma preparação que reprova.
+só recria uma preparação que reprova. Depois da
+[decisão registrada](../eval/gmdcsa24-weak-label-val.md#registro), `prepare` e
+`train` recusam gravar, mesmo com `--force`; preparação conferida e run
+completo continuam sendo pulados.
 
 ## Isolamento de `test`
 

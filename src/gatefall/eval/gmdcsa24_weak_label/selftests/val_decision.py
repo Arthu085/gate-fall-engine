@@ -17,6 +17,7 @@ import random
 import shutil
 import sys
 import tempfile
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -35,7 +36,9 @@ from gatefall.eval.analysis.multiseed_summary import validate_run_event_artifact
 from gatefall.eval.baseline_a.cli import _load_model, _predict_with_identity
 from gatefall.eval.gmdcsa24_weak_label import validation
 from gatefall.eval.gmdcsa24_weak_label.cli import (
-    DECISION_FILE,
+    decision_lock,
+    publish_once,
+    record_decision,
     run_decide,
     run_val_evaluation,
 )
@@ -65,7 +68,11 @@ from gatefall.eval.gmdcsa24_weak_label.validation import (
     val_report,
     val_source,
 )
-from gatefall.eval.shared.event_artifacts import EventEvaluationLock, validate_event_metrics
+from gatefall.eval.shared.event_artifacts import (
+    EVENT_TRANSACTION_FILE,
+    EventEvaluationLock,
+    validate_event_metrics,
+)
 from gatefall.eval.shared.orchestration import (
     EventEvaluation,
     Predictions,
@@ -76,8 +83,11 @@ from gatefall.features.standardization import load_stats
 from gatefall.hashing import sha256_file
 from gatefall.train.baseline_a.config import load_config
 from gatefall.train.gmdcsa24_weak_label.assembly import arm_a_features
+from gatefall.train.gmdcsa24_weak_label.cli import run_prepare
 from gatefall.train.gmdcsa24_weak_label.gates import (
+    DECISION_FILE,
     DEFAULT_RUN_ROOT,
+    PREPARED_STATS_FILE,
     TREATMENT_RECORD_FILE,
     TreatmentInputs,
     canonical_run_dir,
@@ -466,6 +476,61 @@ def check_report_tampering(world: _World) -> list[bool]:
     ]
 
 
+def _pair(run_dir: Path) -> dict[str, str | None]:
+    return {
+        name: sha256_file(run_dir / name) if (run_dir / name).is_file() else None
+        for name in (ALARM_PROTOCOL_FILE, VAL_EVENT_METRICS_FILE)
+    }
+
+
+def _other_seed(data: dict[str, Any]) -> None:
+    data["treatment"]["seed"] = 43
+
+
+def check_evaluation_lifecycle(world: _World) -> list[bool]:
+    """Antes da decisão: par completo imutável, par parcial ou inconsistente só
+    recuperado com --force."""
+    run_dir = _run_dir(world, "T")
+    report = run_dir / VAL_EVENT_METRICS_FILE
+    before = _pair(run_dir)
+    forced = _evaluate(world, "T", force=True)
+    immutable = not forced and _pair(run_dir) == before
+    skipped = _evaluate(world, "T") and _pair(run_dir) == before
+
+    report.unlink()
+    partial_refused = not _evaluate(world, "T") and not report.exists()
+    partial_recovered = _evaluate(world, "T", force=True) and not _val_report(world, "T")
+
+    _edit_json(_other_seed)(report)
+    tampered = report.read_bytes()
+    inconsistent_refused = not _evaluate(world, "T") and report.read_bytes() == tampered
+    inconsistent_recovered = _evaluate(world, "T", force=True) and not _val_report(world, "T")
+
+    journal = run_dir / EVENT_TRANSACTION_FILE
+    journal.write_text("{}", encoding="utf-8")
+    pending_refused = bool(_val_report(world, "T")) and not _evaluate(world, "T")
+    journal.unlink()
+    return [
+        _check(
+            "avaliação completa e íntegra é imutável: --force recusa sem alterar o par, "
+            "e sem --force ela é só conferida",
+            immutable and skipped,
+        ),
+        _check(
+            "par parcial é recusado sem --force e recuperado com --force antes da decisão",
+            partial_refused and partial_recovered,
+        ),
+        _check(
+            "par inconsistente é recusado sem --force e recuperado com --force antes da decisão",
+            inconsistent_refused and inconsistent_recovered,
+        ),
+        _check(
+            "publicação interrompida pendente invalida o par e bloqueia evaluate",
+            pending_refused,
+        ),
+    ]
+
+
 def check_decide(world: _World) -> list[bool]:
     decision_path = world.tmp / DEFAULT_RUN_ROOT / DECISION_FILE
     decided = _decide(world)
@@ -568,6 +633,148 @@ def check_decide(world: _World) -> list[bool]:
         ),
         _check("restaurado, decide volta a registrar a decisão de antes", restored),
     ]
+
+
+def check_post_decision(world: _World) -> list[bool]:
+    """Com a decisão registrada, nada que a sustenta é gravado ou recuperado,
+    e as leituras de resultados inalterados continuam aceitas."""
+    decision_path = world.tmp / DEFAULT_RUN_ROOT / DECISION_FILE
+    if not decision_path.is_file():
+        return [_check("decisão registrada antes das checagens pós-decisão", False)]
+    decision = decision_path.read_bytes()
+    run_dir = _run_dir(world, "T")
+    report = run_dir / VAL_EVENT_METRICS_FILE
+    before = _pair(run_dir)
+    read = _evaluate(world, "T") and _decide(world)
+    forced = _evaluate(world, "T", force=True)
+    with _tampered(report, lambda path: path.unlink()):
+        partial = (
+            not _evaluate(world, "T")
+            and not _evaluate(world, "T", force=True)
+            and not report.exists()
+        )
+    with _tampered(report, _edit_json(_other_seed)):
+        tampered = report.read_bytes()
+        inconsistent = not _evaluate(world, "T", force=True) and report.read_bytes() == tampered
+    checkpoint = sha256_file(run_dir / "checkpoint.pt")
+    with _tampered(run_dir / TREATMENT_RECORD_FILE, lambda path: path.unlink()):
+        train_refused = (
+            not _canonical_train(world, world.tmp, True, "falha técnica")
+            and not (run_dir / TREATMENT_RECORD_FILE).exists()
+            and sha256_file(run_dir / "checkpoint.pt") == checkpoint
+        )
+    stats = _inputs(world, "T").prepared_dir / PREPARED_STATS_FILE
+
+    def shift_stats(path: Path) -> None:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["mean"][0] += 1.0
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    with _tampered(stats, shift_stats):
+        shifted = stats.read_bytes()
+        with contextlib.chdir(world.tmp), _quiet():
+            prepare_refused = not run_prepare(_inputs(world, "T"), force=True)
+        prepare_refused = prepare_refused and stats.read_bytes() == shifted
+
+    record = json.loads(decision)
+    record["inputs"]["T"][str(_SEED)]["val_event_metrics_sha256"] = "0" * 64
+    other = world.tmp / "other_decision" / DECISION_FILE
+    with contextlib.chdir(world.tmp), _quiet():
+        stale_refused = not record_decision(other, record) and not other.exists()
+    return [
+        _check(
+            "depois da decisão, evaluate e decide sobre resultados inalterados só conferem",
+            read and _pair(run_dir) == before and decision_path.read_bytes() == decision,
+        ),
+        _check(
+            "depois da decisão, --force sobre o par completo é recusado",
+            not forced and _pair(run_dir) == before,
+        ),
+        _check(
+            "depois da decisão, par parcial ou inconsistente não é recuperado, nem com --force",
+            partial and inconsistent,
+        ),
+        _check(
+            "depois da decisão, train --force e prepare --force recusam sem gravar",
+            train_refused and prepare_refused,
+        ),
+        _check(
+            "decisão cujos arquivos lidos mudaram antes da publicação é recusada sem registro",
+            stale_refused,
+        ),
+        _check(
+            "a decisão registrada e o par seguem intactos",
+            decision_path.read_bytes() == decision and _pair(run_dir) == before,
+        ),
+    ]
+
+
+def _decision_record(decision: str, index: int) -> dict[str, object]:
+    return {
+        "decision": decision,
+        "inputs": None,
+        "code": {"commit": f"{index:040d}", "dirty": False},
+        "recorded_at": f"2026-10-20T00:00:{index:02d}+00:00",
+    }
+
+
+def check_concurrent_publication() -> list[bool]:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        root = Path(tmp_dir) / "runs"
+        root.mkdir()
+        path = root / DECISION_FILE
+        records = [_decision_record(GO if index % 2 else NO_GO, index) for index in range(8)]
+        results: list[bool | None] = [None] * len(records)
+        barrier = threading.Barrier(len(records))
+
+        def worker(index: int) -> None:
+            barrier.wait()
+            results[index] = record_decision(path, records[index])
+
+        with _quiet():
+            threads = [threading.Thread(target=worker, args=(index,)) for index in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        published = (
+            json.loads(path.read_text(encoding="utf-8")).get("decision") if path.is_file() else None
+        )
+        expected = [record["decision"] == published for record in records]
+        leftovers = list(root.glob(f".{DECISION_FILE}.*.tmp"))
+
+        blocked_path = root / "blocked" / DECISION_FILE
+        blocked_path.parent.mkdir()
+        blocked_results: list[bool] = []
+        with _quiet():
+            with decision_lock(blocked_path.parent, exclusive=True):
+                thread = threading.Thread(
+                    target=lambda: blocked_results.append(
+                        record_decision(blocked_path, _decision_record(GO, 0))
+                    )
+                )
+                thread.start()
+                thread.join(timeout=0.5)
+                waited = thread.is_alive() and not blocked_path.exists()
+            thread.join()
+        existing = root / "existing" / DECISION_FILE
+        existing.parent.mkdir()
+        existing.write_text("{}", encoding="utf-8")
+        never_replaced = not publish_once(existing, _decision_record(GO, 0)) and (
+            existing.read_text(encoding="utf-8") == "{}"
+        )
+        return [
+            _check(
+                "oito decide concorrentes com resultados diferentes: um publica, os iguais "
+                "confirmam, os diferentes são recusados, sem temporário restante",
+                results == expected and not leftovers,
+            ),
+            _check(
+                "record_decision espera o lock exclusivo antes de conferir e publicar",
+                waited and blocked_results == [True] and blocked_path.is_file(),
+            ),
+            _check("a publicação nunca substitui uma decisão existente", never_replaced),
+        ]
 
 
 def _metrics(macro: float = 0.0, fall: float = 0.0, missed: int = 2, false: int = 3) -> SeedMetrics:
@@ -696,6 +903,7 @@ def check_decision_rules() -> list[bool]:
 def run_val_decision_selftest() -> None:
     checks: list[bool] = []
     checks.extend(check_decision_rules())
+    checks.extend(check_concurrent_publication())
     with tempfile.TemporaryDirectory() as tmp_dir:
         repository = Path(tmp_dir) / "gatefall"
         repository.mkdir()
@@ -705,7 +913,9 @@ def run_val_decision_selftest() -> None:
             checks.extend(check_canonical_contract(world))
             checks.extend(check_evaluation(world))
             checks.extend(check_report_tampering(world))
+            checks.extend(check_evaluation_lifecycle(world))
             checks.extend(check_decide(world))
+            checks.extend(check_post_decision(world))
     if not all(checks):
         print("\nselftest FALHOU", file=sys.stderr)
         sys.exit(1)

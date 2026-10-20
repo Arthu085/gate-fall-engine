@@ -13,9 +13,13 @@ e registra a decisão uma única vez em
 """
 
 import argparse
+import contextlib
+import fcntl
 import json
+import os
 import sys
-from collections.abc import Mapping, Sequence
+import uuid
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +37,7 @@ from gatefall.eval.gmdcsa24_weak_label.decision import (
     decide,
 )
 from gatefall.eval.gmdcsa24_weak_label.validation import (
+    ALARM_PROTOCOL_FILE,
     CONTROL_EVENTS_CONDITION,
     RUN_CONDITION,
     VAL_EVENT_METRICS_FILE,
@@ -49,21 +54,23 @@ from gatefall.eval.shared.orchestration import run_event_evaluation
 from gatefall.hashing import sha256_file
 from gatefall.runs import REPOSITORY_ROOT
 from gatefall.train.gmdcsa24_weak_label.assembly import load_le2i_side
-from gatefall.train.gmdcsa24_weak_label.cli import refuse, write_json
+from gatefall.train.gmdcsa24_weak_label.cli import refuse
 from gatefall.train.gmdcsa24_weak_label.gates import (
     CONDITIONS,
+    DECISION_FILE,
     DEFAULT_RUN_ROOT,
     DEFAULT_TRAINING_DIR,
     TREATMENT_RECORD_FILE,
     ControlRun,
     TreatmentInputs,
     canonical_run_dir,
+    decision_problems,
     execution_root_problems,
     location_problems,
     report,
 )
 
-DECISION_FILE = "decision.json"
+DECISION_LOCK_FILE = ".decision.lock"
 DECISION_CRITERION = "docs/analysis/gmdcsa24-weak-label-protocol.md#criterio-de-decisao"
 # Campos do registro que mudam entre execuções idênticas e ficam fora da
 # comparação com uma decisão já registrada.
@@ -71,13 +78,44 @@ DECISION_CONTEXT_FIELDS = ("code", "recorded_at")
 INTEGRITY_CONDITIONS = (
     *(condition for condition in CONDITIONS if condition not in VALIDITY_CONDITIONS),
 )
+# Cada SHA-256 que a decisão registra por run: (campo, diretório, arquivo).
+RUN_INPUT_FILES = (
+    ("treatment_record_sha256", "run_dir", TREATMENT_RECORD_FILE),
+    ("training_metrics_sha256", "run_dir", "metrics.json"),
+    ("val_event_metrics_sha256", "run_dir", VAL_EVENT_METRICS_FILE),
+    ("control_training_metrics_sha256", "control_run_dir", "metrics.json"),
+    ("control_event_metrics_sha256", "control_run_dir", "event_metrics.json"),
+)
+
+
+@contextlib.contextmanager
+def decision_lock(root: Path, exclusive: bool) -> Iterator[None]:
+    """Lock entre processos da raiz dos runs: exclusivo para registrar a decisão,
+    compartilhado para gravar uma avaliação; espera em vez de falhar."""
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / DECISION_LOCK_FILE).open("a+", encoding="utf-8") as stream:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        try:
+            yield
+        finally:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def complete_pair(run: CheckedRun) -> bool:
+    """Par alarm_protocol.yaml/val_event_metrics.json presente e íntegro."""
+    present = all(
+        (run.run_dir / name).is_file() for name in (ALARM_PROTOCOL_FILE, VAL_EVENT_METRICS_FILE)
+    )
+    return present and not val_report(run)[1]
 
 
 def run_val_evaluation(
     inputs: TreatmentInputs, seed: int, control: ControlRun, force: bool = False
 ) -> bool:
     """O `evaluate` do CLI: só o run canônico do tratamento e da seed, da raiz do
-    repositório, depois dos portões de pré-treino e do run completo."""
+    repositório, depois dos portões de pré-treino e do run completo. Um par
+    completo e íntegro é imutável, inclusive com `--force`; `--force` só
+    recupera um par parcial ou inconsistente, e só antes da decisão registrada."""
     problems = execution_root_problems(inputs, seed, control)
     if problems:
         return refuse("evaluate", problems)
@@ -86,12 +124,28 @@ def run_val_evaluation(
     if not report(title, check.results) or check.run is None:
         return False
     run = check.run
-    evaluation = val_event_evaluation(inputs, run)
-    try:
-        with EventEvaluationLock(run.run_dir) as lock:
-            run_event_evaluation(force, "A", run.run_dir, lock, lambda: evaluation)
-    except (RuntimeError, ValueError) as exc:
-        return refuse("evaluate", [str(exc)])
+    with decision_lock(DEFAULT_RUN_ROOT, exclusive=False):
+        complete = complete_pair(run)
+        if complete and force:
+            return refuse(
+                "evaluate",
+                [
+                    f"{run.run_dir / VAL_EVENT_METRICS_FILE}: avaliação completa e íntegra é "
+                    "imutável; --force só recupera um par parcial ou inconsistente"
+                ],
+            )
+        if complete:
+            print(f"\nskip {run.run_dir / VAL_EVENT_METRICS_FILE} (avaliação completa e íntegra)")
+            return True
+        problems = decision_problems()
+        if problems:
+            return refuse("evaluate", problems)
+        evaluation = val_event_evaluation(inputs, run)
+        try:
+            with EventEvaluationLock(run.run_dir) as lock:
+                run_event_evaluation(force, "A", run.run_dir, lock, lambda: evaluation)
+        except (RuntimeError, ValueError) as exc:
+            return refuse("evaluate", [str(exc)])
     _, problems = val_report(run)
     if problems:
         return refuse("evaluate", problems)
@@ -168,15 +222,41 @@ def seed_metrics(run_dir: Path, events: Mapping[str, object]) -> SeedMetrics:
 
 def run_inputs(run: CheckedRun) -> dict[str, str]:
     """SHA-256 de tudo o que a decisão leu de um run e do controle pareado."""
+    dirs = {"run_dir": run.run_dir, "control_run_dir": run.control_run_dir}
     return {
-        "run_dir": run.run_dir.as_posix(),
-        "treatment_record_sha256": sha256_file(run.run_dir / TREATMENT_RECORD_FILE),
-        "training_metrics_sha256": sha256_file(run.run_dir / "metrics.json"),
-        "val_event_metrics_sha256": sha256_file(run.run_dir / VAL_EVENT_METRICS_FILE),
-        "control_run_dir": run.control_run_dir.as_posix(),
-        "control_training_metrics_sha256": sha256_file(run.control_run_dir / "metrics.json"),
-        "control_event_metrics_sha256": sha256_file(run.control_run_dir / "event_metrics.json"),
+        **{key: path.as_posix() for key, path in dirs.items()},
+        **{field: sha256_file(dirs[key] / name) for field, key, name in RUN_INPUT_FILES},
     }
+
+
+def changed_inputs(record: Mapping[str, object]) -> list[str]:
+    """Arquivos lidos pela decisão que mudaram ou sumiram desde a leitura."""
+    inputs = cast(dict[str, dict[str, dict[str, str]]] | None, record.get("inputs"))
+    problems: list[str] = []
+    for by_seed in (inputs or {}).values():
+        for entry in by_seed.values():
+            for field, key, name in RUN_INPUT_FILES:
+                path = Path(entry[key]) / name
+                if not path.is_file() or sha256_file(path) != entry[field]:
+                    problems.append(f"{path} mudou depois de lido pela decisão")
+    return problems
+
+
+def publish_once(path: Path, record: Mapping[str, object]) -> bool:
+    """Publicação atômica que nunca substitui: o temporário completo vira o
+    arquivo por link, que falha se ele já existe."""
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    with temporary.open("w", encoding="utf-8") as stream:
+        stream.write(json.dumps(record, indent=2, ensure_ascii=False) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    try:
+        os.link(temporary, path)
+    except FileExistsError:
+        return False
+    finally:
+        temporary.unlink()
+    return True
 
 
 def labeled(checks: Mapping[tuple[str, int], RunCheck], conditions: Sequence[str]) -> list[str]:
@@ -236,27 +316,30 @@ def comparable(record: Mapping[str, object]) -> object:
 
 
 def record_decision(path: Path, record: dict[str, object]) -> bool:
-    """Grava a decisão uma única vez; recalculá-la igual é aceito, e diferente é recusado."""
+    """Grava a decisão uma única vez, sob lock exclusivo: recalculá-la igual é
+    aceito, diferente é recusado, e uma decisão existente nunca é substituída."""
     problems = location_problems(path.parent)
     if problems:
         return refuse("decide", problems)
-    if path.exists():
-        try:
-            existing = read_json(path)
-        except (OSError, ValueError) as exc:
-            return refuse("decide", [f"{path} ilegível ({exc}); inspecione manualmente"])
-        if comparable(existing) == comparable(record):
-            print(f"\nskip {path} (decisão já registrada e igual à recalculada)")
-            return True
-        return refuse(
-            "decide",
-            [
-                f"{path}: a decisão registrada difere da recalculada; pelos critérios de "
-                "parada 6 e 7 do protocolo ela não é substituída; inspecione manualmente"
-            ],
-        )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_json(path, record)
+    differs = [
+        f"{path}: a decisão registrada difere da recalculada; pelos critérios de "
+        "parada 6 e 7 do protocolo ela não é substituída; inspecione manualmente"
+    ]
+    with decision_lock(path.parent, exclusive=True):
+        if path.exists():
+            try:
+                existing = read_json(path)
+            except (OSError, ValueError) as exc:
+                return refuse("decide", [f"{path} ilegível ({exc}); inspecione manualmente"])
+            if comparable(existing) == comparable(record):
+                print(f"\nskip {path} (decisão já registrada e igual à recalculada)")
+                return True
+            return refuse("decide", differs)
+        problems = changed_inputs(record)
+        if problems:
+            return refuse("decide", problems)
+        if not publish_once(path, record):
+            return refuse("decide", differs)
     print(f"\n{path}: decisão registrada")
     return True
 

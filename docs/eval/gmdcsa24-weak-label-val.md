@@ -66,8 +66,19 @@ só com `val`, e mais:
 
 Um relatório existente só é aceito se o protocolo for o congelado, os hashes
 de checkpoint, `metrics.json` e protocolo baterem com o run e esses campos
-forem os recalculados. Sem `--force`, um par válido é pulado, e um par parcial
-ou inconsistente é recusado; `--force` só reconstrói esse par, nunca o run.
+forem os recalculados, sem publicação interrompida pendente.
+
+| Estado do par | Sem `--force` | Com `--force` |
+| --- | --- | --- |
+| Completo e íntegro | Só conferido (pula) | Recusa: avaliação completa é imutável |
+| Ausente | Avalia, antes da decisão | Recusa depois da decisão |
+| Parcial ou inconsistente | Recusa | Reconstrói o par, nunca o run, só antes da decisão |
+
+Com `decision.json` registrado, `evaluate` só confere um par completo; nada
+que sustenta a decisão é gravado ou recuperado, nem com `--force`. A
+conferência da decisão e a publicação rodam sob o lock compartilhado de
+`runs/local/gmdcsa24_weak_label/.decision.lock`, então não se intercalam com o
+registro da decisão.
 
 ## Decisão GO/NO-GO
 
@@ -124,6 +135,20 @@ substitui o registro, pelos
 Repetir depois de um INVÁLIDO exige corrigir a causa e arquivar o registro
 manualmente.
 
+O registro roda sob lock exclusivo em
+`runs/local/gmdcsa24_weak_label/.decision.lock`, que espera os outros
+`decide` e as publicações de `evaluate`: a conferência de um registro
+existente, a comparação e a primeira publicação acontecem com o lock. Antes de
+publicar, os SHA-256 dos arquivos lidos são recalculados, e uma mudança desde
+a leitura recusa o registro. A publicação grava um temporário completo e o
+liga ao nome final com `os.link`, que falha se o arquivo já existe: dois
+`decide` concorrentes com resultados diferentes nunca substituem a decisão, e
+o segundo só confirma um resultado igual.
+
+Com a decisão registrada, `prepare` e `train` também recusam gravar ou
+recuperar qualquer preparação ou run do piloto, mesmo com `--force`; as
+leituras de resultados inalterados continuam aceitas.
+
 O registro é a decisão. As métricas descritivas de `test`, calculadas uma vez
 depois dela, ficam para uma implementação própria, que não existe neste
 módulo; nenhum comando aqui avalia `test`.
@@ -133,6 +158,7 @@ módulo; nenhum comando aqui avalia `test`.
 ```text
 runs/local/gmdcsa24_weak_label/
 ├── decision.json
+├── .decision.lock
 └── {t,s}/seed_<n>/
     ├── config.yaml, metrics.json, checkpoint.pt, treatment.json   # do treino
     ├── alarm_protocol.yaml
@@ -189,7 +215,17 @@ controle e cobre:
   pelos validadores canônicos;
 - `decide` registrando uma vez, pulando a decisão igual, recusando a
   diferente, recusando sem registro cada entrada incompleta ou adulterada e
-  registrando INVÁLIDO com V2 ou V4 reprovadas.
+  registrando INVÁLIDO com V2 ou V4 reprovadas;
+- par completo imutável com `--force`, par parcial, inconsistente ou com
+  publicação pendente recusado sem `--force` e recuperado com `--force` antes
+  da decisão;
+- depois da decisão: leituras de resultados inalterados aceitas, e
+  `evaluate --force`, recuperação de par parcial ou inconsistente,
+  `train --force` e `prepare --force` recusados sem gravar; registro recusado
+  quando um arquivo lido mudou;
+- oito `decide` concorrentes com resultados diferentes (um publica, os iguais
+  confirmam, os diferentes são recusados), o registro esperando o lock
+  exclusivo e a publicação que nunca substitui um arquivo existente.
 
 Os selftests canônicos das armas (`gatefall.eval.baseline_a` e os demais)
 continuam cobrindo a orquestração com `val` e `test`.

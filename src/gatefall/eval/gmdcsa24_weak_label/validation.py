@@ -29,7 +29,7 @@ from gatefall.data.windowing import build_window_index
 from gatefall.eval.analysis.multiseed_summary import validate_run_event_artifacts
 from gatefall.eval.baseline_a.cli import _load_model, _predict_with_identity
 from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL, load_alarm_protocol
-from gatefall.eval.shared.event_artifacts import validate_event_metrics
+from gatefall.eval.shared.event_artifacts import EVENT_TRANSACTION_FILE, validate_event_metrics
 from gatefall.eval.shared.orchestration import EventEvaluation, Predictions, SplitEvaluator
 from gatefall.features.standardization import StandardizationStats
 from gatefall.hashing import sha256_file
@@ -217,9 +217,13 @@ def val_event_evaluation(inputs: TreatmentInputs, run: CheckedRun) -> EventEvalu
 
 def val_report(run: CheckedRun) -> tuple[dict[str, object] | None, list[str]]:
     """O `val` publicado do run: protocolo de alarme congelado, só `val`, hashes
-    do run, proveniência do tratamento e estrutura igual à `val` do controle."""
+    do run, proveniência do tratamento e estrutura igual à `val` do controle, sem
+    publicação interrompida pendente."""
     protocol_path = run.run_dir / ALARM_PROTOCOL_FILE
     metrics_path = run.run_dir / VAL_EVENT_METRICS_FILE
+    journal = run.run_dir / EVENT_TRANSACTION_FILE
+    if journal.exists():
+        return None, [f"{journal}: publicação interrompida pendente de recuperação"]
     try:
         if load_alarm_protocol(protocol_path) != BASELINE_A_ALARM_PROTOCOL:
             return None, [f"{protocol_path} diverge de BASELINE_A_ALARM_PROTOCOL"]

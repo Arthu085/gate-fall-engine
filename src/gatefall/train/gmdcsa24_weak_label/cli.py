@@ -57,6 +57,7 @@ from gatefall.train.gmdcsa24_weak_label.gates import (
     assess_data,
     assess_training,
     canonical_run_dir,
+    decision_problems,
     execution_root_problems,
     output_problems,
     preparation_problems,
@@ -149,6 +150,9 @@ def run_prepare(inputs: TreatmentInputs, force: bool) -> bool:
                 "prepare",
                 [*existing, f"{inputs.prepared_dir} já existe; use --force para recriar"],
             )
+    problems = decision_problems()
+    if problems:
+        return refuse("prepare", problems)
     stats = treatment_stats(sources.train, inputs.le2i.frames_path)
     inputs.prepared_dir.mkdir(parents=True, exist_ok=True)
     manifest_path.unlink(missing_ok=True)
@@ -241,6 +245,9 @@ def run_train(
     if state.status == RUN_COMPLETE:
         print(f"\nskip {run_dir} (run de {inputs.treatment}, seed {seed} completo e conferido)")
         return True
+    problems = decision_problems()
+    if problems:
+        return refuse("train", problems)
     sources = cast(TreatmentSources, assessment.sources)
     metrics = run_training(
         input_dim=POSE_FEATURE_DIM,
