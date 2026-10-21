@@ -311,6 +311,234 @@ A divergência de licença no card do OmniFall já está registrada em
 - Se `other`, `walk` e `standing` do CMDFall têm o mesmo conteúdo visual que
   no Le2i.
 
+## Preflight condicionado ao acesso
+
+!!! warning "Plano, não execução"
+    Esta seção só planeja o que inspecionar se o acesso aos vídeos for
+    concedido. Ela não autoriza pedido de acesso, download, extração nem
+    treino, e foi derivada apenas dos oito CSVs fixados acima.
+
+### Sessões, vistas e sujeitos
+
+- **Sessão** (`S` do path): uma linha do tempo anotada, de um único sujeito.
+  É a unidade da pré-seleção, do split e da exclusão de sessão.
+- **Vista** (`K` do path): o vídeo de uma câmera daquela sessão,
+  `colors/S<sessão>P<sujeito>K<câmera>`. O texto da anotação é o mesmo em
+  todas as vistas, mas sua correspondência com o vídeo não é: o CSV não traz
+  offsets e o `KNOWN_PITFALLS.md` publica um deslocamento por câmera. Tempo
+  de quadro, sincronização, alinhamento da anotação, visibilidade da pessoa
+  e cobertura de pose são medidos em cada vista e não se transferem de uma
+  câmera para outra.
+- **Sujeito** (`P`): pode ter duas sessões. No `train` do `cs`, o sujeito 1
+  tem `S7` e `S39`, e o sujeito 3 tem `S19` e `S32`. Toda separação por
+  sujeito leva as duas sessões juntas.
+
+### Pré-seleção para inspeção
+
+Regras, aplicadas aos CSVs fixados:
+
+1. **Universo:** as 27 sessões (25 sujeitos) do `train` do `cs`. `val` e
+   `test` ficam fora, para que a inspeção nunca veja gravações de avaliação.
+2. **Medidas:** sobre a vista de referência (menor câmera), com segmentos
+   ordenados por início e a tolerância de 1 ms das
+   [fronteiras](#fronteiras-gaps-e-sobreposicoes).
+3. **Estratos, nesta ordem:** cada estrato escolhe a sessão de maior valor
+   do critério entre as elegíveis cujo sujeito ainda não foi escolhido; o
+   empate vai para o menor número de sessão.
+
+| Estrato | Critério | Elegíveis | Sessão | Valor |
+| --- | --- | ---: | --- | --- |
+| Vista ausente | Menos de 7 vistas | 1 | `S39P1` | sem a câmera 1 |
+| Sobreposição | Maior sobreposição entre segmentos consecutivos | 8 | `S50P47` | 15,85 s |
+| Gap interior | Maior gap interior | 16 | `S9P33` | 27,15 s |
+| Início sem anotação | Maior início do primeiro segmento | 14 | `S24P37` | 82,07 s |
+| `other` e `standing` | Maior mínimo entre segmentos `other` e `standing` | 27 | `S5P13` | 16 (empate com `S34P27`) |
+| Referência limpa | Os cinco rótulos prioritários, início em `t = 0` e todas as fronteiras contíguas | 3 | `S15P31` | — (`S15`, `S21`, `S40`) |
+
+O estrato `other`/`standing` vem dos dois rótulos com menor suporte de
+desenvolvimento no Le2i-CS ([Motivação](#motivacao)). As irregularidades
+escolhidas são as que o CSV permite medir:
+
+- em `S50`, um `other` de 320,80 s a 338,20 s contém um `walk` de 322,35 s a
+  336,45 s, a mesma dupla da confusão `other→walk`;
+- `S9` começa em 30,12 s e tem 25 gaps de 0,1 s ou mais, o maior entre
+  299,99 s e 327,14 s;
+- em `S24`, o primeiro segmento é um `stand_up` em 82,07 s;
+- `S39` é a única sessão sem a câmera 1 e não tem `other`.
+
+Os 76 segmentos que terminam depois do vídeo não entram como critério: a
+lista está só no `KNOWN_PITFALLS.md` da head, não nos arquivos fixados, e o
+exemplo publicado (`colors/S22P36K6`) é de `test`.
+
+| Sessão | Sujeito | Vistas | Segmentos | Extensão anotada (s) | `other` | `walk` | `standing` | `fall` | `fallen` |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `S39` | 1 | K2–K7 | 39 | 109,20 | 0 | 6 | 1 | 4 | 4 |
+| `S50` | 47 | K1–K7 | 109 | 519,14 | 17 | 28 | 9 | 12 | 12 |
+| `S9` | 33 | K1–K7 | 138 | 559,92 | 18 | 14 | 2 | 22 | 21 |
+| `S24` | 37 | K1–K7 | 115 | 582,10 | 13 | 15 | 3 | 18 | 11 |
+| `S5` | 13 | K1–K7 | 163 | 508,00 | 17 | 28 | 16 | 20 | 21 |
+| `S15` | 31 | K1–K7 | 88 | 498,90 | 7 | 10 | 9 | 15 | 10 |
+
+São 6 sessões de 6 sujeitos e 41 vídeos. `walk`, `standing`, `fall` e
+`fallen` aparecem nas seis sessões; `other`, em cinco. A amostra cobre
+casos, não estima taxas do CMDFall. Paths exatos:
+
+```text
+colors/S39P1K2  colors/S39P1K3  colors/S39P1K4  colors/S39P1K5  colors/S39P1K6  colors/S39P1K7
+colors/S50P47K1 colors/S50P47K2 colors/S50P47K3 colors/S50P47K4 colors/S50P47K5 colors/S50P47K6 colors/S50P47K7
+colors/S9P33K1  colors/S9P33K2  colors/S9P33K3  colors/S9P33K4  colors/S9P33K5  colors/S9P33K6  colors/S9P33K7
+colors/S24P37K1 colors/S24P37K2 colors/S24P37K3 colors/S24P37K4 colors/S24P37K5 colors/S24P37K6 colors/S24P37K7
+colors/S5P13K1  colors/S5P13K2  colors/S5P13K3  colors/S5P13K4  colors/S5P13K5  colors/S5P13K6  colors/S5P13K7
+colors/S15P31K1 colors/S15P31K2 colors/S15P31K3 colors/S15P31K4 colors/S15P31K5 colors/S15P31K6 colors/S15P31K7
+```
+
+### Checklist GO / NO-GO
+
+As condições M1–M6 terminam em GO, NO-GO ou INCONCLUSIVO. As checagens
+V1–V8 são feitas por vista ou por sessão e podem, além disso, tirar de uso
+uma vista ou excluir uma sessão sem decidir nada sobre o dataset
+([desfechos](#desfechos-de-v4-v5-e-v8)). INCONCLUSIVO bloqueia o preflight
+até ser resolvido, e nenhuma resolução usa métrica de modelo nem o `test`
+de qualquer dataset. O preflight é GO quando M1–M6 estão em GO, nenhuma
+checagem terminou em NO-GO do dataset, nenhum INCONCLUSIVO está aberto e as exclusões
+estão registradas.
+
+**Condições obrigatórias, decidíveis sem vídeo RGB:**
+
+| # | Condição | GO quando |
+| --- | --- | --- |
+| M1 | Acesso | Concedido pelo canal oficial dos autores do CMDFall, com o registro guardado; nenhum espelho ou terceiro |
+| M2 | Licença | Os termos dos vídeos, registrados com data, permitem uso em pesquisa, cópia local, extração de features derivadas e publicação de métricas agregadas; termo ausente ou ambíguo é INCONCLUSIVO |
+| M3 | Anotações | Os oito CSVs conferem o SHA-256 fixado e o `report` passa (já atendida) |
+| M4 | Split | Só o `cs`, com sessões e sujeitos de um lado só; o `cv` não é usado (já atendida pelo CSV) |
+| M5 | RGB monocular | Só os vídeos `colors/` entram; profundidade, esqueleto do sensor e acelerômetro, se vierem no pacote, não são lidos |
+| M6 | Escopo | Decisão escrita do responsável dizendo o que o trabalho desloca |
+
+**Checagens que só o vídeo RGB resolve**, nos 41 vídeos pré-selecionados e,
+para inclusão no piloto, nas vistas candidatas das outras sessões.
+Nenhuma etapa corrige tempos: o CSV é usado como publicado, e uma vista
+cujos tempos não batem com ele fica registrada como deslocada e deixa de
+ser usável.
+
+| # | Checagem | Unidade | GO quando | Fora do GO |
+| --- | --- | --- | --- | --- |
+| V1 | Integridade e tempo de quadro | Vista | `ffprobe -count_frames` é igual à contagem do pipe de decodificação, como no [relatório do Le2i](../data/temporal-contract.md#relatorio-e-checagens); FPS, resolução e duração ficam registrados | A vista deixa de ser usável. NO-GO do dataset só quando a causa identificada é do formato publicado (contêiner, codec ou carimbos de tempo comuns a todos os vídeos); sem causa identificada, a falha fica na vista |
+| V2 | Grade de 10 fps | Vista | O quadro de origem escolhido pela grade fica a menos de um passo da grade (0,1 s) do seu tempo nominal | A vista deixa de ser usável, porque uma grade por PTS mudaria o contrato temporal. NO-GO do dataset só quando a taxa variável vem do formato publicado, comum a todos os vídeos |
+| V3 | Fim do vídeo | Vista | A grade usa a duração decodificada e os segmentos que passam do fim ficam listados por vídeo | — (o excesso é registrado, não corrigido) |
+| V4 | Deslocamento temporal | Vista | O início do primeiro e do último `fall` da sessão aparece na vista a menos de um passo da grade do tempo do CSV. O deslocamento medido, com sinal, fica registrado por evento e por vista; vistas da mesma sessão podem diferir entre si, e essa diferença é registrada, não exigida igual a zero | [Desfechos](#desfechos-de-v4-v5-e-v8) |
+| V5 | Alinhamento da anotação | Vista | Numa vista alinhada em V4, as transições de V4, a sobreposição de `S50`, o maior gap de `S9` e os inícios sem anotação de `S9` e `S24` concordam com o que a vista mostra, a até um passo da grade | [Desfechos](#desfechos-de-v4-v5-e-v8) |
+| V6 | Visibilidade da pessoa | Vista | A pessoa aparece na vista durante todos os segmentos inspecionados em V4, V5 e V8 | A vista deixa de ser usável |
+| V7 | Cobertura de pose | Vista | O YOLO-Pose congelado, com os mesmos pesos e a mesma [seleção de pessoa](../data/temporal-contract.md#selecao-de-pessoa-na-extracao-de-pose) do Le2i, roda nos 41 vídeos com saída em `data/scratch/cmdfall/`; `person_found` e [`q_pose`](../data/pose-quality.md) ficam registrados por rótulo e vista, ao lado do treino Le2i-CS, e um critério de aceite é fixado por escrito depois dessa comparação | Sem critério escrito, INCONCLUSIVO |
+| V8 | Semântica de classe | Sessão | O primeiro e o último segmento de cada rótulo prioritário da sessão (57 segmentos nas seis), julgados na vista escolhida para ela, concordam com a definição do `LABELS.md`; para `other`, só se verifica que não é outra classe da taxonomia, sem identificar a ação original | [Desfechos](#desfechos-de-v4-v5-e-v8) |
+
+Uma vista é **usável** quando passa em V1, V2, V4, V5 e V6 e, depois de
+fixado, no critério de V7. Uma vista não inspecionada não é usável, e uma
+sessão sem vista usável não entra no piloto. O passo da grade é o único
+limiar numérico:
+abaixo dele, o contrato de `TARGET_FPS = 10` não distingue os tempos
+comparados.
+
+#### Escolha determinística da vista
+
+O piloto usa uma vista por sessão, então só a vista usada precisa estar
+alinhada com o CSV. A escolha é fixada uma vez, antes de qualquer treino:
+
+1. Para cada câmera, de K1 a K7, conta-se em quantas das seis sessões
+   pré-selecionadas a vista daquela câmera é usável.
+2. As câmeras são ordenadas por essa contagem, da maior para a menor; o
+   empate vai para o menor número de câmera.
+3. Em cada sessão pré-selecionada, a vista escolhida é a da primeira câmera
+   da ordem que existe na sessão e é usável nela. Sessão sem vista usável é
+   excluída.
+4. Nas 21 sessões do `train` do `cs` fora da pré-seleção, vale a mesma
+   ordem, e a sessão só entra no piloto depois de verificada. A vista da
+   primeira câmera da ordem que existe na sessão passa por V1–V7, com o
+   critério de V7 já fixado; em V4 e V5 entram o primeiro e o último `fall`
+   da sessão e, quando o CSV os mostra, a maior sobreposição, o maior gap
+   interior e o início sem anotação, com a tolerância de 1 ms. Se a vista
+   não for usável, passa-se à câmera seguinte da ordem; com uma vista usável,
+   V8 é julgado nela. Os desfechos são os mesmos das seis sessões. Sessão
+   sem vista usável, ou ainda não verificada, fica fora do piloto.
+
+A verificação do passo 4 decide a inclusão de cada sessão, uma a uma. Ela
+não muda a ordem das câmeras, que vem só das seis sessões diagnósticas, e
+seus resultados não são lidos como estimativa de taxa no CMDFall.
+
+#### Desfechos de V4, V5 e V8
+
+As seis sessões são diagnósticas: foram escolhidas por casos extremos e não
+estimam frequências no CMDFall. Por isso, a repetição de uma anomalia entre
+elas não é, sozinha, evidência de falha do dataset; ela abre uma
+investigação.
+
+| Desfecho | V4 — deslocamento | V5 — alinhamento | V8 — semântica |
+| --- | --- | --- | --- |
+| **Exclusão** | A vista deslocada deixa de ser usável; a sessão sai se não restar vista usável | Discordância numa só vista deixa essa vista inutilizável; discordância em todas as vistas alinhadas é erro da anotação da sessão e exclui a sessão | Segmento que contradiz a definição exclui a sessão inteira |
+| **INCONCLUSIVO** | Início do `fall` não identificável na vista, ou deslocamento que muda entre eventos da mesma vista (volta a V1 e V2) | Transição ambígua, irregularidade sem explicação visível, ou a mesma discordância em sessões diferentes | Julgamento indeterminado, ou a mesma discordância de um rótulo em sessões diferentes |
+| **NO-GO do dataset** | A fonte oficial ou o `KNOWN_PITFALLS.md` estabelece que nenhuma câmera corresponde aos tempos do CSV sem correção | A discordância decorre de uma regra de anotação publicada pelo OmniFall ou pelos autores, que vale para todas as sessões por construção | A definição publicada de um rótulo prioritário, ou a regra documentada que leva o CMDFall a ela, é incompatível com o rótulo do GateFall |
+
+Um INCONCLUSIVO é investigado, nesta ordem, só com material de `train`:
+
+1. a documentação do OmniFall e dos autores do CMDFall, para saber se a
+   anomalia é uma regra publicada (NO-GO do dataset) ou não;
+2. o resultado da mesma checagem nas 21 sessões do `train` do `cs` fora da
+   pré-seleção, obtido na verificação do passo 4 da
+   [escolha da vista](#escolha-deterministica-da-vista), nunca em `val` ou
+   `test`.
+
+Cada sessão afetada termina excluída ou com a causa documentada. Enquanto
+alguma não termina, o INCONCLUSIVO continua aberto. Esta página não fixa
+quantas sessões precisam restar: o protocolo do piloto registra as
+exclusões e decide, antes do treino e sem métrica de modelo, se o conjunto
+restante o sustenta. Toda exclusão é fixada antes de qualquer treino, e a de
+sessão vale para todas as vistas.
+
+### Piloto possível: braço A com dados externos
+
+!!! note "Proposta condicional"
+    Só pode ser proposto formalmente depois do preflight em GO, por um
+    protocolo próprio aprovado antes de qualquer treino. Não é canônico e não
+    substitui nenhuma referência.
+
+| | Controle | Tratamento |
+| --- | --- | --- |
+| Braço | A (TCN sobre as 134 features de pose) | A, sem mudança de arquitetura |
+| Treino | `train` do Le2i-CS | `train` do Le2i-CS mais as sessões do `train` do `cs` do CMDFall com vista usável verificada, uma vista por sessão; sessão excluída ou não verificada fica fora |
+| Seleção | `val` do Le2i-CS | O mesmo `val`, byte a byte |
+| Receita | [Receita congelada](../train/baseline-a.md#receita-de-treino-congelada) | A mesma, com as mesmas seeds |
+
+- **Separação.** Nenhuma janela do CMDFall entra em `val` ou `test` do
+  Le2i. Do CMDFall, só o `train` do `cs` é usado; `val` e `test` do `cs`, o
+  `cv` e as outras vistas de cada sessão ficam fora. A vista de cada sessão
+  vem da [escolha determinística](#escolha-deterministica-da-vista).
+- **Contrato.** `TARGET_FPS`, `WINDOW_FRAMES`, `TRAIN_STRIDE`, a taxonomia e
+  `RESTRICTED_CLASSES` não mudam. O protocolo fixa antes do treino o que
+  acontece com janelas de classes fora de `RESTRICTED_CLASSES`. A
+  padronização e os pesos da perda do tratamento são calculados só sobre o
+  treino do tratamento.
+- **Baseline congelado.** O controle são os runs do
+  [sumário multi-seed](multiseed-summary.md). `runs/reference/le2i/baseline_a`
+  e as demais referências não são retreinadas nem sobrescritas, e o
+  tratamento grava só sob `runs/local/`.
+- **Invariante 1.** Só A muda de dados, então o piloto não compara A, B e
+  C. Levar CMDFall a B ou C exigiria a mudança nos três braços e um novo
+  conjunto de runs.
+- **Desloca:** a extração offline de pose das sessões aceitas e os treinos
+  do braço A ocupam o lugar de qualquer outro dataset externo, braço,
+  backbone ou métrica até a decisão do piloto. B0, B1, C0 e C1 não recebem
+  CMDFall.
+
+Proibido, em qualquer etapa:
+
+- usar o `test` oficial do Le2i para escolher modelo, época, seed, limiar,
+  exclusão ou critério;
+- treinar antes do GO do preflight e da aprovação do protocolo;
+- baixar vídeos de acesso restrito sem M1 e M2 em GO, ou de fonte que não
+  seja a oficial;
+- alterar `runs/reference/`, o registro de datasets, o contrato temporal, a
+  taxonomia, `RESTRICTED_CLASSES`, os splits do Le2i ou o protocolo de
+  alarme.
+
 ## Escopo e o que deslocaria
 
 Esta auditoria não acrescenta configuração, dataset ao registro, backbone
@@ -329,4 +557,6 @@ classes do GateFall e dá aos cinco rótulos prioritários 5 sujeitos em `val`,
 19 ou 20 em `test` e 25 em `train`, contra o suporte de um sujeito que
 limita `standing` no Le2i-CS. O `cv` é incompatível com o invariante 2. A
 viabilidade experimental depende dos itens bloqueados até o acesso aos
-vídeos e de uma decisão explícita sobre o que esse trabalho deslocaria.
+vídeos e de uma decisão explícita sobre o que esse trabalho deslocaria. O
+[preflight](#preflight-condicionado-ao-acesso) fixa quais gravações
+inspecionar e o critério GO / NO-GO, sem antecipar o resultado.
