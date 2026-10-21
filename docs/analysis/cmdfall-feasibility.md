@@ -400,7 +400,7 @@ uma vista ou excluir uma sessão sem decidir nada sobre o dataset
 ([desfechos](#desfechos-de-v4-v5-e-v8)). INCONCLUSIVO bloqueia o preflight
 até ser resolvido, e nenhuma resolução usa métrica de modelo nem o `test`
 de qualquer dataset. O preflight é GO quando M1–M6 estão em GO, nenhuma
-checagem terminou em NO-GO, nenhum INCONCLUSIVO está aberto e as exclusões
+checagem terminou em NO-GO do dataset, nenhum INCONCLUSIVO está aberto e as exclusões
 estão registradas.
 
 **Condições obrigatórias, decidíveis sem vídeo RGB:**
@@ -414,15 +414,16 @@ estão registradas.
 | M5 | RGB monocular | Só os vídeos `colors/` entram; profundidade, esqueleto do sensor e acelerômetro, se vierem no pacote, não são lidos |
 | M6 | Escopo | Decisão escrita do responsável dizendo o que o trabalho desloca |
 
-**Checagens que só o vídeo RGB resolve**, nos 41 vídeos pré-selecionados.
+**Checagens que só o vídeo RGB resolve**, nos 41 vídeos pré-selecionados e,
+para inclusão no piloto, nas vistas candidatas das outras sessões.
 Nenhuma etapa corrige tempos: o CSV é usado como publicado, e uma vista
 cujos tempos não batem com ele fica registrada como deslocada e deixa de
 ser usável.
 
 | # | Checagem | Unidade | GO quando | Fora do GO |
 | --- | --- | --- | --- | --- |
-| V1 | Integridade e tempo de quadro | Vista | `ffprobe -count_frames` é igual à contagem do pipe de decodificação, como no [relatório do Le2i](../data/temporal-contract.md#relatorio-e-checagens); FPS, resolução e duração ficam registrados | NO-GO: contagens divergentes sem causa identificada |
-| V2 | Grade de 10 fps | Vista | O quadro de origem escolhido pela grade fica a menos de um passo da grade (0,1 s) do seu tempo nominal | NO-GO: um desvio de um passo ou mais exigiria grade por PTS, que muda o contrato temporal |
+| V1 | Integridade e tempo de quadro | Vista | `ffprobe -count_frames` é igual à contagem do pipe de decodificação, como no [relatório do Le2i](../data/temporal-contract.md#relatorio-e-checagens); FPS, resolução e duração ficam registrados | A vista deixa de ser usável. NO-GO do dataset só quando a causa identificada é do formato publicado (contêiner, codec ou carimbos de tempo comuns a todos os vídeos); sem causa identificada, a falha fica na vista |
+| V2 | Grade de 10 fps | Vista | O quadro de origem escolhido pela grade fica a menos de um passo da grade (0,1 s) do seu tempo nominal | A vista deixa de ser usável, porque uma grade por PTS mudaria o contrato temporal. NO-GO do dataset só quando a taxa variável vem do formato publicado, comum a todos os vídeos |
 | V3 | Fim do vídeo | Vista | A grade usa a duração decodificada e os segmentos que passam do fim ficam listados por vídeo | — (o excesso é registrado, não corrigido) |
 | V4 | Deslocamento temporal | Vista | O início do primeiro e do último `fall` da sessão aparece na vista a menos de um passo da grade do tempo do CSV. O deslocamento medido, com sinal, fica registrado por evento e por vista; vistas da mesma sessão podem diferir entre si, e essa diferença é registrada, não exigida igual a zero | [Desfechos](#desfechos-de-v4-v5-e-v8) |
 | V5 | Alinhamento da anotação | Vista | Numa vista alinhada em V4, as transições de V4, a sobreposição de `S50`, o maior gap de `S9` e os inícios sem anotação de `S9` e `S24` concordam com o que a vista mostra, a até um passo da grade | [Desfechos](#desfechos-de-v4-v5-e-v8) |
@@ -431,7 +432,9 @@ ser usável.
 | V8 | Semântica de classe | Sessão | O primeiro e o último segmento de cada rótulo prioritário da sessão (57 segmentos nas seis), julgados na vista escolhida para ela, concordam com a definição do `LABELS.md`; para `other`, só se verifica que não é outra classe da taxonomia, sem identificar a ação original | [Desfechos](#desfechos-de-v4-v5-e-v8) |
 
 Uma vista é **usável** quando passa em V1, V2, V4, V5 e V6 e, depois de
-fixado, no critério de V7. O passo da grade é o único limiar numérico:
+fixado, no critério de V7. Uma vista não inspecionada não é usável, e uma
+sessão sem vista usável não entra no piloto. O passo da grade é o único
+limiar numérico:
 abaixo dele, o contrato de `TARGET_FPS = 10` não distingue os tempos
 comparados.
 
@@ -448,9 +451,18 @@ alinhada com o CSV. A escolha é fixada uma vez, antes de qualquer treino:
    da ordem que existe na sessão e é usável nela. Sessão sem vista usável é
    excluída.
 4. Nas 21 sessões do `train` do `cs` fora da pré-seleção, vale a mesma
-   ordem. A vista da primeira câmera existente passa por V1–V3 antes do
-   treino, com os mesmos desfechos. V4–V6 e V8 não são extrapolados para
-   essas sessões, que ficam registradas como não inspecionadas.
+   ordem, e a sessão só entra no piloto depois de verificada. A vista da
+   primeira câmera da ordem que existe na sessão passa por V1–V7, com o
+   critério de V7 já fixado; em V4 e V5 entram o primeiro e o último `fall`
+   da sessão e, quando o CSV os mostra, a maior sobreposição, o maior gap
+   interior e o início sem anotação, com a tolerância de 1 ms. Se a vista
+   não for usável, passa-se à câmera seguinte da ordem; com uma vista usável,
+   V8 é julgado nela. Os desfechos são os mesmos das seis sessões. Sessão
+   sem vista usável, ou ainda não verificada, fica fora do piloto.
+
+A verificação do passo 4 decide a inclusão de cada sessão, uma a uma. Ela
+não muda a ordem das câmeras, que vem só das seis sessões diagnósticas, e
+seus resultados não são lidos como estimativa de taxa no CMDFall.
 
 #### Desfechos de V4, V5 e V8
 
@@ -469,8 +481,9 @@ Um INCONCLUSIVO é investigado, nesta ordem, só com material de `train`:
 
 1. a documentação do OmniFall e dos autores do CMDFall, para saber se a
    anomalia é uma regra publicada (NO-GO do dataset) ou não;
-2. a mesma checagem, com os mesmos eventos, na vista escolhida de cada uma
-   das 21 sessões do `train` do `cs` fora da pré-seleção, nunca em `val` ou
+2. o resultado da mesma checagem nas 21 sessões do `train` do `cs` fora da
+   pré-seleção, obtido na verificação do passo 4 da
+   [escolha da vista](#escolha-deterministica-da-vista), nunca em `val` ou
    `test`.
 
 Cada sessão afetada termina excluída ou com a causa documentada. Enquanto
@@ -490,7 +503,7 @@ sessão vale para todas as vistas.
 | | Controle | Tratamento |
 | --- | --- | --- |
 | Braço | A (TCN sobre as 134 features de pose) | A, sem mudança de arquitetura |
-| Treino | `train` do Le2i-CS | `train` do Le2i-CS mais as 27 sessões do `train` do `cs` do CMDFall, menos as excluídas no preflight, uma vista por sessão |
+| Treino | `train` do Le2i-CS | `train` do Le2i-CS mais as sessões do `train` do `cs` do CMDFall com vista usável verificada, uma vista por sessão; sessão excluída ou não verificada fica fora |
 | Seleção | `val` do Le2i-CS | O mesmo `val`, byte a byte |
 | Receita | [Receita congelada](../train/baseline-a.md#receita-de-treino-congelada) | A mesma, com as mesmas seeds |
 
