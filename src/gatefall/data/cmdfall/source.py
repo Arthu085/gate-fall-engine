@@ -1,5 +1,9 @@
 """Arquivos CMDFall do OmniFall fixados por revisão e SHA-256, sem nenhum vídeo."""
 
+import contextlib
+import os
+import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download
@@ -58,8 +62,11 @@ def destination_problems(destination: Path, repository_root: Path) -> list[str]:
     allowed = (repository_root / SCRATCH_ROOT).resolve()
     target = (repository_root / destination).resolve()
     problems: list[str] = []
-    if not allowed.is_relative_to(repository):
-        problems.append(f"{SCRATCH_ROOT} resolve para {allowed}, fora do repositório")
+    if allowed != repository / SCRATCH_ROOT:
+        problems.append(
+            f"{SCRATCH_ROOT} resolve para {allowed}, não para o diretório físico "
+            f"{repository / SCRATCH_ROOT}"
+        )
     if target == allowed or not target.is_relative_to(allowed):
         problems.append(f"{destination}: resolve para {target}, fora de {SCRATCH_ROOT}/")
     problems += [
@@ -70,16 +77,84 @@ def destination_problems(destination: Path, repository_root: Path) -> list[str]:
     return problems
 
 
-def fetch_sources(source_dir: Path) -> None:
-    for filename in EXPECTED_SHA256:
+def publish_file(destination: Path, payload: bytes) -> None:
+    """`mkstemp` cria o temporário com O_CREAT | O_EXCL e nome imprevisível no
+    diretório do destino, então um link simbólico preexistente nunca é seguido;
+    `os.replace` troca o destino de uma vez. Em falha, o temporário é removido e
+    o destino anterior fica intacto."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        dir=destination.parent, prefix=f".{destination.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(descriptor, "wb") as file:
+            file.write(payload)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, destination)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+        raise
+
+
+def fetch_destination_problems(
+    source_dir: Path, repository_root: Path, filenames: list[str]
+) -> list[str]:
+    problems = destination_problems(source_dir, repository_root)
+    for filename in filenames:
+        destination = source_dir / filename
+        problems += destination_problems(destination, repository_root)
+        if (repository_root / destination).is_dir():
+            problems.append(f"{destination}: é um diretório")
+    return list(dict.fromkeys(problems))
+
+
+def download_from_hub(filename: str, staging_dir: Path) -> Path:
+    return Path(
         hf_hub_download(
             DATASET_REPO_ID,
             filename,
             repo_type="dataset",
             revision=OMNIFALL_REVISION,
-            local_dir=source_dir,
+            local_dir=staging_dir,
         )
-        print(f"{source_dir / filename}: baixado de {DATASET_REPO_ID}@{OMNIFALL_REVISION}")
+    )
+
+
+def fetch_sources(
+    source_dir: Path,
+    repository_root: Path,
+    expected_sha256: dict[str, str] = EXPECTED_SHA256,
+    download: Callable[[str, Path], Path] = download_from_hub,
+) -> list[str]:
+    """Baixa num diretório temporário fora do repositório, confere o SHA-256 e
+    só então publica cada CSV no destino, revalidado logo antes da escrita."""
+    filenames = list(expected_sha256)
+    problems = fetch_destination_problems(source_dir, repository_root, filenames)
+    if problems:
+        return [f"destino: {problem}" for problem in problems]
+
+    with tempfile.TemporaryDirectory(prefix="gatefall-cmdfall-") as staging:
+        payloads: dict[str, bytes] = {}
+        for filename, expected in expected_sha256.items():
+            downloaded = download(filename, Path(staging))
+            actual = sha256_file(downloaded)
+            if actual != expected:
+                problems.append(
+                    f"fontes: {filename}: sha256 divergente (esperado {expected}, encontrado {actual})"
+                )
+            payloads[filename] = downloaded.read_bytes()
+        if problems:
+            return problems
+
+        problems = fetch_destination_problems(source_dir, repository_root, filenames)
+        if problems:
+            return [f"destino: {problem}" for problem in problems]
+        for filename, payload in payloads.items():
+            publish_file(repository_root / source_dir / filename, payload)
+            print(f"{source_dir / filename}: baixado de {DATASET_REPO_ID}@{OMNIFALL_REVISION}")
+    return []
 
 
 def source_problems(

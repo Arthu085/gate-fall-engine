@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -43,6 +42,7 @@ from gatefall.data.cmdfall.source import (
     SEGMENTS_FILE,
     destination_problems,
     fetch_sources,
+    publish_file,
     source_problems,
 )
 
@@ -153,10 +153,7 @@ def print_report(report: dict[str, Any]) -> None:
 
 
 def write_report(report: dict[str, Any], path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
-    os.replace(tmp_path, path)
+    publish_file(path, (json.dumps(report, indent=2, ensure_ascii=False) + "\n").encode())
     print(f"\n{path}: relatório não canônico gravado")
 
 
@@ -219,12 +216,8 @@ def main() -> None:
         return
 
     if args.command == "fetch":
-        problems = [
-            f"destino: {problem}"
-            for problem in destination_problems(args.source_dir, Path.cwd())
-        ]
+        problems = fetch_sources(args.source_dir, Path.cwd())
         if not problems:
-            fetch_sources(args.source_dir)
             problems = source_problems(args.source_dir)
     else:
         problems = run_report(args.source_dir, args.output, Path.cwd())

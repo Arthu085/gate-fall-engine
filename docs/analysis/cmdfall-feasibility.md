@@ -74,15 +74,24 @@ essas validações passam; se alguma falha, o comando termina com erro e o
 destino, inclusive um relatório anterior, fica intacto. O `selftest` não
 acessa a rede: usa CSVs sintéticos em memória e num repositório temporário.
 
-As escritas ficam confinadas a `data/scratch/cmdfall/`. O destino de
-`--source-dir` (no `fetch`) e de `--output` é resolvido antes de qualquer
-escrita, seguindo `..` e links simbólicos, e é recusado se sair dessa área ou
-cair em `runs/reference/`, `src/`, `scripts/`, `docs/`, `.git/`, `.github/`
-ou nos dados canônicos (`data/raw/`, `data/labels/`, `data/processed/`,
-`data/features/`). `--output` também precisa terminar em `.json`, não pode
-ser um diretório e não pode ficar dentro do diretório das fontes. Os caminhos
-relativos são lidos a partir do diretório atual, que deve ser a raiz do
-repositório.
+As escritas ficam confinadas a `data/scratch/cmdfall/`, que precisa ser o
+diretório físico `<raiz>/data/scratch/cmdfall`, sem link simbólico no
+caminho. Cada destino (`--output` e cada CSV que o `fetch` grava sob
+`--source-dir`) é resolvido antes de qualquer escrita, seguindo `..` e links
+simbólicos, e é recusado se sair dessa área ou cair em `runs/reference/`,
+`src/`, `scripts/`, `docs/`, `.git/`, `.github/` ou nos dados canônicos
+(`data/raw/`, `data/labels/`, `data/processed/`, `data/features/`).
+`--output` também precisa terminar em `.json`, não pode ser um diretório e
+não pode ficar dentro do diretório das fontes. Os caminhos relativos são
+lidos a partir do diretório atual, que deve ser a raiz do repositório.
+
+O `fetch` baixa num diretório temporário fora do repositório, confere o
+SHA-256 de todos os CSVs e só então revalida os destinos e publica os
+arquivos; uma divergência não publica nenhum. Toda gravação, do relatório e
+dos CSVs, usa um temporário de nome imprevisível criado de forma exclusiva no
+diretório do destino, seguido de troca atômica: um link simbólico deixado no
+caminho nunca é seguido, e, se a gravação falhar, o temporário é removido e
+o arquivo anterior fica intacto.
 
 ## Contrato preservado
 

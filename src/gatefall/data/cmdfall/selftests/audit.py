@@ -9,12 +9,15 @@ verificações de publicação gravam esses CSVs num repositório temporário, c
 """
 
 import contextlib
+import hashlib
 import io
 import json
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
+from unittest import mock
 
 import pandas as pd
 
@@ -37,7 +40,7 @@ from gatefall.data.cmdfall.metadata import (
     view_duplication,
     window_eligibility,
 )
-from gatefall.data.cmdfall.audit import run_report
+from gatefall.data.cmdfall.audit import run_report, write_report
 from gatefall.data.cmdfall.source import (
     CS_SPLIT_FILES,
     CV_SPLIT_FILES,
@@ -47,6 +50,7 @@ from gatefall.data.cmdfall.source import (
     SCRATCH_ROOT,
     SEGMENTS_FILE,
     destination_problems,
+    fetch_sources,
     source_problems,
 )
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
@@ -487,6 +491,192 @@ def check_destination_guard() -> list[bool]:
     ]
 
 
+def _write_canonical(root: Path) -> None:
+    for relative in CANONICAL_FILES:
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text("canonical\n")
+
+
+def _canonical_bytes(root: Path) -> dict[str, bytes]:
+    return {relative: (root / relative).read_bytes() for relative in CANONICAL_FILES}
+
+
+def _tree(base: Path) -> list[str]:
+    return sorted(str(path) for path in base.rglob("*"))
+
+
+def _leftover_temporaries(directory: Path) -> list[Path]:
+    if not directory.exists():
+        return []
+    return sorted(path for path in directory.rglob("*.tmp") if not path.is_symlink())
+
+
+def check_secure_publication() -> list[bool]:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory) / "repo"
+        expected = _write_world(root, _synthetic_raw(), VALID_CS_SPLITS)
+        canonical = _canonical_bytes(root)
+        predictable = root / SCRATCH_ROOT / "audit.json.tmp"
+        predictable.symlink_to(root / CANONICAL_FILES[0])
+        problems = _quiet_report(root, expected)
+        report_path = root / DEFAULT_REPORT_PATH
+        symlink_ignored = (
+            problems == []
+            and json.loads(report_path.read_text())["inventory"]["videos"] == 3
+            and _canonical_bytes(root) == canonical
+            and predictable.is_symlink()
+            and predictable.readlink() == root / CANONICAL_FILES[0]
+            and _leftover_temporaries(root / SCRATCH_ROOT) == []
+        )
+
+        predictable.unlink(missing_ok=True)
+        report_path.write_text("relatório anterior\n")
+        with mock.patch(
+            "gatefall.data.cmdfall.source.os.replace", side_effect=OSError("falha simulada")
+        ), contextlib.redirect_stdout(io.StringIO()):
+            try:
+                write_report({"inventory": {}}, report_path)
+                raised = False
+            except OSError:
+                raised = True
+        preserved = (
+            raised
+            and report_path.read_text() == "relatório anterior\n"
+            and _leftover_temporaries(root / SCRATCH_ROOT) == []
+        )
+    return [
+        _check(
+            "link simbólico em audit.json.tmp para runs/reference não é seguido nem tocado",
+            symlink_ignored,
+        ),
+        _check(
+            "falha na troca atômica remove o temporário e preserva o relatório anterior",
+            preserved,
+        ),
+    ]
+
+
+def _fake_hub(payloads: dict[str, bytes], calls: list[str]) -> Callable[[str, Path], Path]:
+    def download(filename: str, staging_dir: Path) -> Path:
+        calls.append(filename)
+        path = staging_dir / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payloads[filename])
+        return path
+
+    return download
+
+
+def _quiet_fetch(
+    root: Path, payloads: dict[str, bytes], expected: dict[str, str], calls: list[str]
+) -> list[str]:
+    with contextlib.redirect_stdout(io.StringIO()):
+        return fetch_sources(DEFAULT_SOURCE_DIR, root, expected, _fake_hub(payloads, calls))
+
+
+def check_fetch_confinement() -> list[bool]:
+    filenames = [SEGMENTS_FILE, LABEL2ID_FILE, *CS_SPLIT_FILES.values(), *CV_SPLIT_FILES.values()]
+    payloads = {filename: f"path\n{filename}\n".encode() for filename in filenames}
+    expected = {filename: hashlib.sha256(payload).hexdigest() for filename, payload in payloads.items()}
+    source = Path(DEFAULT_SOURCE_DIR)
+
+    def attack(name: str, base: Path, plant: Callable[[Path], None]) -> tuple[bool, str]:
+        root = base / name
+        _write_canonical(root)
+        (root / source).mkdir(parents=True)
+        plant(root)
+        canonical = _canonical_bytes(root)
+        tree = _tree(base)
+        calls: list[str] = []
+        problems = _quiet_fetch(root, payloads, expected, calls)
+        ok = (
+            bool(problems)
+            and all(problem.startswith("destino:") for problem in problems)
+            and calls == []
+            and _canonical_bytes(root) == canonical
+            and _tree(base) == tree
+        )
+        return ok, " | ".join(problems)
+
+    with tempfile.TemporaryDirectory() as directory:
+        base = Path(directory)
+        valid = base / "valid"
+        _write_canonical(valid)
+        calls: list[str] = []
+        fetched = (
+            _quiet_fetch(valid, payloads, expected, calls) == []
+            and calls == filenames
+            and source_problems(valid / source, expected) == []
+            and _leftover_temporaries(valid / SCRATCH_ROOT) == []
+        )
+
+        outside = base / "outside"
+        outside.mkdir()
+        child_dir, child_dir_problems = attack(
+            "child_dir",
+            base,
+            lambda root: (root / source / "labels").symlink_to(
+                root / "runs/reference", target_is_directory=True
+            ),
+        )
+        child_outside, _ = attack(
+            "child_outside",
+            base,
+            lambda root: (root / source / "splits").symlink_to(outside, target_is_directory=True),
+        )
+
+        def plant_file(root: Path) -> None:
+            target = root / source / CS_SPLIT_FILES["train"]
+            target.parent.mkdir(parents=True)
+            target.symlink_to(root / CANONICAL_FILES[0])
+
+        child_file, child_file_problems = attack("child_file", base, plant_file)
+
+        relocated = base / "relocated"
+        _write_canonical(relocated)
+        (relocated / "data/scratch/elsewhere").mkdir(parents=True)
+        (relocated / SCRATCH_ROOT).symlink_to(
+            relocated / "data/scratch/elsewhere", target_is_directory=True
+        )
+        tree = _tree(base)
+        relocated_calls: list[str] = []
+        relocated_problems = _quiet_fetch(relocated, payloads, expected, relocated_calls)
+        relocated_rejected = (
+            any("diretório físico" in problem for problem in relocated_problems)
+            and relocated_calls == []
+            and _tree(base) == tree
+        )
+
+        mismatch = base / "mismatch"
+        _write_canonical(mismatch)
+        wrong = {**expected, LABEL2ID_FILE: "0" * 64}
+        mismatch_problems = _quiet_fetch(mismatch, payloads, wrong, [])
+        unpublished = any(problem.startswith("fontes:") for problem in mismatch_problems) and not (
+            mismatch / SCRATCH_ROOT
+        ).exists()
+
+    return [
+        _check("fetch publica as fontes verificadas sem deixar temporário", fetched),
+        _check(
+            "subdiretório das fontes ligado a runs/reference é recusado antes do download",
+            child_dir and "área protegida runs/reference" in child_dir_problems,
+        ),
+        _check("subdiretório das fontes ligado para fora do repositório é recusado", child_outside),
+        _check(
+            "CSV de destino ligado a um arquivo de runs/reference é recusado e o arquivo fica intacto",
+            child_file and "área protegida runs/reference" in child_file_problems,
+        ),
+        _check(
+            "data/scratch/cmdfall ligado a outro diretório do repositório é recusado",
+            relocated_rejected,
+        ),
+        _check(
+            "download com SHA-256 divergente não publica nenhum CSV",
+            unpublished,
+        ),
+    ]
+
+
 def run_audit_selftest() -> None:
     results = (
         check_schema()
@@ -497,6 +687,8 @@ def run_audit_selftest() -> None:
         + check_sources()
         + check_report_publication()
         + check_destination_guard()
+        + check_secure_publication()
+        + check_fetch_confinement()
     )
     passed = sum(results)
     print(f"\n{passed}/{len(results)} checks passaram")
