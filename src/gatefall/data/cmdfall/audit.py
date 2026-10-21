@@ -41,6 +41,7 @@ from gatefall.data.cmdfall.source import (
     LABEL2ID_FILE,
     OMNIFALL_REVISION,
     SEGMENTS_FILE,
+    destination_problems,
     fetch_sources,
     source_problems,
 )
@@ -159,6 +160,44 @@ def write_report(report: dict[str, Any], path: Path) -> None:
     print(f"\n{path}: relatório não canônico gravado")
 
 
+def output_problems(output: Path, source_dir: Path, repository_root: Path) -> list[str]:
+    problems = destination_problems(output, repository_root)
+    target = (repository_root / output).resolve()
+    if target.suffix != ".json":
+        problems.append(f"{output}: o relatório precisa de extensão .json")
+    if target.is_dir():
+        problems.append(f"{output}: é um diretório")
+    if target.is_relative_to((repository_root / source_dir).resolve()):
+        problems.append(f"{output}: dentro do diretório das fontes {source_dir}")
+    return problems
+
+
+def run_report(
+    source_dir: Path,
+    output: Path,
+    repository_root: Path,
+    expected_sha256: dict[str, str] = EXPECTED_SHA256,
+) -> list[str]:
+    """Só grava o relatório depois que destino, fontes, schema, taxonomia,
+    vistas e splits cross-subject passam; qualquer problema deixa o destino
+    intocado."""
+    problems = output_problems(output, source_dir, repository_root)
+    if problems:
+        return [f"destino: {problem}" for problem in problems]
+    problems = source_problems(source_dir, expected_sha256)
+    if problems:
+        return [f"fontes: {problem}" for problem in problems]
+
+    report, problems = build_report(source_dir)
+    if report:
+        print_report(report)
+    if problems:
+        print(f"\n{output}: relatório não gravado (validação falhou)", file=sys.stderr)
+        return [f"metadados: {problem}" for problem in problems]
+    write_report(report, repository_root / output)
+    return []
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -180,16 +219,17 @@ def main() -> None:
         return
 
     if args.command == "fetch":
-        fetch_sources(args.source_dir)
-    failed = _fail("integridade das fontes", source_problems(args.source_dir))
-    if not failed and args.command == "report":
-        report, problems = build_report(args.source_dir)
-        if report:
-            print_report(report)
-            write_report(report, args.output)
-        failed = _fail("metadados", problems)
+        problems = [
+            f"destino: {problem}"
+            for problem in destination_problems(args.source_dir, Path.cwd())
+        ]
+        if not problems:
+            fetch_sources(args.source_dir)
+            problems = source_problems(args.source_dir)
+    else:
+        problems = run_report(args.source_dir, args.output, Path.cwd())
 
-    if failed:
+    if _fail(args.command, problems):
         print(f"\n{args.command} FALHOU", file=sys.stderr)
         sys.exit(1)
     print(f"\n{args.command} OK")

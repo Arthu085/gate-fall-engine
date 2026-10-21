@@ -3,9 +3,14 @@
 Não acessa a rede nem os CSVs reais: os segmentos são montados em memória no
 layout `colors/S<sessão>P<sujeito>K<câmera>` do OmniFall, com os desvios que a
 auditoria precisa detectar (vista divergente, vista ausente, gaps,
-sobreposições, segmento contido e splits que vazam sessão ou sujeito).
+sobreposições, segmento contido e splits que vazam sessão ou sujeito). As
+verificações de publicação gravam esses CSVs num repositório temporário, com
+áreas protegidas e links simbólicos próprios, nunca no checkout real.
 """
 
+import contextlib
+import io
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -32,7 +37,18 @@ from gatefall.data.cmdfall.metadata import (
     view_duplication,
     window_eligibility,
 )
-from gatefall.data.cmdfall.source import source_problems
+from gatefall.data.cmdfall.audit import run_report
+from gatefall.data.cmdfall.source import (
+    CS_SPLIT_FILES,
+    CV_SPLIT_FILES,
+    DEFAULT_REPORT_PATH,
+    DEFAULT_SOURCE_DIR,
+    LABEL2ID_FILE,
+    SCRATCH_ROOT,
+    SEGMENTS_FILE,
+    destination_problems,
+    source_problems,
+)
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.hashing import sha256_file
 
@@ -296,6 +312,181 @@ def check_sources() -> list[bool]:
     ]
 
 
+VALID_CS_SPLITS = {
+    "train": ["colors/S1P1K1", "colors/S1P1K2"],
+    "val": [],
+    "test": ["colors/S2P2K2"],
+}
+CV_SPLITS = {"train": ["colors/S1P1K1"], "val": ["colors/S1P1K2"], "test": ["colors/S2P2K2"]}
+CANONICAL_FILES = (
+    "runs/reference/baseline_a/metrics.json",
+    "src/gatefall/report.json",
+    "data/labels/omnifall/report.json",
+)
+
+
+def _write_world(root: Path, raw: pd.DataFrame, cs_splits: dict[str, list[str]]) -> dict[str, str]:
+    """Monta um repositório temporário com as fontes no layout do OmniFall e
+    devolve o SHA-256 de cada CSV, que o selftest usa como pin."""
+    label2id = pd.DataFrame({"label": list(LE2I_LABEL_NAMES), "id": range(len(LE2I_LABEL_NAMES))})
+    files: dict[str, pd.DataFrame] = {SEGMENTS_FILE: raw, LABEL2ID_FILE: label2id}
+    files |= {CS_SPLIT_FILES[name]: pd.DataFrame({"path": paths}) for name, paths in cs_splits.items()}
+    files |= {CV_SPLIT_FILES[name]: pd.DataFrame({"path": paths}) for name, paths in CV_SPLITS.items()}
+    source = root / DEFAULT_SOURCE_DIR
+    for name, frame in files.items():
+        (source / name).parent.mkdir(parents=True, exist_ok=True)
+        frame.to_csv(source / name, index=False)
+    for relative in CANONICAL_FILES:
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text("canonical\n")
+    return {name: sha256_file(source / name) for name in files}
+
+
+def _quiet_report(root: Path, expected: dict[str, str], output: Path = DEFAULT_REPORT_PATH) -> list[str]:
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return run_report(root / DEFAULT_SOURCE_DIR, output, root, expected)
+
+
+def _report_files(root: Path) -> list[Path]:
+    return sorted(path for path in (root / SCRATCH_ROOT).iterdir() if path.is_file())
+
+
+def check_report_publication() -> list[bool]:
+    divergent = _synthetic_raw()
+    divergent.loc[(divergent["path"] == "colors/S1P1K2") & (divergent["label"] == FALL), "end"] = 4.5
+    out_of_taxonomy = _synthetic_raw()
+    out_of_taxonomy.loc[0, "label"] = 12
+    leaking_splits = {**VALID_CS_SPLITS, "train": ["colors/S1P1K1"], "val": ["colors/S1P1K2"]}
+    invalid_cases = {
+        "vistas sincronizadas divergentes": (divergent, VALID_CS_SPLITS),
+        "split cs com sessão e sujeito em dois splits": (_synthetic_raw(), leaking_splits),
+        "label fora da taxonomia": (out_of_taxonomy, VALID_CS_SPLITS),
+    }
+    results: list[bool] = []
+    with tempfile.TemporaryDirectory() as directory:
+        base = Path(directory)
+        valid = base / "valid"
+        problems = _quiet_report(valid, _write_world(valid, _synthetic_raw(), VALID_CS_SPLITS))
+        report_path = valid / DEFAULT_REPORT_PATH
+        results.append(
+            _check(
+                "metadados válidos publicam o relatório",
+                problems == []
+                and json.loads(report_path.read_text())["inventory"]["sessions"] == 2
+                and _report_files(valid) == [report_path],
+            )
+        )
+
+        for index, (name, (raw, splits)) in enumerate(invalid_cases.items()):
+            root = base / f"invalid_{index}"
+            problems = _quiet_report(root, _write_world(root, raw, splits))
+            results.append(
+                _check(
+                    f"{name}: report falha sem gravar audit.json nem temporário",
+                    any(problem.startswith("metadados:") for problem in problems)
+                    and _report_files(root) == [],
+                )
+            )
+
+        stale = base / "stale"
+        expected = _write_world(stale, divergent, VALID_CS_SPLITS)
+        previous = stale / DEFAULT_REPORT_PATH
+        previous.write_text("relatório anterior\n")
+        problems = _quiet_report(stale, expected)
+        results.append(
+            _check(
+                "relatório anterior fica intacto quando a nova validação falha",
+                bool(problems) and previous.read_text() == "relatório anterior\n",
+            )
+        )
+
+        tampered = base / "tampered"
+        expected = _write_world(tampered, _synthetic_raw(), VALID_CS_SPLITS)
+        (tampered / DEFAULT_SOURCE_DIR / CS_SPLIT_FILES["val"]).write_text("path\ncolors/S1P1K2\n")
+        problems = _quiet_report(tampered, expected)
+        results.append(
+            _check(
+                "fonte alterada depois do pin falha antes de calcular e não grava relatório",
+                any(problem.startswith("fontes:") for problem in problems)
+                and _report_files(tampered) == [],
+            )
+        )
+    return results
+
+
+def check_destination_guard() -> list[bool]:
+    with tempfile.TemporaryDirectory() as directory:
+        base = Path(directory)
+        root = base / "repo"
+        expected = _write_world(root, _synthetic_raw(), VALID_CS_SPLITS)
+        outside = base / "outside.json"
+        outside.write_text("fora do repositório\n")
+        (root / SCRATCH_ROOT / "escape").symlink_to(root / "runs/reference", target_is_directory=True)
+        (root / SCRATCH_ROOT / "link.json").symlink_to(root / CANONICAL_FILES[0])
+        guarded = [root / relative for relative in CANONICAL_FILES] + [outside]
+        snapshot = {path: path.read_bytes() for path in guarded}
+        tree_before = sorted(str(path) for path in base.rglob("*"))
+
+        rejected = [
+            *(Path(relative) for relative in CANONICAL_FILES),
+            Path("runs/reference/new.json"),
+            outside,
+            SCRATCH_ROOT / "../../labels/omnifall/report.json",
+            SCRATCH_ROOT / "escape/new.json",
+            SCRATCH_ROOT / "link.json",
+            SCRATCH_ROOT / "audit.txt",
+            SCRATCH_ROOT,
+            DEFAULT_SOURCE_DIR / "audit.json",
+        ]
+        outcomes = {destination: _quiet_report(root, expected, destination) for destination in rejected}
+        unchanged = all(path.read_bytes() == content for path, content in snapshot.items())
+        tree_after = sorted(str(path) for path in base.rglob("*"))
+
+        nested = SCRATCH_ROOT / "runs/audit.json"
+        accepted = _quiet_report(root, expected, nested) == [] and (root / nested).is_file()
+
+        symlinked_root = base / "symlinked"
+        (symlinked_root / "runs/reference").mkdir(parents=True)
+        (symlinked_root / "data/scratch").mkdir(parents=True)
+        (symlinked_root / SCRATCH_ROOT).symlink_to(
+            symlinked_root / "runs/reference", target_is_directory=True
+        )
+        symlinked_problems = destination_problems(DEFAULT_REPORT_PATH, symlinked_root)
+
+    return [
+        _check(
+            "destinos protegidos, externos, com .., por link simbólico, sem .json, "
+            "diretório ou dentro das fontes são recusados",
+            all(
+                problems and all(problem.startswith("destino:") for problem in problems)
+                for problems in outcomes.values()
+            ),
+        ),
+        _check(
+            "destinos recusados ficam intactos e nenhum arquivo novo aparece",
+            unchanged and tree_before == tree_after,
+        ),
+        _check(
+            "links simbólicos para runs/reference são resolvidos e acusados como área protegida",
+            all(
+                any("área protegida runs/reference" in problem for problem in outcomes[destination])
+                for destination in (SCRATCH_ROOT / "escape/new.json", SCRATCH_ROOT / "link.json")
+            ),
+        ),
+        _check("subdiretório de data/scratch/cmdfall continua aceito", accepted),
+        _check(
+            "data/scratch/cmdfall apontando para runs/reference é recusado",
+            any("área protegida runs/reference" in problem for problem in symlinked_problems),
+        ),
+        _check(
+            "fetch só grava fontes dentro de data/scratch/cmdfall",
+            destination_problems(DEFAULT_SOURCE_DIR, root) == []
+            and bool(destination_problems(Path("runs/reference/omnifall"), root))
+            and bool(destination_problems(Path("data/labels/cmdfall"), root)),
+        ),
+    ]
+
+
 def run_audit_selftest() -> None:
     results = (
         check_schema()
@@ -304,6 +495,8 @@ def run_audit_selftest() -> None:
         + check_windows()
         + check_splits()
         + check_sources()
+        + check_report_publication()
+        + check_destination_guard()
     )
     passed = sum(results)
     print(f"\n{passed}/{len(results)} checks passaram")

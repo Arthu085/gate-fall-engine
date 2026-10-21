@@ -66,10 +66,23 @@ uv run python -m gatefall.data.cmdfall.audit selftest
 ```
 
 `fetch` baixa apenas os CSVs, em `data/scratch/cmdfall/omnifall/`, e confere
-o SHA-256. `report` recusa fontes ausentes ou alteradas, valida o schema e a
-taxonomia, imprime as tabelas e grava `data/scratch/cmdfall/audit.json`
-(sobrescrito a cada execução, sem valor canônico). O `selftest` usa CSVs
-sintéticos em memória e não acessa a rede.
+o SHA-256. `report` recusa fontes ausentes ou alteradas, valida o schema, a
+taxonomia, a identidade das vistas sincronizadas e os splits cross-subject,
+imprime as tabelas e grava `data/scratch/cmdfall/audit.json` (sobrescrito a
+cada execução, sem valor canônico). O relatório só é gravado quando todas
+essas validações passam; se alguma falha, o comando termina com erro e o
+destino, inclusive um relatório anterior, fica intacto. O `selftest` não
+acessa a rede: usa CSVs sintéticos em memória e num repositório temporário.
+
+As escritas ficam confinadas a `data/scratch/cmdfall/`. O destino de
+`--source-dir` (no `fetch`) e de `--output` é resolvido antes de qualquer
+escrita, seguindo `..` e links simbólicos, e é recusado se sair dessa área ou
+cair em `runs/reference/`, `src/`, `scripts/`, `docs/`, `.git/`, `.github/`
+ou nos dados canônicos (`data/raw/`, `data/labels/`, `data/processed/`,
+`data/features/`). `--output` também precisa terminar em `.json`, não pode
+ser um diretório e não pode ficar dentro do diretório das fontes. Os caminhos
+relativos são lidos a partir do diretório atual, que deve ser a raiz do
+repositório.
 
 ## Contrato preservado
 

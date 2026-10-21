@@ -10,8 +10,21 @@ DATASET_REPO_ID = "simplexsigil2/omnifall"
 # Mesma revisão das anotações Le2i (gatefall.data.le2i.annotations). Os oito
 # arquivos abaixo têm SHA-256 idêntico na head 83572a37 (2026-08-27).
 OMNIFALL_REVISION = "68e5cee56a4bad38cca4aea791cac248f96e79a0"
-DEFAULT_SOURCE_DIR = Path("data/scratch/cmdfall/omnifall")
-DEFAULT_REPORT_PATH = Path("data/scratch/cmdfall/audit.json")
+SCRATCH_ROOT = Path("data/scratch/cmdfall")
+DEFAULT_SOURCE_DIR = SCRATCH_ROOT / "omnifall"
+DEFAULT_REPORT_PATH = SCRATCH_ROOT / "audit.json"
+PROTECTED_PATHS = (
+    Path(".git"),
+    Path(".github"),
+    Path("src"),
+    Path("scripts"),
+    Path("docs"),
+    Path("runs/reference"),
+    Path("data/raw"),
+    Path("data/labels"),
+    Path("data/processed"),
+    Path("data/features"),
+)
 
 SEGMENTS_FILE = "labels/cmdfall.csv"
 LABEL2ID_FILE = "labels/label2id.csv"
@@ -36,6 +49,25 @@ EXPECTED_SHA256 = {
     CV_SPLIT_FILES["val"]: "fd215d53b2008cdc1b33f30c8f48b029b32fa6177295272cdf930424493b9ade",
     CV_SPLIT_FILES["test"]: "d104088dca92eec2141c4005a399a117258e1d349bba4ee6b9282999e15ab1e6",
 }
+
+
+def destination_problems(destination: Path, repository_root: Path) -> list[str]:
+    """Caminhos são comparados já resolvidos, para que `..` e links simbólicos
+    não levem a escrita para fora de SCRATCH_ROOT nem para áreas protegidas."""
+    repository = repository_root.resolve()
+    allowed = (repository_root / SCRATCH_ROOT).resolve()
+    target = (repository_root / destination).resolve()
+    problems: list[str] = []
+    if not allowed.is_relative_to(repository):
+        problems.append(f"{SCRATCH_ROOT} resolve para {allowed}, fora do repositório")
+    if target == allowed or not target.is_relative_to(allowed):
+        problems.append(f"{destination}: resolve para {target}, fora de {SCRATCH_ROOT}/")
+    problems += [
+        f"{destination}: resolve para {target}, dentro da área protegida {protected}/"
+        for protected in PROTECTED_PATHS
+        if target.is_relative_to((repository_root / protected).resolve())
+    ]
+    return problems
 
 
 def fetch_sources(source_dir: Path) -> None:
