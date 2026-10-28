@@ -9,46 +9,69 @@ import pandas as pd
 from gatefall.config import IGNORE_LABEL, TARGET_FPS
 from gatefall.data.frames import apply_frame_schema
 from gatefall.data.intervals import sweep_gaps_and_overlap, tag_gap_positions
-from gatefall.data.resampling import build_time_grid, labels_for_grid
+from gatefall.data.resampling import labels_for_grid
 from gatefall.data.staged.labels import UnverifiableLabelsError
 
-# Um passo da grade: além disso o quadro de origem mais próximo pertence a
-# outro instante da grade e o timestep não tem observação própria.
-MAX_ALIGNMENT_OFFSET_S = 1.0 / TARGET_FPS
+# Contrato causal dos datasets encenados: o quadro de origem do instante t é o
+# último com tempo <= t; nenhum quadro posterior a t é usado. O Le2i mantém o
+# quadro mais próximo (`build_time_grid`), que pode ficar até meio intervalo de
+# origem à frente de t, para preservar as features e referências congeladas.
+CAUSAL_TOLERANCE_S = 1e-9
+# Observação mais antiga que um passo da grade não pertence ao instante t.
+MAX_OBSERVATION_LAG_S = 1.0 / TARGET_FPS
 # Anotação que termina depois do fim da fonte por mais que isso não é
 # verificável contra os quadros disponíveis.
 LABEL_END_TOLERANCE_S = 0.5
 SOURCE_GAP_POSITION = "source_gap"
 
 
+class FutureObservationError(ValueError):
+    """Quadro de origem posterior ao instante de predição."""
+
+
 @dataclass(frozen=True)
 class VideoGrid:
     times_s: np.ndarray
     src_indices: np.ndarray
-    offsets_s: np.ndarray
+    source_times_s: np.ndarray
+
+    @property
+    def lag_s(self) -> np.ndarray:
+        return self.times_s - self.source_times_s
+
+
+def _grid_times(duration_s: float) -> np.ndarray:
+    return np.arange(int(np.floor(duration_s * TARGET_FPS)), dtype=np.float64) / TARGET_FPS
 
 
 def grid_from_timestamps(timestamps_s: np.ndarray, duration_s: float) -> VideoGrid:
+    """Grade de 10 fps sobre tempos explícitos (relativos ao primeiro quadro)."""
     if timestamps_s.ndim != 1 or len(timestamps_s) < 2 or np.any(np.diff(timestamps_s) <= 0):
         raise ValueError("timestamps devem ser 1-D, com dois ou mais valores estritamente crescentes")
-    k = int(np.floor(duration_s * TARGET_FPS))
-    times = np.arange(k, dtype=np.float64) / TARGET_FPS
-    right = np.clip(np.searchsorted(timestamps_s, times, side="left"), 0, len(timestamps_s) - 1)
-    left = np.clip(right - 1, 0, len(timestamps_s) - 1)
-    # Mesma regra do Le2i (quadro de origem mais próximo); empate fica com o anterior.
-    choose_left = np.abs(times - timestamps_s[left]) <= np.abs(timestamps_s[right] - times)
-    # Numa lacuna de quadros maior que um passo, o quadro futuro mais próximo
-    # anteciparia a observação: usa-se o último quadro em ou antes de t.
-    at_or_before = np.where(timestamps_s[right] <= times, right, left)
-    future_gap = (~choose_left) & (timestamps_s[right] - times > MAX_ALIGNMENT_OFFSET_S + 1e-9)
-    src = np.where(choose_left, left, right)
-    src = np.where(future_gap, at_or_before, src).astype(np.int32)
-    return VideoGrid(times, src, np.abs(timestamps_s[src] - times))
+    if timestamps_s[0] != 0:
+        raise ValueError("timestamps devem ser relativos ao primeiro quadro (primeiro = 0)")
+    times = _grid_times(duration_s)
+    # Empate (quadro exatamente em t, a menos do erro de ponto flutuante) conta como passado.
+    src = np.searchsorted(timestamps_s, times + CAUSAL_TOLERANCE_S, side="right") - 1
+    return VideoGrid(times, src.astype(np.int32), timestamps_s[src])
 
 
 def grid_from_video(n_frames: int, fps: float) -> VideoGrid:
-    times, src = build_time_grid(n_frames, fps, TARGET_FPS)
-    return VideoGrid(times, src, np.abs(src / fps - times))
+    """Grade de 10 fps sobre vídeo de taxa constante: o quadro j é exibido em j / fps."""
+    if n_frames < 1 or not fps > 0:
+        raise ValueError("vídeo exige quadros e fps positivos")
+    times = _grid_times(n_frames / fps)
+    src = np.clip(np.floor((times + CAUSAL_TOLERANCE_S) * fps), 0, n_frames - 1).astype(np.int32)
+    return VideoGrid(times, src, src / fps)
+
+
+def verify_causal_grid(grid: VideoGrid, video_id: str) -> None:
+    future = grid.lag_s < -CAUSAL_TOLERANCE_S
+    if future.any():
+        first = int(np.flatnonzero(future)[0])
+        raise FutureObservationError(
+            f"{video_id}: passo {first} (t={grid.times_s[first]:.6f}s) usaria o quadro "
+            f"{int(grid.src_indices[first])} em {grid.source_times_s[first]:.6f}s")
 
 
 def build_video_frames(
@@ -69,6 +92,7 @@ def build_video_frames(
             f"{video_id}: anotação termina em {latest_end:.3f}s, além da fonte "
             f"({duration_s:.3f}s + {LABEL_END_TOLERANCE_S}s)"
         )
+    verify_causal_grid(grid, video_id)
     k = len(grid.times_s)
     if k == 0:
         raise UnverifiableLabelsError(f"{video_id}: fonte mais curta que um passo da grade")
@@ -85,9 +109,9 @@ def build_video_frames(
         hi = int(np.searchsorted(grid.times_s, end, side="left"))
         gap_position[lo:hi] = position
 
-    # O rótulo continua definido pelo tempo anotado; só a observação é antiga.
+    # O rótulo continua definido pelo tempo anotado; só a observação está atrasada.
     # Ignorar esses timesteps partiria um evento de queda em dois.
-    misaligned = grid.offsets_s > MAX_ALIGNMENT_OFFSET_S + 1e-9
+    misaligned = grid.lag_s > MAX_OBSERVATION_LAG_S + CAUSAL_TOLERANCE_S
     gap_position[misaligned] = SOURCE_GAP_POSITION
 
     frames = apply_frame_schema(
@@ -109,7 +133,7 @@ def build_video_frames(
         "video_id": video_id,
         "k": k,
         "duration_s": duration_s,
-        "max_offset_s": float(grid.offsets_s.max()),
+        "max_lag_s": float(grid.lag_s.max()),
         "n_misaligned": int(misaligned.sum()),
         "n_overlap_resolved": grid_labels.n_overlap_resolved,
         "n_segments_skipped": grid_labels.n_segments_skipped,

@@ -132,6 +132,61 @@ def test_timestamps_and_staging(root: Path) -> None:
     print("[PASS] carimbos de tempo verificáveis e extração sem escapar do destino")
 
 
+def _assert_latest_at_or_before(times: np.ndarray, src: np.ndarray, source_times: np.ndarray) -> None:
+    """Cada passo usa o último quadro de origem com tempo <= t (nunca um posterior)."""
+    from gatefall.data.staged.timeline import CAUSAL_TOLERANCE_S
+
+    chosen = source_times[src]
+    assert np.all(chosen <= times + CAUSAL_TOLERANCE_S), "quadro de origem posterior ao instante de predição"
+    following = np.minimum(src + 1, len(source_times) - 1)
+    last = src == len(source_times) - 1
+    assert np.all(last | (source_times[following] > times + CAUSAL_TOLERANCE_S)), "existe quadro mais recente <= t"
+
+
+def test_causal_alignment() -> None:
+    from gatefall.data.resampling import build_time_grid
+    from gatefall.data.staged.timeline import (
+        FutureObservationError,
+        VideoGrid,
+        build_video_frames,
+        grid_from_timestamps,
+        grid_from_video,
+    )
+
+    # Quadro 1e-6 s depois de t=0,1 não pode ser usado; empate exato em t=0,2 é passado.
+    stamps = np.array([0.0, 0.05, 0.1000001, 0.18, 0.2, 0.55, 0.61])
+    grid = grid_from_timestamps(stamps, 0.7)
+    assert grid.src_indices.tolist() == [0, 1, 4, 4, 4, 4, 5]
+    assert np.allclose(grid.lag_s, [0, .05, 0, .1, .2, .3, .05])
+    rng = np.random.default_rng(2026)
+    for _ in range(200):
+        steps = rng.uniform(0.01, 0.2, rng.integers(5, 80))
+        steps[rng.random(len(steps)) < .1] += rng.uniform(.1, .6)
+        source = np.concatenate([[0.0], np.cumsum(steps)])
+        snapped = rng.random(len(source)) < .3
+        source[snapped] = np.round(source[snapped] * TARGET_FPS) / TARGET_FPS
+        source = np.unique(source)
+        if len(source) < 2:
+            continue
+        grid = grid_from_timestamps(source, float(source[-1] + .05))
+        _assert_latest_at_or_before(grid.times_s, grid.src_indices, source)
+    for fps in (7.5, 10.0, 12.5, 15.0, 23.976, 25.0, 29.97, 30.0, 60.0):
+        for n_frames in (1, 7, 31, 250):
+            grid = grid_from_video(n_frames, fps)
+            _assert_latest_at_or_before(grid.times_s, grid.src_indices, np.arange(n_frames) / fps)
+    # Contrato histórico do Le2i preservado: quadro mais próximo, que pode estar à frente de t.
+    times, nearest = build_time_grid(250, 25.0, TARGET_FPS)
+    lookahead = nearest / 25.0 - times
+    assert lookahead.max() > 0 and lookahead.max() <= .5 / 25.0 + 1e-12
+    future = VideoGrid(np.array([0.0, 0.1]), np.array([0, 1]), np.array([0.0, 0.12]))
+    _expect(FutureObservationError, lambda: build_video_frames(
+        video_id="x", split="test", env="e", subject=1, grid=future, duration_s=.2,
+        segments=pd.DataFrame({"start": [0.0], "end": [.2], "label": [0]})), "quadro futuro aceito")
+    _expect(ValueError, lambda: grid_from_timestamps(np.array([.1, .2]), 1.0), "origem diferente de 0 aceita")
+    print("[PASS] alinhamento causal: último quadro <= t em sequências irregulares, lacunas, empates e vídeo; "
+          "Le2i mantém o quadro mais próximo")
+
+
 def test_build_and_audit(spec: StagedDatasetSpec) -> None:
     from gatefall.data.frame_source import decode_dataset_frames
     from gatefall.data.staged.audit import run_audit
@@ -155,9 +210,9 @@ def test_build_and_audit(spec: StagedDatasetSpec) -> None:
     assert labels[0] == 0 and labels[12] == 1 and labels[25] == 2
     assert np.all(labels[part["time_s"].to_numpy() >= 3.0] == IGNORE_LABEL), "classe 12 deve virar IGNORE"
     index = pd.read_parquet(paths.sequence_index)
-    stamps = _rows(index, "video_id", video).sort_values("src_index")["timestamp_s"].to_numpy()
-    offsets = np.abs(stamps[part["src_index"].to_numpy()] - part["time_s"].to_numpy())
-    assert offsets.max() <= 1 / 18, "src_index deve ser o quadro mais próximo"
+    for video_id, rows in frames.groupby("video_id"):
+        stamps = _rows(index, "video_id", video_id).sort_values("src_index")["timestamp_s"].to_numpy()
+        _assert_latest_at_or_before(rows["time_s"].to_numpy(), rows["src_index"].to_numpy(), stamps)
 
     gapped_id = "Subject1/Activity1/Trial1/Subject1Activity1Trial1Camera1"
     source_gap = _rows(_rows(frames, "video_id", gapped_id), "gap_position", "source_gap")
@@ -177,7 +232,7 @@ def test_build_and_audit(spec: StagedDatasetSpec) -> None:
     assert report["coverage"]["train"]["source_gap_timesteps"] > 0
     provenance = json.loads(paths.provenance.read_text())
     assert provenance["split"]["version"] == "selftest-v1" and len(provenance["split_sha256"]) == 64
-    print("[PASS] manifesto, grade 10 fps, quadro mais próximo, lacunas, IGNORE explícito e auditoria")
+    print("[PASS] manifesto, grade 10 fps causal em frames.parquet, lacunas, IGNORE explícito e auditoria")
 
 
 def test_failures(spec: StagedDatasetSpec) -> None:
@@ -217,6 +272,7 @@ def test_failures(spec: StagedDatasetSpec) -> None:
 
 def run_selftest() -> None:
     test_frozen_splits()
+    test_causal_alignment()
     with tempfile.TemporaryDirectory(prefix="gatefall-staged-") as temporary:
         root = Path(temporary)
         test_timestamps_and_staging(root)
