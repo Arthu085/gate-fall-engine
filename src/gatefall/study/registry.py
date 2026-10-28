@@ -14,14 +14,13 @@ from pathlib import Path
 from gatefall.hashing import sha256_file
 from gatefall.provenance import git_state, utc_now
 from gatefall.study import STUDY_DIR_NAME, STUDY_ID, STUDY_SCHEMA
+from gatefall.study.integrity import RUN_ARTIFACTS, Verdict, config_mismatches
 from gatefall.study.plan import STAGES, RunSpec, Step
 from gatefall.study.protocol import canonical_json, protocol_sha256
 
 RUN_PROVENANCE = "study-provenance.json"
 EXECUTION_DIR = Path("runs/local") / STUDY_DIR_NAME / "execution"
 WEIGHTS_CACHE = Path("runs/local") / STUDY_DIR_NAME / "weights-sha256.json"
-CONFIG_IDENTITY_FIELDS = ("arm", "fusion", "seed", "epochs", "batch_size", "checkpoint_policy",
-                          "augment", "order_weight")
 
 Runner = Callable[[Sequence[str]], int]
 
@@ -79,15 +78,6 @@ def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def config_mismatches(run: RunSpec, config: dict) -> list[str]:
-    identity = run.identity()
-    problems = [name for name in CONFIG_IDENTITY_FIELDS if config.get(name) != identity[name]]
-    motion = config.get("motion")
-    if (motion or {}).get("recipe") != run.recipe:
-        problems.append("motion_recipe")
-    return problems
-
-
 def run_provenance(run: RunSpec, origin: str, timing: dict | None, weights: dict) -> dict:
     config = _read_json(run.run_dir / "config.json")
     metrics = _read_json(run.run_dir / "metrics.json")
@@ -95,9 +85,7 @@ def run_provenance(run: RunSpec, origin: str, timing: dict | None, weights: dict
     mismatches = config_mismatches(run, config)
     if mismatches or config.get("manifest_sha256") != sha256_file(run.bundle / "manifest.json"):
         raise StudyExecutionError(f"{run.run_dir}: run não corresponde à identidade planejada {mismatches}")
-    artifacts = {name: metrics[field] for name, field in (
-        ("config.json", "config_sha256"), ("stats.json", "stats_sha256"),
-        ("checkpoint.pt", "checkpoint_sha256"), ("last.pt", "last_checkpoint_sha256"))}
+    artifacts = {name: metrics[field] for name, field in RUN_ARTIFACTS}
     altered = [name for name, digest in artifacts.items() if sha256_file(run.run_dir / name) != digest]
     if altered:
         raise StudyExecutionError(f"{run.run_dir}: artefatos não conferem com metrics.json: {altered}")
@@ -135,10 +123,16 @@ def verify_run_provenance(run: RunSpec) -> dict:
     return record
 
 
-def step_status(step: Step) -> str:
+def verify_step(step: Step) -> Verdict:
+    if step.verify is not None:
+        return step.verify()
     if not step.outputs:
-        return "always"
-    return "done" if all(output.exists() for output in step.outputs) else "pending"
+        return Verdict("always")
+    return Verdict("done" if all(output.exists() for output in step.outputs) else "pending")
+
+
+def step_status(step: Step) -> str:
+    return verify_step(step).status
 
 
 def render_commands(steps: list[Step], stage: str | None = None) -> str:
@@ -155,7 +149,8 @@ def render_commands(steps: list[Step], stage: str | None = None) -> str:
             if step.requires:
                 lines.append(f"#   depende de: {', '.join(step.requires)}")
             if step.outputs:
-                lines.append(f"#   reuso: pula se existir {', '.join(map(str, step.outputs))}")
+                rule = "conferidas (integridade, proveniência e dependências)" if step.verify else "existentes"
+                lines.append(f"#   reuso: pula só com saídas {rule}: {', '.join(map(str, step.outputs))}")
             lines.append(shlex.join(step.command) if step.command
                          else f"# pré-requisito manual: {', '.join(map(str, step.outputs))}")
         lines.append("")
@@ -183,7 +178,12 @@ def execute(steps: list[Step], *, log_dir: Path = EXECUTION_DIR, runner: Runner 
                 "weights": weights, "environment": environment(), "utc": utc_now(),
                 "steps": [step.key for step in steps]})
         for step in steps:
-            status = step_status(step)
+            verdict = verify_step(step)
+            status = verdict.status
+            if status == "invalid":
+                record({"event": "invalid", "key": step.key, "reasons": list(verdict.reasons)})
+                raise StudyExecutionError(f"{step.key}: saídas existentes não conferem; nada foi sobrescrito:\n  "
+                                          + "\n  ".join(verdict.reasons))
             if step.manual:
                 if status != "done":
                     record({"event": "missing", "key": step.key})
@@ -195,7 +195,7 @@ def execute(steps: list[Step], *, log_dir: Path = EXECUTION_DIR, runner: Runner 
                         verify_run_provenance(step.run)
                     else:
                         write_run_provenance(step.run, "reused-verified", None, weights)
-                record({"event": "reused", "key": step.key}); continue
+                record({"event": "reused", "key": step.key, "reasons": list(verdict.reasons)}); continue
             started = time.perf_counter(); started_utc = utc_now()
             returncode = runner(step.command)
             timing = {"started_utc": started_utc, "seconds": time.perf_counter() - started}
@@ -203,8 +203,10 @@ def execute(steps: list[Step], *, log_dir: Path = EXECUTION_DIR, runner: Runner 
                     "returncode": returncode, **timing})
             if returncode != 0:
                 raise StudyExecutionError(f"{step.key} falhou com código {returncode}; log: {log_path}")
-            if step.outputs and step_status(step) != "done":
-                raise StudyExecutionError(f"{step.key} terminou sem as saídas declaradas")
+            after = verify_step(step)
+            if after.status not in ("done", "always"):
+                raise StudyExecutionError(f"{step.key} terminou sem saídas verificadas ({after.status}): "
+                                          + "; ".join(after.reasons))
             if step.stage == "train" and step.run is not None:
                 write_run_provenance(step.run, "executed", timing, weights)
         record({"event": "complete", "utc": utc_now()})

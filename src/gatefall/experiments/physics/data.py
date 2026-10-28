@@ -164,7 +164,8 @@ def prepare_records(
                 handle.attrs["video_id"] = record.video_id
                 handle.attrs["split"] = record.split
             videos.append({"video_id": record.video_id, "split": record.split,
-                           "path": relative, "sha256": sha256_file(path), "k": record.pose.k})
+                           "path": relative, "sha256": sha256_file(path), "bytes": path.stat().st_size,
+                           "k": record.pose.k})
         if {v["split"] for v in videos} != set(required_splits):
             raise ValueError(f"pacote exige vídeos disjuntos em {'/'.join(required_splits)}")
         manifest = {

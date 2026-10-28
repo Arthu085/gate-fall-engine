@@ -20,6 +20,7 @@ from gatefall.data.staged.labels import (
     verify_staged_labels,
 )
 from gatefall.data.staged.sequences import (
+    IMAGE_SUFFIXES,
     ImageSequence,
     image_size,
     read_image_sequence,
@@ -38,7 +39,9 @@ from gatefall.data.video_metadata import probe_video, resolve_frame_rate
 from gatefall.hashing import sha256_dataframe, sha256_file
 from gatefall.provenance import git_state, utc_now
 
-MANIFEST_SCHEMA_VERSION = "staged-manifest-v1"
+MANIFEST_SCHEMA_VERSION = "staged-manifest-v2"
+TIMEGRID_SCHEMA_VERSION = "staged-timegrid-v2"
+SOURCE_ALIGNMENT = "latest_frame_at_or_before_t"
 IDENTITY_COLUMNS = (
     "video_id", "recording_id", "subject", "activity", "trial", "camera", "category", "split",
 )
@@ -141,6 +144,27 @@ def unlabeled_sources(spec: StagedDatasetSpec, labeled: set[str]) -> list[str]:
         if video_id not in labeled:
             found.append(video_id)
     return sorted(found)
+
+
+def source_fingerprint(spec: StagedDatasetSpec, video_id: str) -> dict[str, int]:
+    """Contagem e bytes da fonte via `stat`, sem reler conteúdo; o SHA-256 fica no manifesto."""
+    path = spec.raw_dir / spec.source_relative_path(video_id)
+    if spec.source_kind == "image_sequence":
+        sizes = [
+            item.stat().st_size for item in path.iterdir()
+            if item.is_file() and item.suffix.lower() in IMAGE_SUFFIXES
+        ]
+    else:
+        sizes = [path.stat().st_size]
+    return {"files": len(sizes), "bytes": sum(sizes)}
+
+
+def _manifest_files(spec: StagedDatasetSpec) -> list[Path]:
+    paths = staged_paths(spec)
+    files = [paths.manifest, paths.identities]
+    if spec.source_kind == "image_sequence":
+        files.append(paths.sequence_index)
+    return files
 
 
 def _describe_sequence(sequence: ImageSequence) -> dict[str, object]:
@@ -252,12 +276,91 @@ def build_manifest(spec: StagedDatasetSpec, force: bool = False) -> None:
                 manifest.drop(columns=["absolute_path"]).sort_values("video_id").reset_index(drop=True)
             ),
             "n_videos": len(manifest),
+            "files_sha256": {path.name: sha256_file(path) for path in _manifest_files(spec)},
+            "source_fingerprints": {video_id: source_fingerprint(spec, video_id) for video_id in video_ids},
             "unlabeled_sources": unlabeled_sources(spec, set(video_ids)),
             "code": git_state(),
             "created_at": utc_now(),
         },
     )
     print(f"{paths.manifest}: {len(manifest)} vídeos; partição {spec.split.version}")
+
+
+def _recorded_mismatches(path: Path, recorded: dict, expected: dict[str, object]) -> list[str]:
+    return [
+        f"{path}: {key} registrado {recorded.get(key)!r} diverge do atual {value!r}"
+        for key, value in expected.items() if recorded.get(key) != value
+    ]
+
+
+def manifest_problems(spec: StagedDatasetSpec) -> list[str]:
+    """Anotações pinadas, proveniência, hashes dos arquivos e impressão digital das fontes."""
+    problems = verify_staged_labels(spec)
+    if problems:
+        return problems
+    paths = staged_paths(spec)
+    missing = [str(path) for path in (*_manifest_files(spec), paths.provenance) if not path.exists()]
+    if missing:
+        return [f"artefatos do manifesto ausentes: {missing}"]
+    provenance = json.loads(paths.provenance.read_text(encoding="utf-8"))
+    problems = _recorded_mismatches(paths.provenance, provenance, {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "dataset": spec.identifier,
+        "role": spec.role,
+        "source_kind": spec.source_kind,
+        "omnifall_revision": OMNIFALL_REVISION,
+        "labels_sha256": sha256_file(labels_path(spec)),
+        "split": spec.split.to_dict(),
+    })
+    if problems:
+        return problems
+    recorded_files = provenance.get("files_sha256", {})
+    problems = [
+        f"{path}: conteúdo alterado após o registro da proveniência"
+        for path in _manifest_files(spec) if recorded_files.get(path.name) != sha256_file(path)
+    ]
+    labeled = labeled_video_ids(spec, load_staged_segments(spec))
+    if sorted(read_manifest(paths.manifest)["video_id"].astype(str)) != labeled:
+        problems.append(f"{paths.manifest}: vídeos divergem das anotações verificadas")
+    fingerprints = provenance.get("source_fingerprints", {})
+    if sorted(fingerprints) != labeled:
+        problems.append(f"{paths.provenance}: impressões digitais não cobrem os vídeos anotados")
+    changed = []
+    for video_id, recorded in fingerprints.items():
+        try:
+            if source_fingerprint(spec, video_id) != recorded:
+                changed.append(video_id)
+        except FileNotFoundError:
+            changed.append(video_id)
+    if changed:
+        problems.append(f"{spec.raw_dir}: {len(changed)} fonte(s) mudaram desde o manifesto, ex. {changed[:3]}")
+    return problems
+
+
+def timegrid_problems(spec: StagedDatasetSpec) -> list[str]:
+    """Identidades registradas na grade: contrato causal, proveniência do manifesto e anotações."""
+    problems = verify_staged_labels(spec)
+    if problems:
+        return problems
+    paths = staged_paths(spec)
+    missing = [str(path) for path in (paths.frames, paths.alignment, paths.provenance) if not path.exists()]
+    if missing:
+        return [f"artefatos da grade ausentes: {missing}"]
+    alignment = json.loads(paths.alignment.read_text(encoding="utf-8"))
+    problems = _recorded_mismatches(paths.alignment, alignment, {
+        "schema_version": TIMEGRID_SCHEMA_VERSION,
+        "source_alignment": SOURCE_ALIGNMENT,
+        "target_fps": TARGET_FPS,
+        "manifest_provenance_sha256": sha256_file(paths.provenance),
+        "labels_sha256": sha256_file(labels_path(spec)),
+        "frames_sha256": sha256_file(paths.frames),
+    })
+    if problems:
+        return problems
+    gridded = sorted(str(video["video_id"]) for video in alignment.get("videos", []))
+    if gridded != sorted(read_manifest(paths.manifest)["video_id"].astype(str)):
+        problems.append(f"{paths.alignment}: vídeos da grade divergem do manifesto")
+    return problems
 
 
 def split_sha256(manifest: pd.DataFrame) -> str:
@@ -292,6 +395,9 @@ def build_timegrid(spec: StagedDatasetSpec, force: bool = False) -> None:
     if paths.frames.exists() and not force:
         print(f"skip {paths.frames} (já existe, use --force para sobrescrever)")
         return
+    problems = manifest_problems(spec)
+    if problems:
+        raise ValueError("manifesto ou anotações não verificados; grade não construída:\n  " + "\n  ".join(problems))
     manifest = load_staged_manifest(spec)
     segments, n_unsupported = map_to_gatefall(load_staged_segments(spec))
     by_path = {str(path): group for path, group in segments.groupby("path")}
@@ -326,7 +432,12 @@ def build_timegrid(spec: StagedDatasetSpec, force: bool = False) -> None:
     write_json(
         paths.alignment,
         {
+            "schema_version": TIMEGRID_SCHEMA_VERSION,
+            "source_alignment": SOURCE_ALIGNMENT,
             "target_fps": TARGET_FPS,
+            "manifest_provenance_sha256": sha256_file(paths.provenance),
+            "labels_sha256": sha256_file(labels_path(spec)),
+            "frames_sha256": sha256_file(paths.frames),
             "frames_content_sha256": sha256_dataframe(table),
             "n_unsupported_segments": n_unsupported,
             "videos": alignment,

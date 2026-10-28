@@ -34,17 +34,17 @@ def main() -> None:
         run_selftest()
         return
     if args.command == "stage-archives":
-        from gatefall.data.staged.sequences import stage_upfall_archive, upfall_archive_target
+        from gatefall.data.staged.sequences import stage_upfall_archives
 
         spec = get_staged_spec("upfall")
         archives = sorted(args.archives.glob("*.zip"))
         if not archives:
             parser.error(f"nenhum .zip em {args.archives}")
-        for archive in archives:
-            if upfall_archive_target(archive, spec.raw_dir).exists():
-                print(f"já preparado, mantido: {archive.name}")
-                continue
-            print(stage_upfall_archive(archive, spec.raw_dir))
+        staged, kept = stage_upfall_archives(archives, spec.raw_dir)
+        for archive in kept:
+            print(f"já preparado e conferido, mantido: {archive.name}")
+        for target in staged:
+            print(target)
         return
 
     spec = get_staged_spec(args.dataset)

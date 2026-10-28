@@ -11,6 +11,7 @@ from gatefall.data.staged.build import (
     load_staged_manifest,
     staged_paths,
     split_sha256,
+    timegrid_problems,
     write_json,
 )
 from gatefall.data.staged.labels import load_reference_splits
@@ -18,6 +19,7 @@ from gatefall.data.staged.specs import SPLIT_NAMES, StagedDatasetSpec
 from gatefall.datasets.le2i import LE2I_LABEL_NAMES
 from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
 from gatefall.eval.shared.events import fall_events_for_video
+from gatefall.hashing import sha256_file
 
 # Diferença máxima aceita entre o início das vistas de uma mesma gravação.
 MAX_VIEW_START_OFFSET_S = 1.0
@@ -127,7 +129,7 @@ def run_audit(spec: StagedDatasetSpec) -> dict:
     identities = pd.read_parquet(paths.identities)
     sequence_index = pd.read_parquet(paths.sequence_index) if paths.sequence_index.exists() else None
     frames = read_frames(paths.frames)
-    problems = leakage_problems(manifest, identities)
+    problems = timegrid_problems(spec) + leakage_problems(manifest, identities)
     missing_frames = sorted(set(manifest["video_id"]) - set(frames["video_id"]))
     if missing_frames:
         problems.append(f"vídeos sem grade temporal: {missing_frames[:10]}")
@@ -141,6 +143,8 @@ def run_audit(spec: StagedDatasetSpec) -> dict:
         "role": spec.role,
         "split_version": spec.split.version,
         "split_sha256": split_sha256(manifest),
+        "frames_sha256": sha256_file(paths.frames),
+        "alignment_sha256": sha256_file(paths.alignment),
         "coverage": split_coverage(frames),
         "synchronization": synchronization,
         "omnifall_reference_split": reference_split_audit(spec),

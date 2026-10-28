@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+import shutil
 import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -134,12 +135,66 @@ def stage_upfall_archive(archive: Path, raw_dir: Path) -> Path:
             raise SequenceError(f"{archive}: nomes de quadro repetidos em subpastas")
         if not any(name.lower().endswith(IMAGE_SUFFIXES) for name in names):
             raise SequenceError(f"{archive}: nenhum quadro de imagem")
-        staging = target.with_name(target.name + ".partial")
+        staging = partial_target(target)
         staging.mkdir(parents=True, exist_ok=False)
-        for info, name in zip(members, names):
-            if not name.lower().endswith(IMAGE_SUFFIXES):
-                continue
-            # Só o nome-base é usado: caminhos do zip nunca escapam do destino.
-            (staging / name).write_bytes(handle.read(info))
+        try:
+            for info, name in zip(members, names):
+                if not name.lower().endswith(IMAGE_SUFFIXES):
+                    continue
+                # Só o nome-base é usado: caminhos do zip nunca escapam do destino.
+                (staging / name).write_bytes(handle.read(info))
+        except BaseException:
+            shutil.rmtree(staging)
+            raise
         staging.rename(target)
     return target
+
+
+def partial_target(target: Path) -> Path:
+    return target.with_name(target.name + ".partial")
+
+
+def archive_images(archive: Path) -> dict[str, int]:
+    """Nome-base e tamanho de cada quadro, lidos só do diretório central do zip."""
+    with zipfile.ZipFile(archive) as handle:
+        return {
+            Path(info.filename).name: info.file_size
+            for info in handle.infolist()
+            if not info.is_dir() and Path(info.filename).name.lower().endswith(IMAGE_SUFFIXES)
+        }
+
+
+def archive_stage_state(archive: Path, raw_dir: Path) -> tuple[str, list[str]]:
+    """`staged`, `unstaged` ou `invalid`, conferindo nomes e tamanhos sem descompactar."""
+    target = upfall_archive_target(archive, raw_dir)
+    if partial_target(target).exists():
+        return "invalid", [f"{partial_target(target)}: extração interrompida; remova-a antes de retomar"]
+    if not target.exists():
+        return "unstaged", []
+    expected = archive_images(archive)
+    found = {path.name: path.stat().st_size for path in target.iterdir() if path.is_file()}
+    problems = []
+    if missing := sorted(expected.keys() - found.keys()):
+        problems.append(f"{target}: {len(missing)} quadro(s) do arquivo ausente(s), ex. {missing[:3]}")
+    if extra := sorted(found.keys() - expected.keys()):
+        problems.append(f"{target}: {len(extra)} arquivo(s) fora do arquivo, ex. {extra[:3]}")
+    if resized := sorted(name for name in expected.keys() & found.keys() if expected[name] != found[name]):
+        problems.append(f"{target}: {len(resized)} quadro(s) com tamanho divergente, ex. {resized[:3]}")
+    return ("invalid" if problems else "staged"), problems
+
+
+def stage_upfall_archives(archives: Sequence[Path], raw_dir: Path) -> tuple[list[Path], list[Path]]:
+    """Prepara só os arquivos ausentes; recusa tudo se algum destino existente divergir."""
+    states: dict[Path, str] = {}
+    problems: list[str] = []
+    for archive in archives:
+        try:
+            states[archive], found = archive_stage_state(archive, raw_dir)
+        except (SequenceError, zipfile.BadZipFile, OSError) as error:
+            states[archive], found = "invalid", [f"{archive}: {error}"]
+        problems += found
+    if problems:
+        raise SequenceError("preparação existente não confere; nada foi alterado:\n  " + "\n  ".join(problems))
+    kept = [archive for archive, state in states.items() if state == "staged"]
+    staged = [stage_upfall_archive(archive, raw_dir) for archive, state in states.items() if state == "unstaged"]
+    return staged, kept

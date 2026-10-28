@@ -2,6 +2,7 @@
 
 import hashlib
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 from gatefall.data.staged.build import staged_paths
@@ -9,7 +10,7 @@ from gatefall.data.staged.specs import STAGED_SPECS
 from gatefall.datasets import get_dataset
 from gatefall.experiments.motion import RECIPES
 from gatefall.runs import LOCAL_RUN_ROOTS
-from gatefall.study import STUDY_DIR_NAME
+from gatefall.study import STUDY_DIR_NAME, integrity
 from gatefall.study.methods import GATE_ABLATIONS, MOTION_METHODS, PRIMARY_METHODS, Method
 from gatefall.study.protocol import BATCH_SIZE, CHECKPOINT_POLICY, EPOCHS, SEEDS, canonical_json, protocol_sha256
 
@@ -61,6 +62,7 @@ class Step:
     resources: str
     run: RunSpec | None = None
     matrices: frozenset[str] = field(default_factory=frozenset)
+    verify: integrity.Verifier | None = None
 
     @property
     def manual(self) -> bool:
@@ -121,21 +123,24 @@ class _Builder:
             previous = (self.add(Step(
                 "data:upfall:stage", "data",
                 (*UV, "gatefall.data.staged", "stage-archives", "--archives", str(UPFALL_ARCHIVES)),
-                (spec.raw_dir,), (), "download manual + disco"), matrix),)
+                (spec.raw_dir,), (), "download manual + disco",
+                verify=partial(integrity.upfall_staging, UPFALL_ARCHIVES, spec.raw_dir)), matrix),)
         else:
             previous = (self.add(Step(f"data:{dataset}:raw", "data", (), (spec.raw_dir,), (),
                                       "download manual"), matrix),)
         sequence = (
-            ("fetch-labels", (spec.labels_dir / "PROVENANCE.json",), "rede (Hugging Face)"),
-            ("verify-labels", (), "cpu"),
-            ("manifest", (paths.manifest, paths.provenance), "cpu + leitura completa das fontes"),
-            ("timegrid", (paths.frames, paths.alignment), "cpu"),
-            ("audit", (paths.coverage,), "cpu"),
+            ("fetch-labels", (spec.labels_dir / "PROVENANCE.json",), "rede (Hugging Face)",
+             partial(integrity.staged_labels, spec)),
+            ("verify-labels", (), "cpu", None),
+            ("manifest", (paths.manifest, paths.provenance), "cpu + leitura completa das fontes",
+             partial(integrity.staged_manifest, spec)),
+            ("timegrid", (paths.frames, paths.alignment), "cpu", partial(integrity.staged_timegrid, spec)),
+            ("audit", (paths.coverage,), "cpu", partial(integrity.staged_audit, spec)),
         )
-        for command, outputs, resources in sequence:
+        for command, outputs, resources, verify in sequence:
             key = self.add(Step(f"data:{dataset}:{command}", "data",
                                 (*UV, "gatefall.data.staged", command, "--dataset", dataset),
-                                outputs, previous, resources), matrix)
+                                outputs, previous, resources, verify=verify), matrix)
             previous = (key,)
         return previous[0]
 
@@ -161,7 +166,8 @@ class _Builder:
         return self.add(Step(f"bundle:{dataset}:{visual}", "bundle",
                              (*UV, "gatefall.experiments.physics", "prepare", "--dataset", dataset,
                               "--visual", visual, "--output", str(output)),
-                             (output / "manifest.json",), requires, "cpu + leitura de features"), matrix)
+                             (output / "manifest.json",), requires, "cpu + leitura de features",
+                             verify=partial(integrity.bundle, output, get_dataset(dataset).frames_path)), matrix)
 
     def train(self, run: RunSpec, requires: tuple[str, ...], matrix: str) -> str:
         method = run.method
@@ -176,7 +182,7 @@ class _Builder:
                        "--targets", str(run.targets), "--recipe", run.recipe)
             key = f"train:{run.dataset}:motion-{method.arm.lower()}:seed-{run.seed}:{run.recipe}"
         return self.add(Step(key, "train", command, (run.run_dir / "metrics.json",), requires,
-                             "gpu opcional (cpu viável)", run), matrix)
+                             "gpu opcional (cpu viável)", run, verify=partial(integrity.trained_run, run)), matrix)
 
     def evaluate(self, run: RunSpec, train_key: str, matrix: str) -> str:
         module = "gatefall.experiments.physics" if run.recipe is None else "gatefall.experiments.motion"
@@ -184,17 +190,21 @@ class _Builder:
         return self.add(Step(key, "evaluate",
                              (*UV, module, "evaluate", "--bundle", str(run.bundle), "--run-dir",
                               str(run.run_dir), "--split", "test"),
-                             (run.run_dir / "evaluation-test.json",), (train_key,), "cpu", run), matrix)
+                             (run.run_dir / "evaluation-test.json",), (train_key,), "cpu", run,
+                             verify=partial(integrity.evaluation, run, run.run_dir / "evaluation-test.json")),
+                        matrix)
 
     def transfer(self, run: RunSpec, train_key: str, matrix: str) -> str:
         target = self.bundle(EXTERNAL_DATASET, run.method.visual, matrix)
         key = train_key.replace("train:", f"transfer:{EXTERNAL_DATASET}:", 1)
+        target_bundle = bundle_dir(EXTERNAL_DATASET, run.method.visual)
+        output = run.run_dir / f"evaluation-external-{EXTERNAL_DATASET}.json"
         return self.add(Step(key, "transfer",
                              (*UV, "gatefall.experiments.physics", "evaluate-external", "--bundle",
                               str(run.bundle), "--run-dir", str(run.run_dir), "--target-bundle",
-                              str(bundle_dir(EXTERNAL_DATASET, run.method.visual))),
-                             (run.run_dir / f"evaluation-external-{EXTERNAL_DATASET}.json",),
-                             (train_key, target), "cpu", run), matrix)
+                              str(target_bundle)),
+                             (output,), (train_key, target), "cpu", run,
+                             verify=partial(integrity.evaluation, run, output, target_bundle)), matrix)
 
 
 def primary_runs(dataset: str, methods: tuple[Method, ...] = PRIMARY_METHODS) -> list[RunSpec]:
@@ -238,7 +248,8 @@ def build_plan(matrices: tuple[str, ...] = MATRICES) -> list[Step]:
                         f"targets:{dataset}:{run.method.visual}", "targets",
                         (*UV, "gatefall.experiments.motion", "prepare", "--bundle", str(run.bundle),
                          "--pose-root", str(pose_root(dataset)), "--output", str(output)),
-                        (output / "motion-manifest.json",), (bundle,), "cpu"), matrix)
+                        (output / "motion-manifest.json",), (bundle,), "cpu",
+                        verify=partial(integrity.motion_targets, output, run.bundle)), matrix)
                     trained.append((run, builder.train(run, (bundle, targets), matrix)))
                 for run, key in trained:
                     builder.evaluate(run, key, matrix)

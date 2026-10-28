@@ -7,7 +7,7 @@ from gatefall.experiments.motion import SCHEMA as MOTION_SCHEMA
 from gatefall.experiments.physics import FEATURE_SCHEMA, SCHEMA_VERSION
 from gatefall.hashing import sha256_file
 from gatefall.study.plan import Step
-from gatefall.study.registry import config_mismatches
+from gatefall.study.integrity import config_mismatches
 
 REQUIRED_FILES = ("config.json", "metrics.json", "stats.json", "checkpoint.pt", "last.pt")
 

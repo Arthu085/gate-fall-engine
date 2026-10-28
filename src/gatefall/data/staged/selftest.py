@@ -1,5 +1,6 @@
 """Contratos sintéticos dos datasets encenados: partição, alinhamento temporal e rótulos."""
 
+import hashlib
 import json
 import tempfile
 import zipfile
@@ -132,6 +133,64 @@ def test_timestamps_and_staging(root: Path) -> None:
     print("[PASS] carimbos de tempo verificáveis e extração sem escapar do destino")
 
 
+def _camera_archive(directory: Path, camera: int, n_frames: int = 3) -> Path:
+    archive = directory / f"Subject1Activity1Trial1Camera{camera}.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as handle:
+        for index in range(n_frames):
+            handle.writestr(_frame_name(ORIGIN + timedelta(seconds=index / 18)), bytes([camera, index]) * 64)
+    return archive
+
+
+def test_staging_resumption(root: Path) -> None:
+    from gatefall.data.staged.sequences import (
+        SequenceError,
+        archive_stage_state,
+        partial_target,
+        stage_upfall_archive,
+        stage_upfall_archives,
+        upfall_archive_target,
+    )
+
+    archives, raw = root / "archives", root / "raw"
+    archives.mkdir(parents=True)
+    first = _camera_archive(archives, 1)
+    assert stage_upfall_archives([first], raw) == ([upfall_archive_target(first, raw)], [])
+    second = _camera_archive(archives, 2)
+    assert archive_stage_state(second, raw) == ("unstaged", []), "raw existente mascarou câmera nova"
+    staged, kept = stage_upfall_archives([first, second], raw)
+    assert staged == [upfall_archive_target(second, raw)] and kept == [first]
+    assert archive_stage_state(second, raw) == ("staged", [])
+
+    target = upfall_archive_target(first, raw)
+    frame = sorted(target.iterdir())[0]
+    original = frame.read_bytes()
+    frame.write_bytes(original[:-1])
+    state, problems = archive_stage_state(first, raw)
+    assert state == "invalid" and "tamanho divergente" in problems[0]
+    _expect(SequenceError, lambda: stage_upfall_archives([first, second], raw), "destino corrompido aceito")
+    assert frame.read_bytes() == original[:-1], "recusa alterou o destino"
+    frame.write_bytes(original)
+    frame.unlink()
+    assert "ausente" in archive_stage_state(first, raw)[1][0]
+    frame.write_bytes(original)
+    (target / "intruso.png").write_bytes(b"x")
+    assert "fora do arquivo" in archive_stage_state(first, raw)[1][0]
+    (target / "intruso.png").unlink()
+
+    broken = _camera_archive(archives, 3)
+    payload = bytearray(broken.read_bytes())
+    marker = bytes([3, 1]) * 64
+    offset = payload.index(marker)
+    payload[offset] ^= 0xFF
+    broken.write_bytes(bytes(payload))
+    _expect(zipfile.BadZipFile, lambda: stage_upfall_archive(broken, raw), "CRC inválido aceito")
+    broken_target = upfall_archive_target(broken, raw)
+    assert not broken_target.exists() and not partial_target(broken_target).exists(), "extração falha deixou resto"
+    partial_target(broken_target).mkdir(parents=True)
+    assert archive_stage_state(broken, raw)[0] == "invalid", "extração interrompida tratada como retomável"
+    print("[PASS] preparação parcial retomável, câmera nova detectada, destino corrompido e resto parcial recusados")
+
+
 def _assert_latest_at_or_before(times: np.ndarray, src: np.ndarray, source_times: np.ndarray) -> None:
     """Cada passo usa o último quadro de origem com tempo <= t (nunca um posterior)."""
     from gatefall.data.staged.timeline import CAUSAL_TOLERANCE_S
@@ -225,14 +284,74 @@ def test_build_and_audit(spec: StagedDatasetSpec) -> None:
     decoded = decode_dataset_frames(adapter, video, [0, 5, 3], decode_video=lambda *_: [])
     assert [int(frame[0, 0, 0]) for frame in decoded] == [0, 5, 3]
 
+    from gatefall.data.staged.build import manifest_problems, timegrid_problems
+
+    assert manifest_problems(spec) == [] and timegrid_problems(spec) == []
+    alignment = json.loads(paths.alignment.read_text())
+    assert alignment["source_alignment"] == "latest_frame_at_or_before_t"
+    assert alignment["manifest_provenance_sha256"] == hashlib.sha256(paths.provenance.read_bytes()).hexdigest()
     report = run_audit(spec)
     assert report["passed"], report["problems"]
+    assert report["frames_sha256"] == hashlib.sha256(paths.frames.read_bytes()).hexdigest()
     assert report["omnifall_reference_split"]["subjects_in_multiple_splits"] == {2: ["train", "val"]}
     assert report["coverage"]["train"]["fall_events"] == 2
     assert report["coverage"]["train"]["source_gap_timesteps"] > 0
     provenance = json.loads(paths.provenance.read_text())
     assert provenance["split"]["version"] == "selftest-v1" and len(provenance["split_sha256"]) == 64
     print("[PASS] manifesto, grade 10 fps causal em frames.parquet, lacunas, IGNORE explícito e auditoria")
+
+
+def _assert_mentions(problems: list[str], text: str) -> None:
+    assert any(text in problem for problem in problems), f"esperado {text!r} em {problems}"
+
+
+def _restored(path: Path, mutate, check) -> None:
+    original = path.read_bytes()
+    try:
+        mutate(path)
+        check()
+    finally:
+        path.write_bytes(original)
+
+
+def test_stale_artifacts(spec: StagedDatasetSpec) -> None:
+    from gatefall.data.staged.build import build_timegrid, manifest_problems, staged_paths, timegrid_problems
+
+    paths = staged_paths(spec)
+
+    def appended(path: Path) -> None:
+        path.write_bytes(path.read_bytes() + b"\0")
+
+    _restored(paths.identities, appended, lambda: _assert_mentions(manifest_problems(spec), "conteúdo alterado"))
+    source = spec.raw_dir / "Subject2/Activity1/Trial1/Subject2Activity1Trial1Camera1"
+    _restored(sorted(source.iterdir())[3], appended, lambda: _assert_mentions(manifest_problems(spec), "mudaram"))
+    alignment = json.loads(paths.alignment.read_text())
+
+    def stale_alignment(path: Path) -> None:
+        path.write_text(json.dumps({**alignment, "manifest_provenance_sha256": "0" * 64}))
+
+    _restored(paths.alignment, stale_alignment,
+              lambda: _assert_mentions(timegrid_problems(spec), "manifest_provenance_sha256"))
+
+    def old_contract(path: Path) -> None:
+        path.write_text(json.dumps({key: value for key, value in alignment.items() if key != "source_alignment"}))
+
+    _restored(paths.alignment, old_contract, lambda: _assert_mentions(timegrid_problems(spec), "source_alignment"))
+    assert manifest_problems(spec) == [] and timegrid_problems(spec) == []
+
+    labels_file = spec.labels_dir / LABELS_FILENAME
+    frames_before = paths.frames.read_bytes()
+
+    def stale_labels(path: Path) -> None:
+        path.write_text(path.read_text().replace(",1.8,3.0,", ",1.7,3.0,", 1))
+
+    def refuses_rebuild() -> None:
+        assert timegrid_problems(spec), "grade aceita com anotação alterada"
+        _expect(ValueError, lambda: build_timegrid(spec, force=True), "grade reconstruída com anotação alterada")
+        assert paths.frames.read_bytes() == frames_before, "recusa alterou frames.parquet"
+
+    _restored(labels_file, stale_labels, refuses_rebuild)
+    print("[PASS] manifesto, fontes, grade e anotações alteradas detectados; grade não reconstruída sem proveniência")
 
 
 def test_failures(spec: StagedDatasetSpec) -> None:
@@ -276,8 +395,10 @@ def run_selftest() -> None:
     with tempfile.TemporaryDirectory(prefix="gatefall-staged-") as temporary:
         root = Path(temporary)
         test_timestamps_and_staging(root)
+        test_staging_resumption(root / "resume")
         spec = _world(root / "world")
         test_build_and_audit(spec)
+        test_stale_artifacts(spec)
         test_failures(spec)
     print("staged selftest PASS")
 

@@ -3,11 +3,14 @@
 import json
 import tempfile
 import xml.etree.ElementTree as ElementTree
+import zipfile
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 import torch
 
+from gatefall.study import integrity
 from gatefall.study.methods import GATE_ABLATIONS, PRIMARY_METHODS, Method
 from gatefall.study.plan import RunSpec, Step, build_plan, matrix_summary
 from gatefall.study.protocol import BATCH_SIZE, EPOCHS, FROZEN_PROTOCOL, SEEDS, protocol_sha256
@@ -57,6 +60,9 @@ def test_protocol_and_plan() -> None:
     motion = [step for step in trains if step.run and step.run.recipe]
     assert all(str(step.run.run_dir).startswith(("runs/local/le2i/motion-", "runs/local/le2i_cv/motion-"))
                for step in motion if step.run)
+    unverified = [step.key for step in steps if step.stage in ("bundle", "targets", "train", "evaluate", "transfer")
+                  and step.verify is None]
+    assert not unverified and next(step for step in steps if step.key == "data:upfall:stage").verify is not None
     transfers = [step for step in steps if step.stage == "transfer"]
     assert all("runs/local/gmdcsa24/study2026/bundles/" in " ".join(step.command) for step in transfers)
     assert {step.run.dataset for step in transfers if step.run} == {"upfall"}
@@ -278,16 +284,16 @@ def _synthetic_runs(root: Path) -> tuple[list[Step], dict[str, Path]]:
             run = RunSpec("synthetic", method, seed, None, root / "runs" / method.slug / f"seed-{seed}", bundle)
             command = ("train", method.arm, method.fusion, str(seed), str(run.run_dir))
             trains.append(Step(f"train:{method.slug}:{seed}", "train", command, (run.run_dir / "metrics.json",),
-                               (), "cpu", run, frozenset({"le2i"})))
+                               (), "cpu", run, frozenset({"le2i"}), partial(integrity.trained_run, run)))
         for step in trains:
             assert step.run is not None
             steps.append(step)
         for step in trains:
             assert step.run is not None
+            output = step.run.run_dir / "evaluation-test.json"
             steps.append(Step(step.key.replace("train", "evaluate"), "evaluate",
-                              ("evaluate", str(step.run.run_dir)),
-                              (step.run.run_dir / "evaluation-test.json",), (step.key,), "cpu", step.run,
-                              frozenset({"le2i"})))
+                              ("evaluate", str(step.run.run_dir)), (output,), (step.key,), "cpu", step.run,
+                              frozenset({"le2i"}), partial(integrity.evaluation, step.run, output)))
     return steps, {"bundle": bundle}
 
 
@@ -320,6 +326,7 @@ def test_registry_and_report() -> None:
         StudyExecutionError,
         execute,
         render_commands,
+        step_status,
         verify_run_provenance,
         write_run_provenance,
     )
@@ -348,6 +355,12 @@ def test_registry_and_report() -> None:
         assert all(verify_run_provenance(step.run)["origin"] == "executed" for step in trained if step.run)
         relog = execute(steps, log_dir=logs, runner=runner, allow_dirty=True, weights={})
         assert [json.loads(line)["event"] for line in relog.read_text().splitlines()].count("reused") == len(steps)
+        resumed_step = next(step for step in steps if step.stage == "evaluate")
+        resumed_step.outputs[0].unlink()
+        resumed = [json.loads(line) for line in execute(steps, log_dir=logs, runner=runner, allow_dirty=True,
+                                                        weights={}).read_text().splitlines()]
+        assert [entry["key"] for entry in resumed if entry["event"] == "finished"] == [resumed_step.key]
+        assert sum(entry["event"] == "reused" for entry in resumed) == len(steps) - 1
         report = build_report(steps, "le2i", root / "reports", {"synthetic": _synthetic_frames()})
         for name in ("summary.csv", "summary.md", "runs.csv", "per_class.csv", "contrasts.csv", "cost.csv",
                      "report-manifest.json", "macro-f1-synthetic.svg", "timeline-synthetic-1.svg"):
@@ -376,7 +389,95 @@ def test_registry_and_report() -> None:
         assert kept is not None
         _expect(FileExistsError, lambda: write_run_provenance(kept, "executed", None, {}),
                 "proveniência sobrescrevível")
+        assert [step_status(step) for step in trained[1:3]] == ["invalid", "invalid"]
+        evaluated = next(step for step in steps if step.stage == "evaluate" and step.run == kept)
+        assert step_status(evaluated) == "done"
+        report_path = evaluated.outputs[0]
+        original = report_path.read_text()
+        report_path.write_text(json.dumps({**json.loads(original), "selection_performed": True}))
+        assert step_status(evaluated) == "invalid", "avaliação com seleção no teste reusada"
+        report_path.write_text(original)
+        before = sorted(path.name for path in kept.run_dir.iterdir())
+        _expect(StudyExecutionError, lambda: execute(steps, log_dir=logs, runner=runner, allow_dirty=True,
+                                                     weights={}), "run adulterado reusado")
+        assert sorted(path.name for path in kept.run_dir.iterdir()) == before, "recusa alterou o run"
+        manifest = paths["bundle"] / "manifest.json"
+        manifest.write_text(manifest.read_text() + "\n")
+        assert step_status(trained[3]) == "invalid" and step_status(evaluated) == "invalid", "pacote alterado aceito"
     print("[PASS] executor ordenado, reuso verificado, proveniência imutável e relatório com recusas")
+
+
+def _camera_zip(directory: Path, camera: int) -> Path:
+    archive = directory / f"Subject1Activity1Trial1Camera{camera}.zip"
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.writestr(f"2018-07-04T12_04_17.{camera:06d}.png", b"frame" * camera)
+    return archive
+
+
+def test_step_integrity() -> None:
+    from gatefall.data.staged.sequences import stage_upfall_archives
+    from gatefall.experiments.physics.data import RawVideo, prepare_records
+    from gatefall.experiments.physics.selftest import fixture_pose
+    from gatefall.hashing import sha256_file
+    from gatefall.study.registry import StudyExecutionError, execute
+
+    with tempfile.TemporaryDirectory(prefix="gatefall-study-integrity-") as temporary:
+        root = Path(temporary)
+        archives, raw = root / "archives", root / "raw"
+        archives.mkdir()
+        assert integrity.upfall_staging(archives, raw).status == "pending"
+        first = _camera_zip(archives, 1)
+        stage_upfall_archives([first], raw)
+        assert integrity.upfall_staging(archives, raw).status == "done"
+        _camera_zip(archives, 2)
+        assert integrity.upfall_staging(archives, raw).status == "pending", "raw existente pulou câmera nova"
+        calls: list[tuple[str, ...]] = []
+
+        def runner(command) -> int:
+            calls.append(tuple(command))
+            stage_upfall_archives(sorted(archives.glob("*.zip")), raw)
+            return 0
+
+        stage = Step("data:upfall:stage", "data", ("stage",), (raw,), (), "disco",
+                     verify=partial(integrity.upfall_staging, archives, raw))
+        logs = root / "logs"
+        execute([stage], log_dir=logs, runner=runner, allow_dirty=True, weights={})
+        assert len(calls) == 1 and integrity.upfall_staging(archives, raw).status == "done"
+        staged = next((raw / "Subject1/Activity1/Trial1/Subject1Activity1Trial1Camera2").iterdir())
+        staged.write_bytes(b"x")
+        assert integrity.upfall_staging(archives, raw).status == "invalid"
+        _expect(StudyExecutionError, lambda: execute([stage], log_dir=logs, runner=runner, allow_dirty=True,
+                                                     weights={}), "preparação corrompida reusada")
+        assert len(calls) == 1 and staged.read_bytes() == b"x", "executor rodou ou sobrescreveu passo inválido"
+
+        frames = root / "frames.parquet"
+        frames.write_bytes(b"grade v1")
+        records = []
+        for split in ("train", "val", "test"):
+            pose = fixture_pose(30)
+            records.append(RawVideo(f"room/{split}", split, np.zeros(pose.k, dtype=np.int64), pose,
+                                    np.zeros((pose.k, 0), dtype=np.float32), np.zeros(pose.k, dtype=np.float32)))
+        bundle = prepare_records(records, root / "bundle", dataset="synthetic", visual_kind="none",
+                                 label_names=LABEL_NAMES, sources={"frames_sha256": sha256_file(frames)})
+        assert integrity.bundle(root / "absent", frames).status == "pending"
+        assert integrity.bundle(bundle, frames).status == "done"
+        frames.write_bytes(b"grade v2")
+        assert integrity.bundle(bundle, frames).status == "invalid", "pacote de grade antiga reusado"
+        frames.write_bytes(b"grade v1")
+        video = next((bundle / "videos").iterdir())
+        content = video.read_bytes()
+        video.write_bytes(content[:-1])
+        assert "tamanho divergente" in integrity.bundle(bundle, frames).reasons[0]
+        video.unlink()
+        assert "ausentes" in integrity.bundle(bundle, frames).reasons[0], "pacote incompleto reusado"
+        video.write_bytes(content)
+        (bundle / "videos" / "extra.h5").write_bytes(b"x")
+        assert "não listados" in integrity.bundle(bundle, frames).reasons[0]
+        (bundle / "videos" / "extra.h5").unlink()
+        assert integrity.bundle(bundle, frames).status == "done"
+        (bundle / "manifest.json").unlink()
+        assert integrity.bundle(bundle, frames).status == "invalid", "pacote sem manifesto tratado como pendente"
+    print("[PASS] integridade antes do reuso: câmera nova, preparação corrompida, pacote incompleto ou desatualizado")
 
 
 def test_reuse_audit() -> None:
@@ -406,6 +507,7 @@ def run_selftest() -> None:
     test_subject_clustering()
     test_figures()
     test_reuse_audit()
+    test_step_integrity()
     test_causality()
     test_registry_and_report()
     print("study selftest PASS")
