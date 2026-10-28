@@ -60,6 +60,8 @@ nav:
       - Braço B1 (fusão adaptativa por gate): train/baseline-b1.md
       - Braço C0 (fusão pose + SAM 3): train/baseline-c0.md
       - Braço C1 (gate adaptativo com SAM 3): train/baseline-c1.md
+      - Experimento de consistência (gate físico): train/physics-gate.md
+      - Aprendizado de movimento e coerência cinemática: experiments/motion-physics.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md
   - Avaliação por eventos:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
