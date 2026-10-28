@@ -134,6 +134,12 @@ def collect(steps: list[Step], matrix: str) -> list[EvaluatedRun]:
     runs = []
     for step in members:
         assert step.run is not None
+        if step.verify is None:
+            raise IncompatibleAggregation(f"{step.key}: avaliação sem verificador de integridade")
+        verdict = step.verify()
+        if verdict.status != "done":
+            raise IncompatibleAggregation(f"{step.key}: avaliação não confere ({verdict.status}): "
+                                          + "; ".join(verdict.reasons))
         provenance = verify_run_provenance(step.run)
         if provenance["protocol_sha256"] != protocol_sha256():
             raise IncompatibleAggregation(f"{step.key}: protocolo congelado divergente")

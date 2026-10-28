@@ -20,10 +20,14 @@ VISUAL_DIMS = {"none": 0, "dinov3": 1536, "sam3": 10}
 
 
 def _expect(error: type[BaseException], action, message: str) -> None:
+    _raised(error, action, message)
+
+
+def _raised(error: type[BaseException], action, message: str) -> BaseException:
     try:
         action()
-    except error:
-        return
+    except error as caught:
+        return caught
     raise AssertionError(message)
 
 
@@ -264,27 +268,46 @@ def test_figures() -> None:
     print("[PASS] figuras SVG válidas")
 
 
-def _synthetic_runs(root: Path) -> tuple[list[Step], dict[str, Path]]:
-    from gatefall.experiments.physics.data import RawVideo, prepare_records
+def _synthetic_records(splits: tuple[tuple[str, int], ...]) -> list:
+    from gatefall.experiments.physics.data import RawVideo
     from gatefall.experiments.physics.selftest import fixture_pose
 
     records = []
-    for split, count in (("train", 2), ("val", 1), ("test", 2)):
+    for split, count in splits:
         for index in range(count):
             pose = fixture_pose(40)
             labels = np.zeros(pose.k, dtype=np.int64); labels[14:22] = 1; labels[22:32] = 2
             records.append(RawVideo(f"room{index}/{split}", split, labels, pose,
                                     np.zeros((pose.k, 0), dtype=np.float32), np.zeros(pose.k, dtype=np.float32)))
-    bundle = prepare_records(records, root / "bundle", dataset="synthetic", visual_kind="none",
-                             label_names=LABEL_NAMES, sources={})
-    steps = []
+    return records
+
+
+def _synthetic_runs(root: Path) -> tuple[list[Step], dict]:
+    from gatefall.experiments.physics.data import prepare_records
+    from gatefall.hashing import sha256_file
+
+    frames = root / "frames.parquet"
+    frames.write_bytes(b"grade sintetica")
+    bundle = prepare_records(_synthetic_records((("train", 2), ("val", 1), ("test", 2))), root / "bundle",
+                             dataset="synthetic", visual_kind="none", label_names=LABEL_NAMES,
+                             sources={"frames_sha256": sha256_file(frames)})
+    bundle_checks: list[str] = []
+
+    def verify_bundle() -> integrity.Verdict:
+        bundle_checks.append("bundle")
+        return integrity.bundle(bundle, frames)
+
+    bundle_step = Step("bundle:synthetic:none", "bundle", ("bundle",), (bundle / "manifest.json",), (), "cpu",
+                       None, frozenset({"le2i"}), verify_bundle)
+    steps = [bundle_step]
     for method in (PRIMARY_METHODS[0], PRIMARY_METHODS[-1]):
         trains = []
         for seed in SEEDS:
             run = RunSpec("synthetic", method, seed, None, root / "runs" / method.slug / f"seed-{seed}", bundle)
             command = ("train", method.arm, method.fusion, str(seed), str(run.run_dir))
             trains.append(Step(f"train:{method.slug}:{seed}", "train", command, (run.run_dir / "metrics.json",),
-                               (), "cpu", run, frozenset({"le2i"}), partial(integrity.trained_run, run)))
+                               (bundle_step.key,), "cpu", run, frozenset({"le2i"}),
+                               partial(integrity.trained_run, run)))
         for step in trains:
             assert step.run is not None
             steps.append(step)
@@ -294,7 +317,7 @@ def _synthetic_runs(root: Path) -> tuple[list[Step], dict[str, Path]]:
             steps.append(Step(step.key.replace("train", "evaluate"), "evaluate",
                               ("evaluate", str(step.run.run_dir)), (output,), (step.key,), "cpu", step.run,
                               frozenset({"le2i"}), partial(integrity.evaluation, step.run, output)))
-    return steps, {"bundle": bundle}
+    return steps, {"bundle": bundle, "frames": frames, "bundle_checks": bundle_checks}
 
 
 def _synthetic_frames():
@@ -318,6 +341,87 @@ def _runner(bundle: Path):
             return 3
         return 0
     return run
+
+
+def _check_stage_filtered(steps: list[Step], paths: dict, runner, logs: Path) -> None:
+    from gatefall.study.registry import StudyExecutionError, execute
+
+    calls: list[tuple[str, ...]] = []
+
+    def guarded(command) -> int:
+        calls.append(tuple(command))
+        return runner(command)
+
+    trains = [step for step in steps if step.stage == "train"]
+    evaluations = [step for step in steps if step.stage == "evaluate"]
+    bundle, frames = paths["bundle"], paths["frames"]
+
+    def snapshot() -> dict[Path, bytes]:
+        runs = [step.run for step in trains if step.run is not None]
+        files = [path for run in runs for path in run.run_dir.iterdir()]
+        return {path: path.read_bytes() for path in files}
+
+    evaluations[0].outputs[0].unlink()
+    paths["bundle_checks"].clear()
+    execute(evaluations, plan=steps, log_dir=logs, runner=guarded, allow_dirty=True, weights={})
+    assert calls == [evaluations[0].command], "estágio filtrado executou passo não selecionado"
+    assert paths["bundle_checks"] == ["bundle"], "dependência compartilhada conferida mais de uma vez"
+    calls.clear()
+    error = _raised(StudyExecutionError, lambda: execute(evaluations, log_dir=logs, runner=guarded,
+                                                         allow_dirty=True, weights={}), "seleção sem plano aceita")
+    assert "fora do plano" in str(error) and calls == []
+
+    video = next((bundle / "videos").iterdir())
+    content = video.read_bytes()
+    hidden = bundle.with_name("bundle-hidden")
+    cases = (
+        ("ausente", lambda: bundle.rename(hidden), lambda: hidden.rename(bundle)),
+        ("desatualizado", lambda: frames.write_bytes(b"grade nova"), lambda: frames.write_bytes(b"grade sintetica")),
+        ("inválido", lambda: video.write_bytes(content[:-1]), lambda: video.write_bytes(content)),
+    )
+    for name, mutate, restore in cases:
+        before = snapshot()
+        mutate()
+        try:
+            for selection in (trains, evaluations):
+                error = _raised(StudyExecutionError, lambda: execute(selection, plan=steps, log_dir=logs,
+                                                                     runner=guarded, allow_dirty=True, weights={}),
+                                f"pacote {name} aceito em estágio filtrado")
+                assert "bundle:synthetic:none" in str(error) and "nada foi executado" in str(error), error
+            assert calls == [] and snapshot() == before, f"pacote {name}: execução ou sobrescrita"
+            assert name != "ausente" or not bundle.exists(), "pacote ausente recriado"
+        finally:
+            restore()
+    print("[PASS] estágios filtrados conferem pré-requisitos uma vez e recusam pacote ausente, desatualizado ou inválido")
+
+
+def _check_external_report(steps: list[Step], paths: dict, root: Path) -> None:
+    from gatefall.experiments.physics.data import prepare_records
+    from gatefall.experiments.physics.training import evaluate_external
+    from gatefall.study.report import IncompatibleAggregation, build_report
+
+    target = prepare_records(_synthetic_records((("test", 2),)), root / "target-bundle", dataset="synthetic-ext",
+                             visual_kind="none", label_names=LABEL_NAMES, sources={}, required_splits=("test",))
+    transfers = []
+    for step in steps:
+        if step.stage != "train" or step.run is None:
+            continue
+        output = step.run.run_dir / "evaluation-external-synthetic-ext.json"
+        evaluate_external(paths["bundle"], step.run.run_dir, target)
+        transfers.append(Step(step.key.replace("train", "transfer"), "transfer", ("transfer",), (output,),
+                              (step.key,), "cpu", step.run, frozenset({"transfer"}),
+                              partial(integrity.evaluation, step.run, output, target)))
+    frames = {"synthetic-ext": _synthetic_frames()}
+    assert (build_report([*steps, *transfers], "transfer", root / "reports", frames) / "summary.csv").is_file()
+    manifest = target / "manifest.json"
+    original = manifest.read_bytes()
+    manifest.write_bytes(original + b"\n")
+    error = _raised(IncompatibleAggregation, lambda: build_report([*steps, *transfers], "transfer",
+                                                                  root / "reports-stale", frames),
+                    "avaliação externa com alvo desatualizado agregada")
+    assert "target_manifest_sha256" in str(error) and not (root / "reports-stale").exists()
+    manifest.write_bytes(original)
+    print("[PASS] relatório recusa avaliação externa cujo pacote alvo mudou desde a avaliação")
 
 
 def test_registry_and_report() -> None:
@@ -347,10 +451,11 @@ def test_registry_and_report() -> None:
         failing = Step("x:fail", "data", ("fail",), (root / "never",), (), "cpu")
         _expect(StudyExecutionError, lambda: execute([failing, *steps], log_dir=logs, runner=runner,
                                                      allow_dirty=True, weights={}), "falha não interrompeu")
-        assert not any(step.outputs[0].exists() for step in steps), "passo executado após falha"
+        work = [step for step in steps if step.stage != "bundle"]
+        assert not any(step.outputs[0].exists() for step in work), "passo executado após falha"
         log = execute(steps, log_dir=logs, runner=runner, allow_dirty=True, weights={})
         events = [json.loads(line)["event"] for line in log.read_text().splitlines()]
-        assert events.count("finished") == len(steps) and events[-1] == "complete"
+        assert events.count("finished") == len(work) and events[-1] == "complete"
         trained = [step for step in steps if step.stage == "train"]
         assert all(verify_run_provenance(step.run)["origin"] == "executed" for step in trained if step.run)
         relog = execute(steps, log_dir=logs, runner=runner, allow_dirty=True, weights={})
@@ -361,6 +466,8 @@ def test_registry_and_report() -> None:
                                                         weights={}).read_text().splitlines()]
         assert [entry["key"] for entry in resumed if entry["event"] == "finished"] == [resumed_step.key]
         assert sum(entry["event"] == "reused" for entry in resumed) == len(steps) - 1
+        _check_stage_filtered(steps, paths, runner, logs)
+        _check_external_report(steps, paths, root)
         report = build_report(steps, "le2i", root / "reports", {"synthetic": _synthetic_frames()})
         for name in ("summary.csv", "summary.md", "runs.csv", "per_class.csv", "contrasts.csv", "cost.csv",
                      "report-manifest.json", "macro-f1-synthetic.svg", "timeline-synthetic-1.svg"):

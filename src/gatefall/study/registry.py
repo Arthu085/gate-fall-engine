@@ -135,6 +135,40 @@ def step_status(step: Step) -> str:
     return verify_step(step).status
 
 
+def prerequisite_problems(selected: list[Step], plan: list[Step]) -> list[str]:
+    """Confere, uma vez cada, os pré-requisitos transitivos fora da seleção; nunca os executa."""
+    by_key = {step.key: step for step in plan}
+    chosen = {step.key for step in selected}
+    pending = [key for step in selected for key in step.requires]
+    seen: set[str] = set()
+    problems: list[str] = []
+    while pending:
+        key = pending.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        step = by_key.get(key)
+        if step is None:
+            problems.append(f"{key}: dependência fora do plano; rode com o plano completo")
+            continue
+        pending.extend(step.requires)
+        if key in chosen:
+            continue
+        verdict = verify_step(step)
+        hint = (f"providencie {', '.join(map(str, step.outputs))}" if step.manual
+                else f"rode `gatefall.study run --execute --stage {step.stage}`")
+        if verdict.status == "invalid":
+            problems.append(f"{key}: saída existente não confere ({'; '.join(verdict.reasons)}); "
+                            "inspecione e remova-a à mão antes de refazer")
+        elif verdict.status == "pending":
+            detail = f" ({'; '.join(verdict.reasons)})" if verdict.reasons else ""
+            problems.append(f"{key}: pendente{detail}; {hint}")
+        elif (verdict.status == "done" and step.stage == "train" and step.run is not None
+              and not (step.run.run_dir / RUN_PROVENANCE).exists()):
+            problems.append(f"{key}: run conferido sem {RUN_PROVENANCE}; {hint} para registrá-lo")
+    return sorted(problems)
+
+
 def render_commands(steps: list[Step], stage: str | None = None) -> str:
     lines: list[str] = []
     for current in STAGES:
@@ -161,12 +195,20 @@ def _subprocess_runner(command: Sequence[str]) -> int:
     return subprocess.run(list(command), check=False).returncode
 
 
-def execute(steps: list[Step], *, log_dir: Path = EXECUTION_DIR, runner: Runner = _subprocess_runner,
-            allow_dirty: bool = False, weights: dict | None = None) -> Path:
-    """Executa passos pendentes em ordem; reusa só saídas verificadas e para na primeira falha."""
+def execute(steps: list[Step], *, plan: list[Step] | None = None, log_dir: Path = EXECUTION_DIR,
+            runner: Runner = _subprocess_runner, allow_dirty: bool = False, weights: dict | None = None) -> Path:
+    """Executa passos pendentes em ordem; reusa só saídas verificadas e para na primeira falha.
+
+    `plan` é o plano completo do qual `steps` foi filtrado; seus pré-requisitos fora da seleção
+    precisam estar conferidos antes de qualquer execução.
+    """
     code = git_state()
     if code["git_dirty"] and not allow_dirty:
         raise StudyExecutionError("árvore Git com alterações; registre-as ou passe --allow-dirty")
+    problems = prerequisite_problems(steps, steps if plan is None else plan)
+    if problems:
+        raise StudyExecutionError("pré-requisitos fora da seleção não conferem; nada foi executado:\n  "
+                                  + "\n  ".join(problems))
     weights = weights_fingerprint() if weights is None else weights
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"execution-{utc_now().replace(':', '')}-{uuid.uuid4().hex[:8]}.jsonl"

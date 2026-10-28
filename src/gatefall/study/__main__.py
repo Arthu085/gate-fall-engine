@@ -72,12 +72,13 @@ def main() -> None:
     elif args.command == "run":
         from gatefall.study.registry import execute, render_commands
 
-        steps = [step for step in build_plan(tuple(args.matrix)) if args.stage is None or step.stage in args.stage]
+        full_plan = build_plan(tuple(args.matrix))
+        steps = [step for step in full_plan if args.stage is None or step.stage in args.stage]
         if not args.execute:
             print(render_commands(steps))
             print(f"# dry-run: {len(steps)} passo(s); nada foi executado. Use --execute para rodar.")
             return
-        print(f"log: {execute(steps, allow_dirty=args.allow_dirty)}")
+        print(f"log: {execute(steps, plan=full_plan, allow_dirty=args.allow_dirty)}")
     elif args.command == "report":
         from gatefall.study.report import build_report
 
