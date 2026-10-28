@@ -52,8 +52,8 @@
 
 - [ ] T025 Baixar o UP-Fall (câmeras 1 e 2) e preparar os rótulos e a grade dos dois datasets.
 - [ ] T026 Extrair as features do UP-Fall e do GMDCSA-24 e rodar `features-report`.
-- [ ] T027 Montar os pacotes e rodar `reuse-audit` para os runs externos de movimento.
-- [ ] T028 Rodar as matrizes `le2i`, `upfall`, `ablations` e `motion` (treino e depois teste).
+- [ ] T027 Montar os pacotes e rodar `reuse-audit` para os runs externos de movimento. Pacotes Le2i, atestados e auditoria concluídos (`validation.md`); faltam UP-Fall e GMDCSA-24.
+- [ ] T028 Rodar as matrizes `le2i`, `upfall`, `ablations` e `motion` (treino e depois teste). `motion` concluída por reuso atestado (`validation.md`); as demais seguem pendentes.
 - [ ] T029 Rodar a matriz `transfer`.
 - [ ] T030 Rodar `profile-extraction` e `report` por matriz e revisar os resultados antes do artigo.
 

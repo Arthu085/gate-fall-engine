@@ -4,9 +4,11 @@ Infraestrutura do estudo comparativo do plano de 23/10/2026. A especificação c
 `specs/003-gatefall-comparative-study-2026/`. Esta página explica o desenho; os comandos
 reais ficam no [roteiro de execução](comparative-study-runbook.md).
 
-!!! warning "Resultados pendentes"
-    Nenhuma matriz foi executada com dados reais. Os selftests validam apenas contratos
-    sintéticos e não medem desempenho.
+!!! warning "Resultados parciais"
+    Só a matriz `motion` foi executada com dados reais
+    ([resultados](#resultados-matriz-motion)). As matrizes `le2i`, `upfall`, `transfer` e
+    `ablations` seguem pendentes. Os selftests validam apenas contratos sintéticos e não medem
+    desempenho.
 
 ## Datasets
 
@@ -227,3 +229,87 @@ Limites da garantia:
   precisa ser igual;
 - o código, o ambiente e os hiperparâmetros do treino histórico ficam fora da garantia, além dos
   campos da identidade planejada que o reuso comum já confere.
+
+## Resultados: matriz `motion`
+
+Execução real do usuário, consolidada em
+`specs/003-gatefall-comparative-study-2026/validation.md`. O relatório usado é
+`runs/local/study2026/reports/motion-2026-10-28T164408Z/`:
+
+- protocolo `d61f7769cb5c…` e revisão `b4463d9` sem alterações locais;
+- 150 avaliações de runs `reused-verified`, que formam 30 combinações com 5 sementes cada.
+
+Todos os números vêm de `summary.csv`, `contrasts.csv` e `per_class.csv` desse relatório. Um Δ é
+a média, entre as 5 sementes, da diferença pareada por semente. A coluna "sementes +/−" conta as
+sementes com Δ positivo e negativo; empates ficam de fora.
+
+Cuidados de leitura:
+
+- **Le2i-CS:** o teste tem só 2 sujeitos e 38 gravações. O bootstrap por sujeito (primário) tem
+  apenas três reamostragens distintas, e seu IC é degenerado: muitas vezes termina na própria
+  média observada. Não serve como evidência.
+- **Le2i-CV:** o teste tem 5 sujeitos e 60 gravações. O IC por sujeito continua grosseiro.
+- **IC por gravação:** é secundário. Ele trata como independentes gravações do mesmo sujeito e
+  tende a ser estreito demais.
+- **Escopo:** CS e CV são duas partições do mesmo Le2i, não dois datasets. Nada aqui generaliza
+  para outro dataset nem estabelece superioridade de uma receita. Nenhuma receita foi
+  selecionada por estes resultados, e eles não substituem as referências canônicas A/B/C.
+
+### Contraste primário: `motion_physics − motion`
+
+| Protocolo | Braço | Δ macro-F1 (suporte) ± dp | sementes +/− | IC sujeito | IC gravação | Δ FA/h |
+| --- | --- | --- | --- | --- | --- | --- |
+| CS | A | +0.004 ± 0.015 | 3/2 | [−0.034, +0.012] | [−0.010, +0.014] | −2.3 |
+| CS | B0 | +0.015 ± 0.013 | 4/1 | [+0.006, +0.015] | [+0.002, +0.028] | −5.8 |
+| CS | B1-physics | +0.013 ± 0.009 | 5/0 | [−0.056, +0.019] | [−0.010, +0.037] | +7.0 |
+| CS | C0 | +0.011 ± 0.007 | 5/0 | [−0.005, +0.016] | [−0.001, +0.021] | −28.0 |
+| CS | C1-physics | −0.015 ± 0.021 | 1/4 | [−0.018, −0.003] | [−0.025, −0.008] | +9.3 |
+| CV | A | −0.009 ± 0.037 | 3/2 | [−0.015, 0.000] | [−0.020, +0.001] | +19.3 |
+| CV | B0 | +0.007 ± 0.014 | 3/2 | [+0.001, +0.017] | [−0.001, +0.015] | −32.5 |
+| CV | B1-physics | −0.015 ± 0.078 | 2/3 | [−0.028, −0.001] | [−0.026, −0.005] | +86.7 |
+| CV | C0 | −0.012 ± 0.027 | 1/4 | [−0.017, −0.003] | [−0.020, −0.004] | +8.4 |
+| CV | C1-physics | −0.003 ± 0.023 | 3/2 | [−0.008, +0.009] | [−0.011, +0.007] | −15.6 |
+
+**Sem direção comum.** O sinal do contraste muda com o braço e com o protocolo. No CS, as médias
+de B0, B1-physics e C0 são positivas. No CV, só a de B0 é. Em B1-physics e C0 no CS, as cinco
+sementes melhoram, mas os dois IC cruzam zero.
+
+**B0, melhora localizada.** B0 é o único braço com Δ macro-F1 positivo nos dois protocolos:
+
+- +0.015 no CS (4/1 sementes) e +0.007 no CV (3/2);
+- o IC por sujeito fica acima de zero nos dois. O IC por gravação também fica no CS, mas não no
+  CV;
+- a melhora é relativa a `motion`, que tinha piorado B0 (`motion − baseline` = −0.019 no CS e
+  −0.015 no CV). A média de `motion_physics` continua abaixo do `baseline`: 0.635 contra 0.640
+  no CS e 0.256 contra 0.264 no CV.
+
+**Efeitos adversos:**
+
+- **C1-physics no CS:** −0.015 (1/4), com os dois IC abaixo de zero, +9.3 FA/h e F1 de `fall` de
+  0.741 para 0.710.
+- **B1-physics no CV:** −0.015 (2/3), com os dois IC abaixo de zero. FA/h sobe de 167.3 para
+  254.0 (Δ +86.7, com dp entre sementes de 196.8) e a sensibilidade por evento cai 0.070.
+- **C0 no CV:** −0.012 (1/4), com os dois IC abaixo de zero e +8.4 FA/h.
+
+**F1 de `fall` × macro-F1.** As médias por classe de `per_class.csv` são descritivas, sem IC, e
+não acompanham o macro-F1:
+
+- no CS, B0 e B1-physics ganham macro-F1, mas o F1 de `fall` cai 0.003 e 0.008. Os ganhos vêm de
+  outras classes;
+- no CS, C0 (+0.020) e A (+0.013) ganham em `fall`;
+- no CV, o F1 de `fall` sobe 0.026 em B0, com dp 0.050 entre sementes, e cai 0.017 em A e 0.019
+  em B1-physics.
+
+**Falsos alarmes:**
+
+- **C0 no CS:** as 5 sementes reduzem FA/h (Δ −28.0, os dois IC abaixo de zero), com +0.045 de
+  sensibilidade por evento. Isso só desfaz o aumento de `motion` sobre `baseline` (+32.7), e FA/h
+  fica em 80.5 contra 75.9 do `baseline`.
+- **B0 no CV:** reduz FA/h em 32.5, mas com dp de 173.4 entre sementes, e continua acima do
+  `baseline` (254.0 contra 234.7).
+- **A no CV:** aumenta FA/h em 19.3 (4/1 sementes, os dois IC acima de zero) e perde 0.059 de
+  sensibilidade por evento.
+
+**Diante do `baseline`.** Na comparação descritiva das médias de `summary.csv`, `motion_physics`
+não supera o `baseline` em macro-F1 por mais de 0.005 em nenhuma das 10 combinações; as
+diferenças vão de −0.024 a +0.005.
