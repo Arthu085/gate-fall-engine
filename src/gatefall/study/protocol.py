@@ -31,6 +31,8 @@ FROZEN_PROTOCOL: dict = {
         "train_stride": TRAIN_STRIDE,
         "eval_stride": EVAL_STRIDE,
         "causal_windows": True,
+        "staged_source_alignment": "latest_frame_at_or_before_t",
+        "le2i_source_alignment": "nearest_frame_historical",
         "depth_descriptors": False,
     },
     "labels": {
@@ -57,7 +59,8 @@ FROZEN_PROTOCOL: dict = {
     "transfer": {"source": "upfall", "target": "gmdcsa24", "adaptation": "none",
                  "normalization": "source_train_stats"},
     "statistics": {"bootstrap_resamples": BOOTSTRAP_RESAMPLES, "bootstrap_seed": BOOTSTRAP_SEED,
-                   "confidence_level": CONFIDENCE_LEVEL, "cluster_unit": "subject_or_recording",
+                   "confidence_level": CONFIDENCE_LEVEL, "primary_cluster_unit": "subject",
+                   "secondary_cluster_unit": "recording",
                    "seed_pairing": "same_seed_same_bundle"},
 }
 

@@ -5,8 +5,10 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import numpy as np
+import pandas as pd
 
 from gatefall.config import TARGET_FPS
 from gatefall.data.staged.specs import STAGED_SPECS
@@ -18,7 +20,7 @@ from gatefall.provenance import git_state, utc_now
 from gatefall.study import STUDY_DIR_NAME, STUDY_ID
 from gatefall.study.figures import scatter, seed_dot_plot, timeline
 from gatefall.study.methods import GATE_ABLATION_FUSIONS, MOTION_CONTRASTS, MOTION_METHODS, PRIMARY_CONTRASTS
-from gatefall.study.metrics import ClusterOf, cluster_statistics, evaluation_metrics
+from gatefall.study.metrics import cluster_statistics, evaluation_metrics
 from gatefall.study.plan import Step
 from gatefall.study.profiling import extraction_seconds_per_frame, latest_profile
 from gatefall.study.protocol import SEEDS, canonical_json, protocol_sha256
@@ -50,16 +52,50 @@ class EvaluatedRun:
     provenance_sha256: str
 
 
-def cluster_function(dataset: str, unit: str) -> ClusterOf:
+CLUSTER_UNITS = ("subject", "recording")
+PRIMARY_CLUSTER_UNIT = "subject"
+ClusterMaps = dict[str, dict[str, str]]
+
+
+def subject_by_video(dataset: str, frames: pd.DataFrame) -> dict[str, str]:
+    """Sujeito de cada vídeo a partir da grade do dataset; recusa vídeo com mais de um sujeito."""
+    pairs = cast(pd.DataFrame, frames[["video_id", "subject"]]).drop_duplicates()
+    counts = pairs.groupby("video_id")["subject"].nunique().to_dict()
+    ambiguous = sorted(str(video) for video, count in counts.items() if count > 1)
+    if ambiguous:
+        raise IncompatibleAggregation(f"{dataset}: vídeo(s) com mais de um sujeito: {ambiguous[:5]}")
+    mapping = {str(video): f"subject-{int(subject)}" for video, subject in zip(pairs["video_id"], pairs["subject"])}
     spec = STAGED_SPECS.get(dataset)
-    if spec is None or unit == "recording":
-        return spec.recording_id if spec is not None else (lambda video_id: video_id)
-    return lambda video_id: f"subject-{spec.parse_video_id(video_id)['subject']}"
+    if spec is not None:
+        divergent = [video for video, subject in mapping.items()
+                     if subject != f"subject-{spec.parse_video_id(video)['subject']}"]
+        if divergent:
+            raise IncompatibleAggregation(f"{dataset}: sujeito da grade diverge do identificador: {divergent[:5]}")
+    return mapping
 
 
-def cluster_units(dataset: str) -> tuple[str, ...]:
-    # Le2i não identifica sujeitos; a unidade é a gravação (vídeo).
-    return ("subject", "recording") if dataset in STAGED_SPECS else ("recording",)
+def recording_of(dataset: str, video_id: str) -> str:
+    # Vistas sincronizadas do UP-Fall formam uma gravação; nos demais, gravação = vídeo.
+    spec = STAGED_SPECS.get(dataset)
+    return spec.recording_id(video_id) if spec is not None else video_id
+
+
+def cluster_maps(dataset: str, evaluated: set[str], frames: pd.DataFrame) -> ClusterMaps:
+    """Mapas vídeo→cluster verificados contra os vídeos de teste da grade e as predições."""
+    test_videos = {str(video) for video in frames.loc[frames["split"] == "test", "video_id"].unique()}
+    if test_videos != evaluated:
+        raise IncompatibleAggregation(
+            f"{dataset}: vídeos avaliados divergem do teste da grade "
+            f"(faltam {sorted(test_videos - evaluated)[:3]}, sobram {sorted(evaluated - test_videos)[:3]})")
+    subjects = subject_by_video(dataset, frames)
+    return {"subject": {video: subjects[video] for video in sorted(evaluated)},
+            "recording": {video: recording_of(dataset, video) for video in sorted(evaluated)}}
+
+
+def load_frames(dataset: str) -> pd.DataFrame:
+    from gatefall.datasets import get_dataset
+
+    return get_dataset(dataset).load_frames()
 
 
 def run_label(step: Step) -> str:
@@ -153,7 +189,7 @@ def _fmt(value: float | None, digits: int = 3) -> str:
     return "—" if value is None else f"{value:.{digits}f}"
 
 
-def aggregate(runs: list[EvaluatedRun], matrix: str) -> dict:
+def aggregate(runs: list[EvaluatedRun], matrix: str, maps: dict[str, ClusterMaps]) -> dict:
     groups: dict[tuple[str, str], dict[int, EvaluatedRun]] = {}
     for run in runs:
         groups.setdefault((run.dataset, run.label), {})[run.seed] = run
@@ -164,14 +200,17 @@ def aggregate(runs: list[EvaluatedRun], matrix: str) -> dict:
         for name in SUMMARY_METRICS:
             stats = seed_summary({seed: flat_metrics(run.metrics)[name] for seed, run in by_seed.items()})
             row[f"{name}_mean"] = stats["mean"]; row[f"{name}_std"] = stats["std"]
-        unit = cluster_units(dataset)[0]
-        clustered = {seed: cluster_statistics(run.report["predictions"], cluster_function(dataset, unit))
-                     for seed, run in by_seed.items()}
         functions = metric_functions(classes)
-        for name in BOOTSTRAP_METRICS:
-            interval = cluster_bootstrap(clustered, None, functions[name])
-            row[f"{name}_ci_low"] = interval["ci_low"]; row[f"{name}_ci_high"] = interval["ci_high"]
-        row["cluster_unit"] = unit; row["n_clusters"] = len(next(iter(clustered.values())))
+        for unit in CLUSTER_UNITS:
+            clustered = {seed: cluster_statistics(run.report["predictions"], maps[dataset][unit].__getitem__)
+                         for seed, run in by_seed.items()}
+            # Sujeito é a unidade primária; gravação é análise secundária (sufixo _recording).
+            suffix = "" if unit == PRIMARY_CLUSTER_UNIT else f"_{unit}"
+            for name in BOOTSTRAP_METRICS:
+                interval = cluster_bootstrap(clustered, None, functions[name])
+                row[f"{name}{suffix}_ci_low"] = interval["ci_low"]
+                row[f"{name}{suffix}_ci_high"] = interval["ci_high"]
+            row[f"n_{unit}s"] = len(next(iter(clustered.values())))
         summary.append(row)
         for index, name in enumerate(LABEL_NAMES):
             values = {seed: run.metrics["per_class"][index]["f1"] for seed, run in by_seed.items()}
@@ -186,8 +225,8 @@ def aggregate(runs: list[EvaluatedRun], matrix: str) -> dict:
             left, right = groups[(dataset, treatment)], groups[(dataset, reference)]
             classes = tuple(next(iter(left.values())).metrics["supported_classes"])
             functions = metric_functions(classes)
-            for unit in cluster_units(dataset):
-                cluster_of = cluster_function(dataset, unit)
+            for unit in CLUSTER_UNITS:
+                cluster_of = maps[dataset][unit].__getitem__
                 left_stats = {s: cluster_statistics(r.report["predictions"], cluster_of) for s, r in left.items()}
                 right_stats = {s: cluster_statistics(r.report["predictions"], cluster_of) for s, r in right.items()}
                 for name in BOOTSTRAP_METRICS:
@@ -196,6 +235,7 @@ def aggregate(runs: list[EvaluatedRun], matrix: str) -> dict:
                     interval = cluster_bootstrap(left_stats, right_stats, functions[name])
                     contrasts.append({"dataset": dataset, "treatment": treatment, "reference": reference,
                                       "metric": name, "cluster_unit": unit,
+                                      "cluster_role": "primary" if unit == PRIMARY_CLUSTER_UNIT else "secondary",
                                       "delta_mean": deltas["mean"], "delta_std": deltas["std"],
                                       "seeds_positive": deltas["n_positive"], "seeds_negative": deltas["n_negative"],
                                       "ci_low": interval["ci_low"], "ci_high": interval["ci_high"],
@@ -255,18 +295,20 @@ def _timelines(runs: list[EvaluatedRun], output: Path) -> list[str]:
 
 def write_markdown(path: Path, matrix: str, aggregated: dict, costs: list[dict]) -> None:
     lines = [f"# Estudo comparativo GateFall 2026 — matriz `{matrix}`", "",
-             "Média ± desvio entre sementes; IC 95% por bootstrap de clusters (unidade na coluna).", "",
-             "| dataset | método | macro-F1 (suporte) | IC | sens. evento | durante a queda | só após | FA/h | "
-             "latência mediana (detectados) | perdidos | cluster |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
+             "Média ± desvio entre sementes. IC 95% por bootstrap de sujeitos (primário) e de gravações "
+             "(secundário); com poucos sujeitos de teste o IC por sujeito é grosseiro.", "",
+             "| dataset | método | macro-F1 (suporte) | IC sujeito | IC gravação | sens. evento | durante a queda | "
+             "só após | FA/h | latência mediana (detectados) | perdidos | sujeitos / gravações |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for row in aggregated["summary"]:
         lines.append(
             f"| {row['dataset']} | {row['method']} | {_fmt(row['macro_f1_supported_mean'])} ± "
             f"{_fmt(row['macro_f1_supported_std'])} | [{_fmt(row['macro_f1_supported_ci_low'])}, "
-            f"{_fmt(row['macro_f1_supported_ci_high'])}] | {_fmt(row['event_sensitivity_mean'])} | "
+            f"{_fmt(row['macro_f1_supported_ci_high'])}] | [{_fmt(row['macro_f1_supported_recording_ci_low'])}, "
+            f"{_fmt(row['macro_f1_supported_recording_ci_high'])}] | {_fmt(row['event_sensitivity_mean'])} | "
             f"{_fmt(row['sensitivity_during_fall_mean'])} | {_fmt(row['sensitivity_only_after_fall_mean'])} | "
             f"{_fmt(row['false_alarms_per_hour_mean'], 2)} | {_fmt(row['latency_detected_median_s_mean'], 2)} | "
-            f"{_fmt(row['missed_events_mean'], 1)} | {row['cluster_unit']} ({row['n_clusters']}) |")
+            f"{_fmt(row['missed_events_mean'], 1)} | {row['n_subjects']} / {row['n_recordings']} |")
     if aggregated["contrasts"]:
         lines += ["", "## Contrastes pareados (tratamento − referência)", "",
                   "| dataset | tratamento | referência | métrica | Δ média ± dp | sementes +/− | IC 95% | cluster |",
@@ -275,18 +317,30 @@ def write_markdown(path: Path, matrix: str, aggregated: dict, costs: list[dict])
             lines.append(f"| {row['dataset']} | {row['treatment']} | {row['reference']} | {row['metric']} | "
                          f"{_fmt(row['delta_mean'])} ± {_fmt(row['delta_std'])} | "
                          f"{row['seeds_positive']}/{row['seeds_negative']} | "
-                         f"[{_fmt(row['ci_low'])}, {_fmt(row['ci_high'])}] | {row['cluster_unit']} |")
+                         f"[{_fmt(row['ci_low'])}, {_fmt(row['ci_high'])}] | {row['cluster_unit']} "
+                         f"({row['cluster_role']}, {row['n_clusters']}) |")
     measured = [row for row in costs if row["end_to_end_s_per_frame"] is not None]
     lines += ["", "## Custo", "", f"{len(measured)}/{len(costs)} runs com perfil de extração medido; "
               "detalhes em `cost.csv`.", ""]
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def build_report(steps: list[Step], matrix: str, output_root: Path = REPORT_DIR) -> Path:
+def resolve_cluster_maps(runs: list[EvaluatedRun], frames_by_dataset: dict[str, pd.DataFrame] | None) -> dict:
+    maps = {}
+    for dataset in sorted({run.dataset for run in runs}):
+        evaluated = {row["video_id"] for row in next(run for run in runs if run.dataset == dataset).report["predictions"]}
+        frames = (frames_by_dataset or {}).get(dataset)
+        maps[dataset] = cluster_maps(dataset, evaluated, load_frames(dataset) if frames is None else frames)
+    return maps
+
+
+def build_report(steps: list[Step], matrix: str, output_root: Path = REPORT_DIR,
+                 frames_by_dataset: dict[str, pd.DataFrame] | None = None) -> Path:
     runs = collect(steps, matrix)
+    maps = resolve_cluster_maps(runs, frames_by_dataset)
     output = output_root / f"{matrix}-{utc_now().replace(':', '')}"
     output.mkdir(parents=True, exist_ok=False)
-    aggregated = aggregate(runs, matrix)
+    aggregated = aggregate(runs, matrix, maps)
     _write_csv(output / "runs.csv", [{"dataset": run.dataset, "method": run.label, "seed": run.seed,
                                       **flat_metrics(run.metrics)} for run in runs])
     _write_csv(output / "summary.csv", aggregated["summary"])

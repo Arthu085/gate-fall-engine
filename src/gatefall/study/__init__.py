@@ -5,5 +5,5 @@ pacote executa treino, extração ou avaliação real sem `run --execute`.
 """
 
 STUDY_ID = "gatefall-comparative-study-2026"
-STUDY_SCHEMA = "study2026-v1"
+STUDY_SCHEMA = "study2026-v2"
 STUDY_DIR_NAME = "study2026"

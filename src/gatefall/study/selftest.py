@@ -204,6 +204,50 @@ def test_statistics() -> None:
     print("[PASS] diferenças pareadas por semente e bootstrap determinístico por cluster")
 
 
+def test_subject_clustering() -> None:
+    """Várias gravações por sujeito: o bootstrap por sujeito não trata gravações como independentes."""
+    import pandas as pd
+
+    from gatefall.study.metrics import cluster_statistics
+    from gatefall.study.report import IncompatibleAggregation, cluster_maps
+    from gatefall.study.statistics import cluster_bootstrap, metric_functions
+
+    fall = [0] * 10 + [1] * 10 + [2] * 10
+    videos = {f"scene/s{subject}-r{recording}": subject for subject in (1, 2) for recording in range(3)}
+    frames = pd.DataFrame([{"video_id": video, "split": "test", "subject": subject}
+                           for video, subject in videos.items()]
+                          + [{"video_id": "scene/train", "split": "train", "subject": 9}])
+    maps = cluster_maps("le2i", set(videos), frames)
+    assert len(set(maps["subject"].values())) == 2 and len(set(maps["recording"].values())) == 6
+    by_seed: dict[str, dict[int, dict]] = {"subject": {}, "recording": {}}
+    for seed in SEEDS:
+        rows = []
+        for video, subject in videos.items():
+            rows += _prediction_rows(video, fall, fall if subject == 1 else [0] * 30)
+        for unit in by_seed:
+            by_seed[unit][seed] = cluster_statistics(rows, maps[unit].__getitem__)
+    sensitivity = metric_functions((0, 1, 2))["event_sensitivity"]
+    subject = cluster_bootstrap(by_seed["subject"], None, sensitivity, resamples=400)
+    recording = cluster_bootstrap(by_seed["recording"], None, sensitivity, resamples=400)
+    assert subject["n_clusters"] == 2 and recording["n_clusters"] == 6
+    assert subject["estimate"] == recording["estimate"] == .5
+    assert subject["ci_low"] == 0 and subject["ci_high"] == 1
+    assert subject["ci_high"] - subject["ci_low"] > recording["ci_high"] - recording["ci_low"]
+    paired = cluster_bootstrap(by_seed["subject"], by_seed["subject"], sensitivity, resamples=100)
+    assert paired["ci_low"] == paired["ci_high"] == 0
+    ambiguous = pd.concat([frames, pd.DataFrame([{"video_id": "scene/s1-r0", "split": "test", "subject": 2}])])
+    _expect(IncompatibleAggregation, lambda: cluster_maps("le2i", set(videos), ambiguous), "vídeo com dois sujeitos aceito")
+    _expect(IncompatibleAggregation, lambda: cluster_maps("le2i", set(videos) - {"scene/s2-r2"}, frames),
+            "teste incompleto aceito")
+    views = [f"Subject{s}/Activity1/Trial1/Subject{s}Activity1Trial1Camera{c}" for s in (2, 4) for c in (1, 2)]
+    upfall = pd.DataFrame([{"video_id": v, "split": "test", "subject": int(v[7])} for v in views])
+    staged = cluster_maps("upfall", set(views), upfall)
+    assert len(set(staged["recording"].values())) == 2 and len(set(staged["subject"].values())) == 2
+    wrong = upfall.assign(subject=[2, 2, 2, 2])
+    _expect(IncompatibleAggregation, lambda: cluster_maps("upfall", set(views), wrong), "sujeito divergente aceito")
+    print("[PASS] bootstrap por sujeito (primário) × gravação (secundário) com várias gravações por sujeito")
+
+
 def test_figures() -> None:
     from gatefall.study.figures import scatter, seed_dot_plot, timeline
 
@@ -247,6 +291,13 @@ def _synthetic_runs(root: Path) -> tuple[list[Step], dict[str, Path]]:
     return steps, {"bundle": bundle}
 
 
+def _synthetic_frames():
+    import pandas as pd
+
+    return pd.DataFrame([{"video_id": f"room{index}/{split}", "split": split, "subject": index + 1}
+                         for split, count in (("train", 2), ("val", 1), ("test", 2)) for index in range(count)])
+
+
 def _runner(bundle: Path):
     from gatefall.experiments.physics.training import evaluate, train
 
@@ -281,7 +332,7 @@ def test_registry_and_report() -> None:
         runner = _runner(paths["bundle"])
         logs = root / "logs"
         assert "evaluate" in render_commands(steps)
-        _expect(IncompatibleAggregation, lambda: build_report(steps, "le2i", root / "reports"),
+        _expect(IncompatibleAggregation, lambda: build_report(steps, "le2i", root / "reports", {"synthetic": _synthetic_frames()}),
                 "relatório sem avaliações aceito")
         manual = Step("data:x", "data", (), (root / "absent",), (), "manual")
         _expect(StudyExecutionError, lambda: execute([manual], log_dir=logs, runner=runner, allow_dirty=True,
@@ -297,7 +348,7 @@ def test_registry_and_report() -> None:
         assert all(verify_run_provenance(step.run)["origin"] == "executed" for step in trained if step.run)
         relog = execute(steps, log_dir=logs, runner=runner, allow_dirty=True, weights={})
         assert [json.loads(line)["event"] for line in relog.read_text().splitlines()].count("reused") == len(steps)
-        report = build_report(steps, "le2i", root / "reports")
+        report = build_report(steps, "le2i", root / "reports", {"synthetic": _synthetic_frames()})
         for name in ("summary.csv", "summary.md", "runs.csv", "per_class.csv", "contrasts.csv", "cost.csv",
                      "report-manifest.json", "macro-f1-synthetic.svg", "timeline-synthetic-1.svg"):
             assert (report / name).is_file(), name
@@ -308,7 +359,7 @@ def test_registry_and_report() -> None:
         original = evaluation.read_text()
         tampered = json.loads(original); tampered["predictions"][0]["label"] = 9
         evaluation.write_text(json.dumps(tampered))
-        _expect(IncompatibleAggregation, lambda: build_report(steps, "le2i", root / "reports"),
+        _expect(IncompatibleAggregation, lambda: build_report(steps, "le2i", root / "reports", {"synthetic": _synthetic_frames()}),
                 "rótulos de teste divergentes aceitos")
         evaluation.write_text(original)
         spare = trained[1].run
@@ -352,6 +403,7 @@ def run_selftest() -> None:
     test_protocol_and_plan()
     test_metrics()
     test_statistics()
+    test_subject_clustering()
     test_figures()
     test_reuse_audit()
     test_causality()
