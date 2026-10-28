@@ -99,9 +99,12 @@ transferência ou quando um artefato foi alterado.
 - **FR-003**: rótulos OmniFall na revisão `68e5cee`, com o mapeamento de
   [`contracts/class-mapping.md`](contracts/class-mapping.md); `fall`, `fallen` e `lying`
   permanecem distintos.
-- **FR-004**: grade causal a 10 fps. Para sequências com lacuna maior que um passo, o quadro
-  escolhido é o último em ou antes de t. Os passos desalinhados ficam marcados como
-  `source_gap` sem perder o rótulo.
+- **FR-004**: grade causal a 10 fps nos datasets encenados. O quadro de origem de t é sempre o
+  último com timestamp ≤ t (um empate conta como passado), com amostragem irregular, quadros
+  perdidos ou vídeo; nunca é um quadro posterior a t. Passos com atraso de observação acima de
+  0,1 s ficam marcados como `source_gap` sem perder o rótulo. O Le2i mantém a grade histórica
+  do quadro mais próximo (até 0,5/fps à frente), registrada à parte no protocolo para preservar
+  as features e referências existentes.
 - **FR-005**: extração congelada, determinística e em cache por vídeo, com schema e proveniência
   verificados ao montar pacotes.
 - **FR-006**: oito métodos primários e dez variantes de gate na interface
@@ -120,14 +123,19 @@ transferência ou quando um artefato foi alterado.
   - latência dos detectados, com perdas contabilizadas.
 - **FR-010**: custo separado em extração (perfil isolado), classificação (tempo por janela) e
   ponta a ponta.
-- **FR-011**: diferenças pareadas por semente e bootstrap por cluster (sujeito ou gravação),
-  com o mesmo sorteio para os dois métodos e para todas as sementes. Janelas sobrepostas
-  nunca são tratadas como observações independentes.
+- **FR-011**: diferenças pareadas por semente e bootstrap por cluster. O sujeito é a unidade
+  primária em todos os datasets, obtido de `frames.parquet` e conferido contra o identificador
+  nos datasets encenados. A gravação é a unidade secundária, relatada ao lado. O mesmo sorteio
+  vale para os dois métodos e para todas as sementes. Janelas sobrepostas nunca são tratadas
+  como observações independentes. Os ICs por sujeito, com 2 a 5 sujeitos de teste, são
+  descritivos.
 - **FR-012**: seleção de checkpoint só por validação (`best_val`, macro-F1 restrito de 8
   classes, critério histórico mantido para todos os métodos); nenhum limiar ou hiperparâmetro é
   ajustado no teste, e a decisão por janela é o argmax.
 - **FR-013**: registro do plano com identidade de run, proveniência escrita uma única vez,
-  ledger JSONL de execução e reuso apenas de saídas verificadas.
+  ledger JSONL de execução e reuso apenas de saídas verificadas. Um passo só é pulado depois de
+  conferir a integridade, a proveniência, a cobertura e a identidade das dependências das suas
+  saídas. Uma saída existente que não confere interrompe a execução sem ser sobrescrita.
 - **FR-014**: comandos `plan`, `commands`, `run` (padrão `--dry-run`), `report`, `reuse-audit`,
   `features-report`, `profile-extraction` (exige `--execute`) e `selftest`.
 

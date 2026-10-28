@@ -85,7 +85,11 @@ agregados com os do estudo.
 
 ## Estatística
 
-- A unidade de reamostragem é o cluster: sujeito (UP-Fall, GMDCSA-24) ou gravação (Le2i).
+- A unidade primária de reamostragem é o sujeito em todos os datasets. A gravação é secundária e
+  é relatada ao lado. No UP-Fall, as duas câmeras de um ensaio formam uma gravação.
+- Os sujeitos de teste são 2 no Le2i-CS (7 e 31 vídeos), 5 no Le2i-CV, 4 no UP-Fall e 4 no
+  GMDCSA-24. Com tão poucos clusters, o IC percentil por sujeito é largo e descritivo e
+  subestima a variabilidade entre populações; no Le2i-CS, ele é dominado por um sujeito.
 - O mesmo sorteio vale para tratamento e referência e para todas as sementes. O IC percentil é
   calculado sobre a média entre sementes.
 - A semente do bootstrap é 20260, com 2000 reamostras.

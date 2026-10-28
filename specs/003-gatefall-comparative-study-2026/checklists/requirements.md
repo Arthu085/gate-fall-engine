@@ -20,7 +20,9 @@
 ## Cobertura de regressão
 
 - [x] Isolamento de partição: staged selftest (vazamento, vistas, duplicatas, split OmniFall).
-- [x] Alinhamento temporal: staged selftest (vizinho mais próximo, lacuna causal, rótulo após a fonte).
+- [x] Alinhamento temporal: staged selftest (último quadro ≤ t com amostragem irregular, empates, quadros perdidos e vídeo; Le2i histórico; rótulo após a fonte).
+- [x] Reuso seguro: staged e study selftests (preparação parcial do UP-Fall, artefatos corrompidos, anotações alteradas, pacote incompleto, retomada).
+- [x] Bootstrap por sujeito: study selftest (várias gravações por sujeito, sujeito ambíguo, teste incompleto).
 - [x] Mapeamento de rótulos: staged selftest (classe 12 → `IGNORE`, rótulos adulterados).
 - [x] Vazamento de normalização: study selftest (estatísticas idênticas com val/test perturbados).
 - [x] Causalidade de inferência: study selftest (9 classificadores).

@@ -104,20 +104,36 @@ As métricas são recalculadas das predições por janela de cada `evaluation-*.
 - **Diferenças pareadas por semente:** tratamento − referência na mesma semente e no mesmo
   pacote, com média, desvio e contagem de sinais.
 - **Bootstrap por cluster:**
-    - A unidade é o sujeito no UP-Fall e no GMDCSA-24, com a gravação como análise secundária,
-      e a gravação no Le2i.
-    - O mesmo sorteio vale para os dois métodos e para todas as sementes. Assim, janelas
-      sobrepostas nunca contam como observações independentes.
+    - A unidade primária é o sujeito em todos os datasets. A gravação é a unidade secundária e é
+      sempre relatada ao lado (`*_recording_ci_*`, `cluster_role = secondary`).
+    - O sujeito de cada vídeo vem dos metadados existentes, a coluna `subject` de
+      `frames.parquet`. Nos datasets encenados, ela é conferida contra o identificador. Um vídeo
+      com mais de um sujeito, ou um conjunto de teste diferente do avaliado, é recusado.
+    - No UP-Fall, as duas câmeras de um ensaio formam uma única gravação.
+    - O mesmo sorteio de clusters vale para os dois métodos e para todas as sementes. Assim,
+      janelas sobrepostas nunca contam como observações independentes.
     - O cálculo usa 2000 reamostras e IC percentil de 95%.
-- **Sem teste de significância automático.** Com 4 sujeitos de teste, o IC por sujeito é largo e
-  deve ser apresentado como tal.
+- **Poucos sujeitos:**
+    - O teste tem 2 sujeitos no Le2i-CS (7 e 31 vídeos), 5 no Le2i-CV, 4 no UP-Fall e 4 no
+      GMDCSA-24.
+    - Com 2 a 5 clusters, o bootstrap tem poucas réplicas distintas e o IC percentil por sujeito
+      subestima a variabilidade entre populações. No Le2i-CS, ele é dominado por um único sujeito.
+    - O IC por sujeito deve ser apresentado como largo e descritivo. O IC por gravação é mais
+      estreito porque ignora a correlação entre gravações do mesmo sujeito.
+- **Sem teste de significância automático.**
 
 ## Registro e proveniência
 
 - `gatefall.study plan` monta todos os passos com saídas, dependências e identidade de run.
 - `run` executa só com `--execute`. Nessa execução:
     - todo treino termina antes de qualquer avaliação de teste;
-    - saídas existentes só são reusadas após verificação de hashes;
+    - um passo só é pulado quando suas saídas conferem: integridade, proveniência, cobertura e
+      identidade das dependências (a preparação de cada ZIP, as anotações pinadas, os hashes do
+      manifesto e da grade, os arquivos do pacote e o hash da grade de origem, o hash do pacote
+      no treino e na avaliação, o checkpoint e `selection_performed = false`);
+    - uma saída existente que não confere interrompe a execução sem sobrescrever nada;
+    - uma saída ausente é refeita, de modo que uma execução interrompida retoma do primeiro passo
+      pendente;
     - a execução para na primeira falha;
     - cada execução gera um ledger JSONL.
 - Logo após o treino, cada run recebe um `study-provenance.json` escrito uma única vez. Ele

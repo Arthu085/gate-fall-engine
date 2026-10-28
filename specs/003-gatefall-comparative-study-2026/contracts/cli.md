@@ -6,11 +6,11 @@ Todos os comandos rodam na raiz do checkout que contém `data/` e `runs/`, com c
 
 | Subcomando | Efeito | Custo |
 | --- | --- | --- |
-| `stage-archives --archives DIR` | Extrai os ZIPs de câmera do UP-Fall para `data/raw/upfall` (`.partial` + rename; recusa um destino existente). | disco |
+| `stage-archives --archives DIR` | Extrai para `data/raw/upfall` os ZIPs de câmera do UP-Fall ainda não preparados (`.partial` + rename). Mantém os destinos que conferem com o ZIP e recusa tudo, sem alterar nada, se algum destino divergir ou restar um `.partial`. | disco |
 | `fetch-labels --dataset D [--force]` | Baixa os rótulos OmniFall pinados e os splits de referência; grava `PROVENANCE.json`. | rede |
 | `verify-labels --dataset D` | Confere hashes e o esquema dos rótulos locais. | leve |
 | `manifest --dataset D [--force]` | Manifesto, identidades, índice de sequência e proveniência; falha se faltar fonte. | lê todas as fontes |
-| `timegrid --dataset D [--force]` | `frames.parquet` (10 fps causal) e `alignment.json`. | CPU |
+| `timegrid --dataset D [--force]` | `frames.parquet` (10 fps, último quadro ≤ t) e `alignment.json`. Recusa construir sem manifesto e anotações pinadas conferidos. | CPU |
 | `audit --dataset D` | Vazamento, sincronia entre vistas, auditoria do split OmniFall, `coverage.json`. | CPU |
 | `selftest` | Mundo sintético; sem dados reais. | leve |
 
@@ -41,7 +41,7 @@ Sem `--force`, os vídeos já extraídos são pulados.
 | `protocol` | Imprime o protocolo congelado e o SHA-256. |
 | `plan [--matrix ...] [--json NOVO]` | Contagens por matriz e estágio e estado das saídas (`done`/`pending`/`always`). |
 | `commands [--matrix ...] [--stage S]` | Comandos `uv run` exatos com recursos, dependências e regra de reuso. |
-| `run [--matrix ...] [--stage ...]` | Padrão `--dry-run`: só imprime. Com `--execute`, roda os passos pendentes em ordem, reusa saídas verificadas, para na primeira falha e recusa uma árvore Git suja sem `--allow-dirty`. |
+| `run [--matrix ...] [--stage ...]` | Padrão `--dry-run`: só imprime. Com `--execute`, roda os passos pendentes em ordem e reusa só saídas conferidas (integridade, proveniência, cobertura e dependências). Para na primeira falha ou saída `invalid`, sem sobrescrever, e recusa uma árvore Git suja sem `--allow-dirty`. |
 | `report --matrix M` | Agrega avaliações verificadas; recusa agregação parcial ou incompatível. |
 | `reuse-audit --source DIR [--output NOVO]` | Audita runs de movimento externos (DIR equivale a `runs/local` da origem). |
 | `features-report --dataset D` | Cobertura e alinhamento das features por vídeo. |

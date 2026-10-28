@@ -52,6 +52,10 @@ uv run python -m gatefall.data.staged audit --dataset gmdcsa24
 
 Recursos: rede (Hugging Face) para os rótulos e leitura completa das fontes no `manifest`.
 
+Depois de baixar mais câmeras, rode `stage-archives` de novo. Ele prepara só os ZIPs sem
+destino e confere os já preparados. Um destino divergente, ou um `.partial` deixado por uma
+execução interrompida, faz o comando recusar tudo sem alterar nada.
+
 Antes de extrair, confira em `coverage.json`:
 
 - ausência de vazamento;

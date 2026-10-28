@@ -8,9 +8,9 @@
 | `identities.parquet` | Identidade completa por vídeo, incluindo `recording_id` (vistas sincronizadas compartilham o valor). |
 | `sequence_index.parquet` | UP-Fall: ordem e timestamp de cada imagem. |
 | `frames.parquet` | Grade de 10 fps: `video_id`, `frame_index`, `src_index`, `label`, `split`, posição (`source_gap` quando desalinhado). |
-| `alignment.json` | Deslocamento máximo, passos desalinhados e lacunas por vídeo. |
-| `coverage.json` | Por partição: passos por classe, `IGNORE`, `source_gap`, eventos de queda, horas, vazamentos e sincronia entre vistas. |
-| `dataset_provenance.json` | Partição e hash, revisão OmniFall, hash do manifesto, `unlabeled_sources`, estado Git. |
+| `alignment.json` | `staged-timegrid-v2`: contrato `latest_frame_at_or_before_t`, SHA-256 da proveniência do manifesto, de `labels.csv` e de `frames.parquet`; por vídeo, atraso máximo de observação (`max_lag_s`), passos desalinhados e lacunas. |
+| `coverage.json` | Por partição: passos por classe, `IGNORE`, `source_gap`, eventos de queda, horas, vazamentos e sincronia entre vistas; SHA-256 de `frames.parquet` e de `alignment.json`; `passed`. |
+| `dataset_provenance.json` | `staged-manifest-v2`: partição e hash, revisão OmniFall, SHA-256 de `labels.csv`, hash do conteúdo do manifesto, SHA-256 de `manifest.parquet`/`identities.parquet`/`sequence_index.parquet`, impressão digital por fonte (quadros e bytes), `unlabeled_sources`, estado Git. |
 
 ## Pacote de features (`runs/local/<proto>/study2026/bundles/<visual>/`)
 

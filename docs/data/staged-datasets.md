@@ -22,15 +22,22 @@ Os downloads são manuais e nenhum arquivo bruto entra no Git.
   `Subject{S}/Activity{A}/Trial{T}/Subject{S}Activity{A}Trial{T}Camera{C}`.
 - **Staging:** `stage-archives` extrai cada `Subject{S}Activity{A}Trial{T}Camera{C}.zip`
   usando só os nomes-base, para que nenhum caminho do ZIP escape do destino. A extração passa por
-  um diretório `.partial` e termina com rename. ZIPs já preparados são mantidos, e um `.partial`
-  restante interrompe a execução.
+  um diretório `.partial` e termina com rename; uma falha durante a extração remove o `.partial`.
+  Cada ZIP é conferido contra seu destino, pelos nomes e tamanhos lidos do diretório central, sem
+  descompactar:
+    - destino ausente: o ZIP é preparado, mesmo que `data/raw/upfall` já exista. Assim, câmeras
+      baixadas depois entram na próxima execução;
+    - destino que confere: é mantido;
+    - destino divergente ou `.partial` restante de uma execução interrompida: a preparação inteira
+      é recusada e nada é alterado. Remova o destino à mão antes de retomar.
 - **Gravação:** as duas câmeras de um ensaio compartilham o `recording_id`
   (`Subject…/Activity…/Trial…`) e sempre ficam na mesma partição. `audit` mede o deslocamento
   de início entre as vistas (tolerância de 1 s).
-- **Grade:** cada passo de 10 fps usa o quadro mais próximo. Quando a sequência tem uma lacuna
-  maior que um passo à frente de t, o passo usa o último quadro em ou antes de t, para não
-  espiar o futuro. Passos com deslocamento acima de 0,1 s são marcados `source_gap` e mantêm o
-  rótulo.
+- **Grade:** cada passo de 10 fps em t usa o último quadro com timestamp ≤ t; um empate conta
+  como passado. Nenhum quadro posterior a t é usado, mesmo com amostragem irregular, quadros
+  perdidos ou lacunas. O atraso de observação é t − (tempo do quadro). Passos com atraso acima de
+  0,1 s são marcados `source_gap` e mantêm o rótulo. O GMDCSA-24 segue a mesma regra no modelo de
+  taxa constante: o quadro j fica em j/fps, e o passo t usa ⌊t·fps⌋.
 - **Sem rótulo:** os ensaios (8, 11, 2) e (8, 11, 3) não têm anotação OmniFall e ficam fora do
   manifesto, registrados em `unlabeled_sources`.
 
@@ -73,8 +80,26 @@ A tabela completa está em `specs/003-gatefall-comparative-study-2026/contracts/
 | `coverage.json` | `audit` |
 
 O manifesto falha quando falta uma fonte ou quando as identidades divergem da anotação. A
-proveniência registra a partição e seu SHA-256, a revisão OmniFall, o hash do conteúdo do
-manifesto e o estado Git.
+proveniência (`staged-manifest-v2`) registra:
+
+- a partição e seu SHA-256, a revisão OmniFall e o SHA-256 de `labels.csv`;
+- o SHA-256 de `manifest.parquet`, `identities.parquet` e `sequence_index.parquet`;
+- uma impressão digital leve de cada fonte (número de quadros e bytes, obtidos por `stat`);
+- o estado Git.
+
+`alignment.json` (`staged-timegrid-v2`) registra o contrato causal, o SHA-256 da proveniência do
+manifesto, de `labels.csv` e de `frames.parquet`. `coverage.json` registra o SHA-256 de
+`frames.parquet` e de `alignment.json`. `timegrid` só reconstrói a grade, inclusive com
+`--force`, depois de reconferir as anotações pinadas e o manifesto. Uma anotação alterada é
+recusada.
+
+### Diferença em relação ao Le2i
+
+O Le2i mantém a grade histórica de `build_time_grid`, que usa o quadro mais próximo de t e pode
+estar até 0,5/fps à frente (20 ms a 25 fps). Essa grade não muda, para preservar as features já
+extraídas e as referências publicadas. Por isso, o protocolo congelado registra
+`le2i_source_alignment = nearest_frame_historical` e
+`staged_source_alignment = latest_frame_at_or_before_t`.
 
 ## Features
 
