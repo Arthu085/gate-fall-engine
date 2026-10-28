@@ -8,6 +8,8 @@ REFERENCE_RUN_ROOT = (REPOSITORY_ROOT / "runs/reference").resolve()
 LOCAL_RUN_ROOTS: dict[str, Path] = {
     "le2i": Path("runs/local/le2i"),
     "le2i-cv": Path("runs/local/le2i_cv"),
+    "upfall": Path("runs/local/upfall"),
+    "gmdcsa24": Path("runs/local/gmdcsa24"),
 }
 
 ARM_RUN_DIR_NAMES: dict[str, str] = {
