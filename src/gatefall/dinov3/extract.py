@@ -11,6 +11,7 @@ import torch
 import torchvision
 
 from gatefall.config import TARGET_FPS
+from gatefall.data.frame_source import decode_dataset_frames
 from gatefall.data.video_io import decode_frames
 from gatefall.datasets import DatasetAdapter, get_dataset
 from gatefall.dinov3.backbone import (
@@ -163,7 +164,7 @@ def run_dinov3_extract(
             "no manifesto do Le2i"
         )
 
-    frames_rgb = decode_frames(video_paths[video_id], src_indices)
+    frames_rgb = decode_dataset_frames(adapter, video_id, src_indices, decode_video=decode_frames)
     if len(frames_rgb) != k:
         raise Dinov3ExtractError(
             f"decodificação de {video_id} retornou {len(frames_rgb)} quadros; "

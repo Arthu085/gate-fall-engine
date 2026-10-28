@@ -3,7 +3,7 @@
 from gatefall.datasets import DatasetAdapter
 
 SAM3_SUPPORTED_DATASET_IDENTIFIERS: tuple[str, ...] = ("le2i", "le2i-cv")
-SAM3_EXTRACTION_DATASET_IDENTIFIERS: tuple[str, ...] = ("le2i",)
+SAM3_EXTRACTION_DATASET_IDENTIFIERS: tuple[str, ...] = ("le2i", "upfall", "gmdcsa24")
 
 
 def ensure_sam3_dataset_supported(adapter: DatasetAdapter) -> None:
@@ -19,5 +19,5 @@ def ensure_sam3_extraction_supported(adapter: DatasetAdapter) -> None:
         raise ValueError(
             f"extração SAM 3 não suporta {adapter.identifier!r}: os .h5 em "
             f"{adapter.sam3_root} são compartilhados e só podem ser gravados "
-            "pelo protocolo le2i"
+            "pelo protocolo dono da fonte (le2i, upfall ou gmdcsa24)"
         )

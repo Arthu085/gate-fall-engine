@@ -15,6 +15,7 @@ import ultralytics
 from ultralytics import YOLO
 
 from gatefall.config import TARGET_FPS
+from gatefall.data.frame_source import decode_dataset_frames
 from gatefall.data.video_io import decode_frames
 from gatefall.datasets import DatasetAdapter, SUPPORTED_DATASET_IDENTIFIERS, get_dataset
 from gatefall.pose.loading import pose_path
@@ -25,7 +26,7 @@ TRACKER_NAME = "bytetrack.yaml"
 WEIGHTS_DIR = Path("data/scratch/weights")
 
 N_KEYPOINTS = 17
-POSE_EXTRACTION_DATASET_IDENTIFIERS = ("le2i",)
+POSE_EXTRACTION_DATASET_IDENTIFIERS = ("le2i", "upfall", "gmdcsa24")
 
 
 def ensure_pose_extraction_supported(adapter: DatasetAdapter) -> None:
@@ -33,7 +34,7 @@ def ensure_pose_extraction_supported(adapter: DatasetAdapter) -> None:
         raise ValueError(
             f"extração de pose não suporta {adapter.identifier!r}: os .h5 em "
             f"{adapter.pose_root} são compartilhados e só podem ser gravados "
-            "pelo protocolo le2i"
+            "pelo protocolo dono da fonte (le2i, upfall ou gmdcsa24)"
         )
 
 
@@ -139,7 +140,7 @@ def run_pose_extract(
             "no manifesto do Le2i"
         )
 
-    frames_rgb = decode_frames(video_paths[video_id], src_indices)
+    frames_rgb = decode_dataset_frames(adapter, video_id, src_indices, decode_video=decode_frames)
     if len(frames_rgb) != k:
         raise PoseExtractError(
             f"decodificação de {video_id} retornou {len(frames_rgb)} quadros; esperado {k}"

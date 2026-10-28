@@ -58,11 +58,16 @@ def assemble_quality_sequence(
 
 
 def compute_visual_quality_sequence(
-    video_path: Path, src_indices: list[int], *, batch_size: int = DEFAULT_BATCH_SIZE
+    video_path: Path,
+    src_indices: list[int],
+    *,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    frames_rgb: list[np.ndarray] | None = None,
 ) -> np.ndarray:
     if batch_size <= 0:
         raise QualitySequenceError("batch_size deve ser positivo")
-    frames_rgb = decode_frames(video_path, src_indices)
+    if frames_rgb is None:
+        frames_rgb = decode_frames(video_path, src_indices)
     if len(frames_rgb) != len(src_indices):
         raise QualitySequenceError(
             f"{video_path}: decodificação retornou {len(frames_rgb)} quadros; "
@@ -83,6 +88,7 @@ def compute_quality_sequence(
     video_path: Path,
     src_indices: list[int],
     batch_size: int = DEFAULT_BATCH_SIZE,
+    frames_rgb: list[np.ndarray] | None = None,
 ) -> np.ndarray:
     q_pose = compute_pose_quality(video_id, pose_root=pose_root).q_pose
     if q_pose.shape[0] != len(src_indices):
@@ -91,6 +97,6 @@ def compute_quality_sequence(
             f"K={len(src_indices)} (grade temporal de frames.parquet)"
         )
     q_visual = compute_visual_quality_sequence(
-        video_path, src_indices, batch_size=batch_size
+        video_path, src_indices, batch_size=batch_size, frames_rgb=frames_rgb
     )
     return assemble_quality_sequence(q_pose, q_visual)

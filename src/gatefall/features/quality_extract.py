@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from gatefall.config import TARGET_FPS
+from gatefall.data.frame_source import ImageSequenceSource
 from gatefall.datasets import DatasetAdapter, get_dataset
 from gatefall.dinov3.backbone import RESIZE_SIZE
 from gatefall.dinov3.dataset_guard import (
@@ -204,6 +205,11 @@ def run_quality_extract(
         video_path=video_paths[video_id],
         src_indices=src_indices,
         batch_size=batch_size,
+        frames_rgb=(
+            adapter.decode_image_frames(video_id, src_indices)
+            if isinstance(adapter, ImageSequenceSource)
+            else None
+        ),
     )
 
     attrs: dict[str, object] = {
