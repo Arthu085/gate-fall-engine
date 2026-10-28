@@ -270,9 +270,15 @@ Cuidados de leitura:
 | CV | C0 | −0.012 ± 0.027 | 1/4 | [−0.017, −0.003] | [−0.020, −0.004] | +8.4 |
 | CV | C1-physics | −0.003 ± 0.023 | 3/2 | [−0.008, +0.009] | [−0.011, +0.007] | −15.6 |
 
-**Sem direção comum.** O sinal do contraste muda com o braço e com o protocolo. No CS, as médias
-de B0, B1-physics e C0 são positivas. No CV, só a de B0 é. Em B1-physics e C0 no CS, as cinco
-sementes melhoram, mas os dois IC cruzam zero.
+**Sem direção comum.** O sinal do contraste muda com o braço e com o protocolo:
+
+- no CS, as médias de A (+0.004, 3/2 sementes, os dois IC cruzam zero), B0, B1-physics e C0
+  são positivas. Só C1-physics fica negativo;
+- no CV, só a média de B0 é positiva;
+- em B1-physics e C0 no CS, as cinco sementes melhoram, mas os dois IC cruzam zero.
+
+Uma média positiva é uma observação, não um efeito estabelecido. No CS, com dois sujeitos, nem um
+IC por sujeito acima de zero é evidência.
 
 **B0, melhora localizada.** B0 é o único braço com Δ macro-F1 positivo nos dois protocolos:
 
@@ -310,6 +316,8 @@ não acompanham o macro-F1:
 - **A no CV:** aumenta FA/h em 19.3 (4/1 sementes, os dois IC acima de zero) e perde 0.059 de
   sensibilidade por evento.
 
-**Diante do `baseline`.** Na comparação descritiva das médias de `summary.csv`, `motion_physics`
-não supera o `baseline` em macro-F1 por mais de 0.005 em nenhuma das 10 combinações; as
-diferenças vão de −0.024 a +0.005.
+**Diante do `baseline`.** Na comparação descritiva das médias de `summary.csv`, as diferenças de
+macro-F1 entre `motion_physics` e `baseline` nas 10 combinações vão de −0.0244 a +0.0054. O
+maior ganho é o de A no CS (0.5941 para 0.5995). Ele é menor que o desvio entre sementes desses
+métodos (0.029 e 0.015) e não tem contraste pareado nem IC neste relatório. Nas outras nove
+combinações, a diferença é no máximo +0.0021.
