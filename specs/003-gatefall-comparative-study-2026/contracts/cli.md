@@ -41,8 +41,8 @@ Sem `--force`, os vídeos já extraídos são pulados.
 | `protocol` | Imprime o protocolo congelado e o SHA-256. |
 | `plan [--matrix ...] [--json NOVO]` | Contagens por matriz e estágio e estado das saídas (`done`/`pending`/`always`). |
 | `commands [--matrix ...] [--stage S]` | Comandos `uv run` exatos com recursos, dependências e regra de reuso. |
-| `run [--matrix ...] [--stage ...]` | Padrão `--dry-run`: só imprime. Com `--execute`, roda os passos pendentes em ordem e reusa só saídas conferidas (integridade, proveniência, cobertura e dependências). Para na primeira falha ou saída `invalid`, sem sobrescrever, e recusa uma árvore Git suja sem `--allow-dirty`. |
-| `report --matrix M` | Agrega avaliações verificadas; recusa agregação parcial ou incompatível. |
+| `run [--matrix ...] [--stage ...]` | Padrão `--dry-run`: só imprime. Com `--execute`, roda os passos pendentes em ordem e reusa só saídas conferidas (integridade, proveniência, cobertura e dependências). Para na primeira falha ou saída `invalid`, sem sobrescrever, e recusa uma árvore Git suja sem `--allow-dirty`. Com `--stage`, confere antes os pré-requisitos transitivos contra o plano completo, sem executá-los, e recusa se algum estiver ausente, pendente ou não conferir. |
+| `report --matrix M` | Agrega avaliações que passam no verificador de integridade, inclusive o pacote externo atual; recusa agregação parcial ou incompatível. |
 | `reuse-audit --source DIR [--output NOVO]` | Audita runs de movimento externos (DIR equivale a `runs/local` da origem). |
 | `features-report --dataset D` | Cobertura e alinhamento das features por vídeo. |
 | `profile-extraction --dataset D --videos N` | Sem `--execute`, só descreve. Com `--execute`, extrai N vídeos de teste num diretório temporário e mede s/quadro. |

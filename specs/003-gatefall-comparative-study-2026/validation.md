@@ -13,7 +13,7 @@ Data: 2026-10-28 · Branch: `feat/gatefall-comparative-study-2026`
 | `uv run python -m gatefall.experiments.physics selftest` | PASS (inclui o treino original idêntico) |
 | `uv run python -m gatefall.experiments.motion selftest` | PASS |
 | `uv run python -m gatefall.experiments.tcnte selftest` | PASS |
-| `uv run python -m gatefall.study selftest` | PASS: plano 80/40/40/150/50 com 300 treinos únicos, causalidade de 9 classificadores, normalização só do treino, métricas, bootstrap por sujeito e gravação, figuras, reuso, integridade antes do reuso, retomada, executor e relatório |
+| `uv run python -m gatefall.study selftest` | PASS: plano 80/40/40/150/50 com 300 treinos únicos, causalidade de 9 classificadores, normalização só do treino, métricas, bootstrap por sujeito e gravação, figuras, reuso, integridade antes do reuso, retomada, estágios filtrados com pré-requisitos ausentes, desatualizados ou inválidos, relatório com alvo externo desatualizado, executor e relatório |
 | Selftests sintéticos da CI (45 comandos) | PASS |
 | `--help` de todos os subcomandos de `gatefall.study` | OK |
 | `gatefall.study plan` e `run` (dry-run) no checkout principal | só leitura e verificação de metadados; nada executado |

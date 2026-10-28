@@ -37,8 +37,10 @@
 6. **Partição.** O `split_identity_sha256`, calculado sobre os pares (vídeo, partição) do pacote,
    entra na proveniência. O relatório exige rótulos e janelas de teste idênticos entre os métodos
    de um mesmo dataset.
-7. **Agregação.** `report` recusa:
+7. **Agregação.** `report` reaplica o verificador de avaliação da regra 4 e recusa:
    - avaliação ausente ou sementes incompletas;
+   - avaliação que não confere com o run, o pacote atual ou, na transferência, o pacote externo
+     atual (`target_manifest_sha256`);
    - protocolo diferente, checkpoint diferente do registrado ou artefato alterado;
    - `selection_performed` diferente de `false`;
    - transferência com adaptação.

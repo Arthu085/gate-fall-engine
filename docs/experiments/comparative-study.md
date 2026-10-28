@@ -134,11 +134,18 @@ As métricas são recalculadas das predições por janela de cada `evaluation-*.
     - uma saída existente que não confere interrompe a execução sem sobrescrever nada;
     - uma saída ausente é refeita, de modo que uma execução interrompida retoma do primeiro passo
       pendente;
+    - com `--stage`, os pré-requisitos transitivos fora dos estágios escolhidos são conferidos
+      contra o plano completo antes de qualquer execução, cada um uma única vez, e nunca são
+      executados. Um pré-requisito ausente, pendente ou que não confere recusa a execução com o
+      passo e o comando a rodar. Um treino conferido sem `study-provenance.json` também a recusa;
     - a execução para na primeira falha;
     - cada execução gera um ledger JSONL.
 - Logo após o treino, cada run recebe um `study-provenance.json` escrito uma única vez. Ele
   registra a identidade, o Git, os pesos (SHA-256), o pacote, o hash da partição, os hashes de
   artefatos, o ambiente e os tempos.
+- `report` reaplica o verificador de integridade de cada avaliação antes de agregar. Assim,
+  uma transferência cujo pacote GMDCSA-24 atual não confere com `target_manifest_sha256` é
+  recusada.
 - `report` gera:
     - `summary.md`, `summary.csv`, `per_class.csv`, `contrasts.csv`, `runs.csv` e `cost.csv`;
     - figuras SVG de macro-F1 por semente e de sensibilidade × FA/h;
