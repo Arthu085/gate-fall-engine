@@ -4,7 +4,9 @@ import json
 import hashlib
 import math
 import os
+import resource
 import tempfile
+import time
 from pathlib import Path
 
 import numpy as np
@@ -19,11 +21,48 @@ from gatefall.eval.shared.events import split_event_report
 from gatefall.experiments.physics import FEATURE_SCHEMA, SCHEMA_VERSION
 from gatefall.experiments.physics.data import code_provenance, load_bundle, write_json
 from gatefall.experiments.physics.model import FUSIONS, TRAINABLE_GATES, FusionClassifier, ordering_loss
+from gatefall.experiments.tcnte import ARM as TCNTE_ARM
+from gatefall.experiments.tcnte import FUSION as TCNTE_FUSION
+from gatefall.experiments.tcnte.model import FocalLoss, TCNTEClassifier
 from gatefall.hashing import sha256_file
 from gatefall.pose.kinematics import feature_blocks
 from gatefall.runs import validate_local_run_dir
 from gatefall.train.shared.determinism import configure_determinism
 from gatefall.train.shared.metrics import classification_summary, restricted_macro_f1
+
+STUDY_ARMS = ("A", "B0", "B1", "C0", "C1", TCNTE_ARM)
+STUDY_FUSIONS = (*FUSIONS, TCNTE_FUSION)
+POSE_ONLY_ARMS = ("A", TCNTE_ARM)
+DEFAULT_OPTIMIZATION = {"optimizer": "adamw", "lr": .001, "weight_decay": .01,
+                        "scheduler": "cosine", "loss": "weighted_cross_entropy"}
+# Adam lr=1e-4, sem decaimento nem scheduler, e perda focal γ=3 seguem o treino
+# publicado do TCNTE; pesos de classe passam a ser o inverso da frequência de treino.
+TCNTE_OPTIMIZATION = {"optimizer": "adam", "lr": 1e-4, "weight_decay": 0.0,
+                      "scheduler": None, "loss": "focal_gamma3"}
+EXTERNAL_COMPATIBILITY_KEYS = ("schema_version", "feature_schema", "visual_kind", "visual_dim",
+                               "label_names", "evidence_names", "target_fps")
+
+
+def optimization_recipe(fusion: str) -> dict:
+    return dict(TCNTE_OPTIMIZATION if fusion == TCNTE_FUSION else DEFAULT_OPTIMIZATION)
+
+
+def build_classifier(visual_dim: int, fusion: str, horizons: list[int] | None = None) -> nn.Module:
+    if fusion == TCNTE_FUSION:
+        if horizons is not None:
+            raise ValueError("TCNTE não participa da matriz de aprendizado de movimento")
+        return TCNTEClassifier()
+    if horizons is None:
+        return FusionClassifier(visual_dim, fusion)
+    from gatefall.experiments.motion.learning import MotionClassifier
+    return MotionClassifier(visual_dim, fusion, horizons)
+
+
+def peak_memory_bytes(device: str) -> int:
+    if device.startswith("cuda"):
+        return int(torch.cuda.max_memory_allocated())
+    # ru_maxrss é reportado em KiB no Linux.
+    return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * 1024
 
 
 def pose_validity(values: np.ndarray) -> np.ndarray:
@@ -80,7 +119,7 @@ def standardize(values: np.ndarray, stats: dict, name: str, evidence: np.ndarray
 class Windows(Dataset):
     def __init__(self, manifest: dict, videos: dict[str, dict[str, np.ndarray]], stats: dict,
                  split: str, stride: int, labeled_only: bool = True,
-                 motion_targets: dict | None = None) -> None:
+                 motion_targets: dict | None = None, raw_pose: bool = False) -> None:
         self.motion_targets = motion_targets
         self.index: list[tuple[str, int]] = []
         self.videos: dict[str, dict[str, np.ndarray]] = {}
@@ -96,6 +135,9 @@ class Windows(Dataset):
                 variant = modality + "_corrupt"
                 if variant in raw:
                     data[variant] = standardize(raw[variant], stats, modality, raw["evidence_" + variant])
+            if raw_pose:
+                # O TCNTE normaliza por quadro (min–max); estatísticas de treino não se aplicam.
+                data["pose"] = raw["pose"].astype(np.float32)
             self.videos[identity] = data
             self.index.extend((identity, k) for k in range(0, entry["k"], stride)
                               if not labeled_only or data["labels"][k] != -1)
@@ -124,7 +166,7 @@ def checkpoint_is_better(score: float, best: float, policy: str) -> bool:
 
 
 @torch.no_grad()
-def predict(model: FusionClassifier, source: Windows, device: str, batch_size: int) -> tuple[np.ndarray, np.ndarray]:
+def predict(model: nn.Module, source: Windows, device: str, batch_size: int) -> tuple[np.ndarray, np.ndarray]:
     model.eval()
     true: list[np.ndarray] = []; predictions: list[np.ndarray] = []
     for batch in DataLoader(source, batch_size=batch_size, shuffle=False):
@@ -142,11 +184,15 @@ def classification(true: np.ndarray, predicted: np.ndarray, labels: tuple[str, .
 
 def validate_recipe(arm: str, fusion: str, visual_kind: str, epochs: int, batch_size: int,
                     policy: str, augment: bool, order_weight: float, order_margin: float) -> None:
-    if arm not in ("A", "B0", "B1", "C0", "C1") or fusion not in FUSIONS:
+    if arm not in STUDY_ARMS or fusion not in STUDY_FUSIONS:
         raise ValueError("braço ou fusão desconhecidos")
+    if (arm == TCNTE_ARM) != (fusion == TCNTE_FUSION):
+        raise ValueError("TCNTE exige --fusion tcnte, e tcnte pertence só ao TCNTE")
+    if arm == TCNTE_ARM and (augment or order_weight > 0):
+        raise ValueError("TCNTE não usa falhas pareadas nem perda de ordenação")
     if arm == "A" and fusion != "pose":
         raise ValueError("A exige --fusion pose")
-    if arm != "A" and (visual_kind != ("dinov3" if arm.startswith("B") else "sam3") or fusion == "pose"):
+    if arm not in POSE_ONLY_ARMS and (visual_kind != ("dinov3" if arm.startswith("B") else "sam3") or fusion == "pose"):
         raise ValueError("braço incompatível com a fonte visual/fusão")
     if arm.endswith("0") and fusion != "concat":
         raise ValueError("B0/C0 exigem concat")
@@ -194,14 +240,14 @@ def train(
     validate_recipe(arm, fusion, manifest["visual_kind"], epochs, batch_size,
                     checkpoint_policy, augment, order_weight, order_margin)
     stats = fit_stats(manifest, videos)
-    train_data = Windows(manifest, videos, stats, "train", TRAIN_STRIDE, motion_targets=motion_targets)
-    val_data = Windows(manifest, videos, stats, "val", 1)
+    raw_pose = fusion == TCNTE_FUSION
+    train_data = Windows(manifest, videos, stats, "train", TRAIN_STRIDE, motion_targets=motion_targets,
+                         raw_pose=raw_pose)
+    val_data = Windows(manifest, videos, stats, "val", 1, raw_pose=raw_pose)
     device = configure_determinism(seed)
-    if motion_config is None:
-        model = FusionClassifier(manifest["visual_dim"], fusion).to(device)
-    else:
-        from gatefall.experiments.motion.learning import MotionClassifier
-        model = MotionClassifier(manifest["visual_dim"], fusion, motion_config["horizons"]).to(device)
+    horizons = None if motion_config is None else motion_config["horizons"]
+    model = build_classifier(manifest["visual_dim"], fusion, horizons).to(device)
+    if motion_config is not None:
         digest = hashlib.sha256()
         for name, value in model.state_dict().items():
             digest.update(name.encode())
@@ -210,9 +256,17 @@ def train(
     weights = np.zeros(NUM_CLASSES, dtype=np.float32)
     counts = np.bincount([int(train_data.videos[v]["labels"][k]) for v, k in train_data.index], minlength=NUM_CLASSES)
     weights[counts > 0] = 1 / counts[counts > 0]
-    criterion = nn.CrossEntropyLoss(weight=torch.tensor(weights, device=device))
-    optimizer = torch.optim.AdamW(model.parameters(), lr=.001, weight_decay=.01)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    optimization = optimization_recipe(fusion)
+    criterion: nn.Module
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None
+    if fusion == TCNTE_FUSION:
+        criterion = FocalLoss(torch.tensor(weights, device=device))
+        optimizer = torch.optim.Adam(model.parameters(), lr=optimization["lr"])
+        scheduler = None
+    else:
+        criterion = nn.CrossEntropyLoss(weight=torch.tensor(weights, device=device))
+        optimizer = torch.optim.AdamW(model.parameters(), lr=.001, weight_decay=.01)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     generator = torch.Generator().manual_seed(seed)
     loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, generator=generator)
     config = {
@@ -221,12 +275,15 @@ def train(
         "visual_dim": manifest["visual_dim"], "arm": arm, "fusion": fusion, "seed": seed,
         "epochs": epochs, "batch_size": batch_size, "checkpoint_policy": checkpoint_policy,
         "augment": augment, "order_weight": order_weight, "order_margin": order_margin,
-        "lr": .001, "weight_decay": .01, "window_frames": 24, "train_stride": TRAIN_STRIDE,
+        "lr": optimization["lr"], "weight_decay": optimization["weight_decay"], "window_frames": 24, "train_stride": TRAIN_STRIDE,
         "eval_stride": 1, "channels": [32, 32, 32], "dilations": [1, 2, 4], "dropout": .3,
         "manifest_sha256": sha256_file(bundle / "manifest.json"),
         "code_provenance": code_provenance(),
         "trainable_param_count": sum(p.numel() for p in model.parameters() if p.requires_grad),
     }
+    if fusion == TCNTE_FUSION:
+        config.update(optimization=optimization, input="pose138_kp_xy_body12_minmax_per_frame",
+                      channels=[8, 16, 32], dilations=[1, 2, 4], dropout=.2, encoder="1x(d32,h4,ff32)")
     if motion_config is not None:
         config["motion"] = motion_config
     run_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -234,7 +291,9 @@ def train(
         stage = Path(temporary) / "run"; stage.mkdir()
         write_json(stage / "config.json", config); write_json(stage / "stats.json", stats)
         history = []; best = -math.inf; selected_epoch = 0
+        started = time.perf_counter(); epoch_seconds: list[float] = []
         for epoch in range(1, epochs + 1):
+            epoch_started = time.perf_counter()
             model.train(); total_loss = total_order = 0.0; seen = 0
             total_classification = total_motion = total_physics = 0.0
             for batch_cpu in loader:
@@ -260,7 +319,7 @@ def train(
                         lv = criterion(model(b["pose"], b["visual_corrupt"], b["evidence_visual_corrupt"]), b["label"])
                         loss = .5 * loss + .25 * (lp + lv)
                     if order_weight > 0:
-                        assert model.gate is not None
+                        assert isinstance(model, FusionClassifier) and model.gate is not None
                         order = ordering_loss(
                             model.gate(b["evidence"]), model.gate(b["evidence_pose_corrupt"]),
                             model.gate(b["evidence_visual_corrupt"]),
@@ -281,7 +340,8 @@ def train(
                 total_classification += classification_loss.item() * count
                 total_motion += supervised.item() * count
                 total_physics += consistency.item() * count
-            scheduler.step()
+            if scheduler is not None:
+                scheduler.step()
             true, pred = predict(model, val_data, device, batch_size)
             score = restricted_macro_f1(true, pred)[0]
             if checkpoint_is_better(score, best, checkpoint_policy):
@@ -292,7 +352,9 @@ def train(
             if motion_config is not None:
                 history[-1].update(classification_loss=total_classification / seen,
                                    motion_loss=total_motion / seen, consistency_loss=total_physics / seen)
+            epoch_seconds.append(time.perf_counter() - epoch_started)
             print(f"{arm}/{fusion} epoch {epoch}/{epochs}: val_macro_f1={score:.4f}")
+        train_seconds = time.perf_counter() - started
         torch.save(model.state_dict(), stage / "last.pt")
         model.load_state_dict(torch.load(stage / "checkpoint.pt", map_location=device, weights_only=True))
         final = {}
@@ -305,7 +367,9 @@ def train(
                    "config_sha256": sha256_file(stage / "config.json"),
                    "stats_sha256": sha256_file(stage / "stats.json"),
                    "checkpoint_sha256": sha256_file(stage / "checkpoint.pt"),
-                   "last_checkpoint_sha256": sha256_file(stage / "last.pt")}
+                   "last_checkpoint_sha256": sha256_file(stage / "last.pt"),
+                   "timing": {"train_seconds": train_seconds, "epoch_seconds": epoch_seconds,
+                              "peak_memory_bytes": peak_memory_bytes(device)}}
         write_json(stage / "metrics.json", metrics)
         if run_dir.exists():
             raise FileExistsError(run_dir)
@@ -313,13 +377,9 @@ def train(
     return metrics
 
 
-def evaluate(bundle: Path, run_dir: Path, split: str = "test") -> dict:
-    if split not in ("train", "val", "test"):
-        raise ValueError("split desconhecido")
+def load_verified_run(bundle: Path, run_dir: Path) -> tuple[dict, dict, dict, dict, dict]:
+    """Confere hashes do run e a origem das estatísticas (só treino deste pacote)."""
     validate_local_run_dir(run_dir)
-    output = run_dir / f"evaluation-{split}.json"
-    if output.exists():
-        raise FileExistsError(f"avaliação já existe: {output}")
     manifest, videos = load_bundle(bundle)
     config = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
     metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
@@ -333,29 +393,80 @@ def evaluate(bundle: Path, run_dir: Path, split: str = "test") -> dict:
             raise ValueError(f"hash incompatível: {name}")
     if stats != fit_stats(manifest, videos):
         raise ValueError("estatísticas não correspondem exclusivamente ao treino deste pacote")
-    device = "cpu"
-    if "motion" in config:
-        from gatefall.experiments.motion.learning import MotionClassifier
-        model = MotionClassifier(manifest["visual_dim"], config["fusion"], config["motion"]["horizons"])
-    else:
-        model = FusionClassifier(manifest["visual_dim"], config["fusion"])
-    model.load_state_dict(torch.load(run_dir / "checkpoint.pt", map_location=device, weights_only=True))
-    data = Windows(manifest, videos, stats, split, 1, labeled_only=False)
-    true, pred = predict(model, data, device, config["batch_size"])
+    return manifest, videos, config, metrics, stats
+
+
+def _load_checkpoint(run_dir: Path, config: dict, visual_dim: int) -> nn.Module:
+    horizons = config["motion"]["horizons"] if "motion" in config else None
+    model = build_classifier(visual_dim, config["fusion"], horizons)
+    model.load_state_dict(torch.load(run_dir / "checkpoint.pt", map_location="cpu", weights_only=True))
+    return model
+
+
+def _evaluation_report(model: nn.Module, manifest: dict, videos: dict, stats: dict, config: dict,
+                       metrics: dict, split: str) -> dict:
+    data = Windows(manifest, videos, stats, split, 1, labeled_only=False,
+                   raw_pose=config["fusion"] == TCNTE_FUSION)
+    started = time.perf_counter()
+    true, pred = predict(model, data, "cpu", config["batch_size"])
+    classification_seconds = time.perf_counter() - started
     ids = [v for v, _ in data.index]; ends = [k for _, k in data.index]
     events = split_event_report(ids, ends, true.tolist(), pred.tolist(), BASELINE_A_ALARM_PROTOCOL,
                                 len(data), len(data), int(np.sum(true != -1)), round_latency=False)
-    report = {"split": split, "classification": classification(true, pred, tuple(manifest["label_names"])),
-              "events": events, "alarm_protocol": BASELINE_A_ALARM_PROTOCOL.to_dict(),
-              "latency_precision": "full", "selection_performed": False,
-              "code_provenance": code_provenance(),
-              "predictions": [{"video_id": identity, "k_end": end, "label": int(label),
-                               "prediction": int(prediction)}
-                              for (identity, end), label, prediction in zip(data.index, true, pred)],
-              "checkpoint_sha256": metrics["checkpoint_sha256"], "config_sha256": metrics["config_sha256"],
-              "manifest_sha256": config["manifest_sha256"]}
+    return {"split": split, "classification": classification(true, pred, tuple(manifest["label_names"])),
+            "events": events, "alarm_protocol": BASELINE_A_ALARM_PROTOCOL.to_dict(),
+            "latency_precision": "full", "selection_performed": False,
+            "code_provenance": code_provenance(),
+            "predictions": [{"video_id": identity, "k_end": end, "label": int(label),
+                             "prediction": int(prediction)}
+                            for (identity, end), label, prediction in zip(data.index, true, pred)],
+            "checkpoint_sha256": metrics["checkpoint_sha256"], "config_sha256": metrics["config_sha256"],
+            "manifest_sha256": config["manifest_sha256"],
+            "timing": {"device": "cpu", "windows": len(data), "classification_seconds": classification_seconds,
+                       "seconds_per_window": classification_seconds / len(data),
+                       "peak_memory_bytes": peak_memory_bytes("cpu")}}
+
+
+def _publish(output: Path, report: dict) -> None:
     # Escrita exclusiva: nunca substituir uma avaliação já publicada neste run.
     with output.open("x", encoding="utf-8") as handle:
         json.dump(report, handle, ensure_ascii=False, indent=2, allow_nan=False)
         handle.write("\n")
+
+
+def evaluate(bundle: Path, run_dir: Path, split: str = "test") -> dict:
+    if split not in ("train", "val", "test"):
+        raise ValueError("split desconhecido")
+    validate_local_run_dir(run_dir)
+    output = run_dir / f"evaluation-{split}.json"
+    if output.exists():
+        raise FileExistsError(f"avaliação já existe: {output}")
+    manifest, videos, config, metrics, stats = load_verified_run(bundle, run_dir)
+    model = _load_checkpoint(run_dir, config, manifest["visual_dim"])
+    report = _evaluation_report(model, manifest, videos, stats, config, metrics, split)
+    _publish(output, report)
+    return report
+
+
+def evaluate_external(bundle: Path, run_dir: Path, target_bundle: Path) -> dict:
+    """Aplica checkpoint e estatísticas congelados do treino de origem ao teste externo, sem adaptação."""
+    source_manifest, _, config, metrics, stats = load_verified_run(bundle, run_dir)
+    target_manifest, target_videos = load_bundle(target_bundle)
+    divergent = [key for key in EXTERNAL_COMPATIBILITY_KEYS
+                 if source_manifest.get(key) != target_manifest.get(key)]
+    if divergent:
+        raise ValueError(f"pacote externo incompatível com o run: {divergent}")
+    if target_manifest["dataset"] == source_manifest["dataset"]:
+        raise ValueError("avaliação externa exige dataset diferente do treino")
+    if set(target_manifest.get("splits", ())) != {"test"}:
+        raise ValueError("pacote externo deve conter somente o split test")
+    output = run_dir / f"evaluation-external-{target_manifest['dataset']}.json"
+    if output.exists():
+        raise FileExistsError(f"avaliação externa já existe: {output}")
+    model = _load_checkpoint(run_dir, config, source_manifest["visual_dim"])
+    report = _evaluation_report(model, target_manifest, target_videos, stats, config, metrics, "test")
+    report.update(adaptation="none", source_dataset=source_manifest["dataset"],
+                  target_dataset=target_manifest["dataset"],
+                  target_manifest_sha256=sha256_file(target_bundle.resolve() / "manifest.json"))
+    _publish(output, report)
     return report

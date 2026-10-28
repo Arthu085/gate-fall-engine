@@ -67,6 +67,7 @@ jobs:
           uv run python -m gatefall.selftests.runs
           uv run python -m gatefall.experiments.physics selftest
           uv run python -m gatefall.experiments.motion selftest
+          uv run python -m gatefall.experiments.tcnte selftest
       - name: Verificar tipos
         run: uv run pyright
       - name: Construir documentação

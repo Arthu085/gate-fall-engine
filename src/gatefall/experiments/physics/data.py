@@ -23,6 +23,8 @@ from gatefall.pose.loading import PoseArrays
 from gatefall.runs import validate_local_run_dir
 
 VISUAL_DIMS = {"none": 0, "dinov3": 1536, "sam3": 10}
+ALL_SPLITS = ("train", "val", "test")
+POSE_EXTRACTOR_ATTRS = ("model_name", "ultralytics_version", "tracker_name", "target_fps")
 
 
 def code_provenance() -> dict:
@@ -132,8 +134,11 @@ def prepare_records(
     records: Iterable[RawVideo], output: Path, *, dataset: str, visual_kind: str,
     label_names: tuple[str, ...], sources: dict, seed: int = 42,
     max_gap_seconds: float = .5, outage_probability: float = .05, outage_frames: int = 3,
+    required_splits: tuple[str, ...] = ALL_SPLITS,
 ) -> Path:
     validate_preparation(max_gap_seconds, outage_probability, outage_frames)
+    if not required_splits or not set(required_splits) <= set(ALL_SPLITS):
+        raise ValueError("partições exigidas inválidas")
     output = output.resolve()
     validate_local_run_dir(output)
     if output.exists():
@@ -160,8 +165,8 @@ def prepare_records(
                 handle.attrs["split"] = record.split
             videos.append({"video_id": record.video_id, "split": record.split,
                            "path": relative, "sha256": sha256_file(path), "k": record.pose.k})
-        if {v["split"] for v in videos} != {"train", "val", "test"}:
-            raise ValueError("pacote exige vídeos disjuntos em train/val/test")
+        if {v["split"] for v in videos} != set(required_splits):
+            raise ValueError(f"pacote exige vídeos disjuntos em {'/'.join(required_splits)}")
         manifest = {
             "schema_version": SCHEMA_VERSION, "feature_schema": FEATURE_SCHEMA,
             "dataset": dataset, "visual_kind": visual_kind, "visual_dim": VISUAL_DIMS[visual_kind],
@@ -171,6 +176,7 @@ def prepare_records(
             "preparation_config": {"seed": seed, "max_gap_seconds": max_gap_seconds,
                                    "outage_probability": outage_probability, "outage_frames": outage_frames},
             "sources": sources, "videos": videos,
+            "splits": [split for split in ALL_SPLITS if split in required_splits],
         }
         write_json(stage / "manifest.json", manifest)
         load_bundle(stage)
@@ -196,7 +202,7 @@ def load_bundle(root: Path) -> tuple[dict, dict[str, dict[str, np.ndarray]]]:
     for entry in manifest["videos"]:
         identity, split = entry["video_id"], entry["split"]
         path = (root / entry["path"]).resolve()
-        if root not in path.parents or identity in arrays or split not in ("train", "val", "test"):
+        if root not in path.parents or identity in arrays or split not in ALL_SPLITS:
             raise ValueError("caminho, identidade ou partição inválida no pacote")
         if sha256_file(path) != entry["sha256"]:
             raise ValueError(f"hash de vídeo incompatível: {identity}")
@@ -225,7 +231,8 @@ def load_bundle(root: Path) -> tuple[dict, dict[str, dict[str, np.ndarray]]]:
         if data["labels"].dtype.kind not in "iu" or not np.isin(data["labels"], np.arange(-1, NUM_CLASSES)).all():
             raise ValueError("rótulos inválidos")
         arrays[identity] = data; splits.add(split)
-    if splits != {"train", "val", "test"}:
+    # Pacotes anteriores ao campo `splits` sempre exigiram as três partições.
+    if splits != set(manifest.get("splits", ALL_SPLITS)):
         raise ValueError("partições incompletas")
     return manifest, arrays
 
@@ -251,6 +258,7 @@ def prepare_dataset(dataset: str, visual_kind: str, output: Path, **options) -> 
     source_splits = {str(identity): str(group["split"].iloc[0])
                      for identity, group in source.load_frames().groupby("video_id")}
     sources: dict = {"frames_sha256": sha256_file(adapter.frames_path), "files": {}}
+    pose_extractor: set[tuple] = set()
     if visual_kind == "sam3":
         sources["sam3_provenance"] = collect_sam3_provenance(source_splits, sam3_root=adapter.sam3_root)
     dino_attrs: dict[str, dict[str, object]] = {}
@@ -262,7 +270,8 @@ def prepare_dataset(dataset: str, visual_kind: str, output: Path, **options) -> 
             if group["split"].nunique() != 1 or not np.array_equal(group["frame_index"], np.arange(len(group))):
                 raise ValueError(f"grade/partição inválida para {identity}")
             pose_file = pose_path(identity, pose_root=adapter.pose_root)
-            source_attrs(pose_file, identity, len(group), source_splits[identity])
+            pose_attrs = source_attrs(pose_file, identity, len(group), source_splits[identity])
+            pose_extractor.add(tuple(str(pose_attrs.get(name)) for name in POSE_EXTRACTOR_ATTRS))
             pose = load_pose(identity, pose_root=adapter.pose_root)
             if pose.k != len(group):
                 raise ValueError("pose e grade desalinhadas")
@@ -296,5 +305,18 @@ def prepare_dataset(dataset: str, visual_kind: str, output: Path, **options) -> 
         divergences = find_provenance_divergences(dino_attrs)
         if divergences:
             raise ValueError("proveniência DINOv3 divergente: " + "; ".join(divergences))
+        if len(pose_extractor) != 1:
+            raise ValueError(f"extratores de pose divergentes entre vídeos: {sorted(pose_extractor)}")
+        sources["pose_extractor"] = dict(zip(POSE_EXTRACTOR_ATTRS, next(iter(pose_extractor))))
+        if dino_attrs:
+            sources["dinov3_extractor"] = next(iter(dino_attrs.values()))
     return prepare_records(records(), output, dataset=dataset, visual_kind=visual_kind,
-                           label_names=adapter.label_names, sources=sources, **options)
+                           label_names=adapter.label_names, sources=sources,
+                           required_splits=required_splits(dataset), **options)
+
+
+def required_splits(dataset: str) -> tuple[str, ...]:
+    from gatefall.data.staged.specs import STAGED_SPECS
+
+    spec = STAGED_SPECS.get(dataset)
+    return ("test",) if spec is not None and spec.role == "external_test" else ALL_SPLITS
