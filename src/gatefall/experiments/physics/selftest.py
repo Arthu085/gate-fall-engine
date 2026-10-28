@@ -37,6 +37,7 @@ def run_selftest() -> None:
     test_corruption_and_loss()
     test_latency_precision()
     test_source_preparation()
+    test_dinov3_source_preparation()
     test_training_pipeline()
 
 
@@ -210,30 +211,36 @@ def test_training_pipeline() -> None:
         print("[PASS] sete controles, cinco braços, fontes SAM/DINO/pose, isolamento e integridade")
 
 
+def _pose_world(root: Path):
+    import h5py
+    import pandas as pd
+
+    rows = []
+    for split in ("train", "val", "test"):
+        pose = fixture_pose(8)
+        identity = "room/" + split
+        path = root / "pose" / "room" / f"{split}.h5"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with h5py.File(path, "w") as handle:
+            for name in ("keypoints", "bbox", "person_found"):
+                handle.create_dataset(name, data=getattr(pose, name))
+            for name, value in {"video_id": identity, "split": split, "K": pose.k,
+                                "width": pose.width, "height": pose.height}.items():
+                handle.attrs[name] = value
+        rows.extend({"video_id": identity, "split": split, "frame_index": i, "label": 0}
+                    for i in range(pose.k))
+    frames = pd.DataFrame(rows)
+    frames_path = root / "frames.parquet"; frames.to_parquet(frames_path)
+    return frames, frames_path
+
+
 def test_source_preparation() -> None:
     from types import SimpleNamespace
     from unittest.mock import patch
-    import h5py
-    import pandas as pd
     from gatefall.experiments.physics.data import prepare_dataset, source_attrs, load_bundle
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        rows = []
-        for split in ("train", "val", "test"):
-            pose = fixture_pose(8)
-            identity = "room/" + split
-            path = root / "pose" / "room" / f"{split}.h5"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with h5py.File(path, "w") as handle:
-                for name in ("keypoints", "bbox", "person_found"):
-                    handle.create_dataset(name, data=getattr(pose, name))
-                for name, value in {"video_id": identity, "split": split, "K": pose.k,
-                                    "width": pose.width, "height": pose.height}.items():
-                    handle.attrs[name] = value
-            rows.extend({"video_id": identity, "split": split, "frame_index": i, "label": 0}
-                        for i in range(pose.k))
-        frames = pd.DataFrame(rows)
-        frames_path = root / "frames.parquet"; frames.to_parquet(frames_path)
+        frames, frames_path = _pose_world(root)
         adapter = SimpleNamespace(identifier="le2i", frames_path=frames_path, pose_root=root / "pose",
                                   load_frames=lambda: frames, label_names=tuple(str(i) for i in range(10)))
         with patch("gatefall.datasets.get_dataset", return_value=adapter):
@@ -247,6 +254,87 @@ def test_source_preparation() -> None:
         else:
             raise AssertionError("identidade divergente aceita")
     print("[PASS] preparação por adapter e validação da identidade HDF5")
+
+
+def test_dinov3_source_preparation() -> None:
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import h5py
+    from gatefall.config import TARGET_FPS
+    from gatefall.dinov3.extract import NORMALIZE_MEAN, NORMALIZE_STD
+    from gatefall.dinov3.storage import dinov3_path, write_dinov3_features_atomic
+    from gatefall.experiments.physics.data import json_compatible, load_bundle, prepare_dataset
+    from gatefall.features.quality_extract import current_provenance
+    from gatefall.features.quality_storage import QUALITY_CHANNELS, quality_path, write_quality_atomic
+    from gatefall.hashing import sha256_file
+    from gatefall.pose.loading import pose_path
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        frames, frames_path = _pose_world(root)
+        adapter = SimpleNamespace(identifier="le2i", frames_path=frames_path, pose_root=root / "pose",
+                                  dinov3_root=root / "dinov3", quality_root=root / "quality",
+                                  load_frames=lambda: frames, label_names=tuple(str(i) for i in range(10)))
+        # Mesmos tipos do extrator real: o HDF5 devolve int64, float64 e arrays NumPy.
+        provenance = {"model_name": "dinov3_vitb16", "feature_dim": 1536, "weights_sha256": "a" * 64,
+                      "dinov3_repo_commit": 1j, "resize_height": 224, "resize_width": 224,
+                      "normalize_mean": np.array(NORMALIZE_MEAN, dtype=np.float64),
+                      "normalize_std": np.array(NORMALIZE_STD, dtype=np.float64), "target_fps": TARGET_FPS}
+        rng = np.random.default_rng(3)
+        for identity, group in frames.groupby("video_id"):
+            identity, k, split = str(identity), len(group), str(group["split"].iloc[0])
+            identity_attrs = {"video_id": identity, "K": k, "split": split}
+            write_dinov3_features_atomic(dinov3_path(identity, dinov3_root=adapter.dinov3_root),
+                                         rng.normal(size=(k, 1536)).astype(np.float16),
+                                         {**identity_attrs, **provenance})
+            digest = sha256_file(pose_path(identity, pose_root=adapter.pose_root))
+            write_quality_atomic(quality_path(identity, quality_root=adapter.quality_root),
+                                 rng.uniform(size=(k, QUALITY_CHANNELS)).astype(np.float32),
+                                 {**identity_attrs, **current_provenance(pose_source_digest=digest)})
+        with h5py.File(dinov3_path("room/train", dinov3_root=adapter.dinov3_root), "r") as handle:
+            assert isinstance(handle.attrs["feature_dim"], np.integer), "fixture sem inteiro NumPy"
+            assert isinstance(handle.attrs["normalize_mean"], np.ndarray), "fixture sem array NumPy"
+
+        def leftovers() -> list[Path]:
+            return sorted(root.glob(".physics-prepare-*"))
+
+        with patch("gatefall.datasets.get_dataset", return_value=adapter):
+            try:
+                prepare_dataset("le2i", "dinov3", root / "rejected")
+            except TypeError as error:
+                assert "complex" in str(error)
+            else:
+                raise AssertionError("metadado sem representação JSON exata aceito")
+            assert not (root / "rejected").exists() and not leftovers(), "falha deixou pacote parcial"
+            for identity in ("room/train", "room/val", "room/test"):
+                with h5py.File(dinov3_path(identity, dinov3_root=adapter.dinov3_root), "r+") as handle:
+                    handle.attrs["dinov3_repo_commit"] = "b" * 40
+            bundle = prepare_dataset("le2i", "dinov3", root / "bundle")
+            published = (bundle / "manifest.json").read_bytes()
+            try:
+                prepare_dataset("le2i", "dinov3", root / "bundle")
+            except FileExistsError:
+                pass
+            else:
+                raise AssertionError("pacote existente sobrescrito")
+        assert (bundle / "manifest.json").read_bytes() == published and not leftovers()
+        manifest, videos = load_bundle(bundle)
+        recorded = manifest["sources"]["dinov3_extractor"]
+        expected = {**provenance, "dinov3_repo_commit": "b" * 40,
+                    "normalize_mean": list(NORMALIZE_MEAN), "normalize_std": list(NORMALIZE_STD)}
+        assert recorded == expected, recorded
+        assert all(type(recorded[name]) is int for name in ("feature_dim", "resize_height", "resize_width"))
+        assert all(type(value) is float for value in recorded["normalize_mean"] + recorded["normalize_std"])
+        assert json.loads(json.dumps(recorded)) == recorded and len(videos) == 3
+        assert len(manifest["sources"]["files"]["room/train"]) == 3
+        for unsupported in (np.complex64(1j), np.array([1j]), {1: "x"}, object()):
+            try:
+                json_compatible(unsupported)
+            except TypeError:
+                continue
+            raise AssertionError(f"metadado não suportado aceito: {unsupported!r}")
+    print("[PASS] pacote dinov3: proveniência HDF5 NumPy convertida sem perda, publicação atômica e sem sobrescrita")
 
 
 if __name__ == "__main__":

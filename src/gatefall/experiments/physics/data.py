@@ -51,6 +51,32 @@ class RawVideo:
     visual_quality: np.ndarray
 
 
+def json_compatible(value: object) -> object:
+    """Converte metadados NumPy/HDF5 em tipos JSON sem perda; recusa o que não tem equivalente exato."""
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, float):
+        return float(value)
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    # Até 64 bits, float16/32/64 cabem exatamente no double do JSON; long double não.
+    if isinstance(value, np.floating) and value.dtype.itemsize <= 8:
+        return float(value)
+    if isinstance(value, (bytes, np.bytes_)):
+        return bytes(value).decode("utf-8")
+    if isinstance(value, np.ndarray) and value.dtype.kind in "biufSUO":
+        return json_compatible(value.tolist())
+    if isinstance(value, (list, tuple)):
+        return [json_compatible(item) for item in value]
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return {key: json_compatible(item) for key, item in value.items()}
+    raise TypeError(f"metadado sem representação JSON exata: {type(value).__name__} {value!r}")
+
+
 def write_json(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
@@ -310,7 +336,7 @@ def prepare_dataset(dataset: str, visual_kind: str, output: Path, **options) -> 
             raise ValueError(f"extratores de pose divergentes entre vídeos: {sorted(pose_extractor)}")
         sources["pose_extractor"] = dict(zip(POSE_EXTRACTOR_ATTRS, next(iter(pose_extractor))))
         if dino_attrs:
-            sources["dinov3_extractor"] = next(iter(dino_attrs.values()))
+            sources["dinov3_extractor"] = json_compatible(next(iter(dino_attrs.values())))
     return prepare_records(records(), output, dataset=dataset, visual_kind=visual_kind,
                            label_names=adapter.label_names, sources=sources,
                            required_splits=required_splits(dataset), **options)
