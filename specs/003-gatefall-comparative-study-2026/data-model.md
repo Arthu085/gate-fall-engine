@@ -39,6 +39,12 @@ corrompidas apenas no treino.
 
 Os runs de movimento usam o layout importado `runs/local/<proto>/motion-<braço>/seed-<n>/<receita>/`.
 
+## Atestado de equivalência (`runs/local/<proto>/study2026/equivalence/motion-<visual>.json`)
+
+Escrito uma vez por `attest-equivalence`: schema `motion-equivalence-v1`, Git, dataset e fonte
+visual, caminhos, número de arquivos relidos por papel, allowlist, diferenças admitidas, texto e
+SHA-256 dos quatro manifestos (pacote e alvos, original e atual) e o texto da garantia.
+
 ## Registro do estudo (`runs/local/study2026/`)
 
 | Caminho | Conteúdo |

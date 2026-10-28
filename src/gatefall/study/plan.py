@@ -39,6 +39,7 @@ class RunSpec:
     run_dir: Path
     bundle: Path
     targets: Path | None = None
+    equivalence: Path | None = None
 
     def identity(self) -> dict:
         return {
@@ -79,6 +80,10 @@ def bundle_dir(dataset: str, visual: str) -> Path:
 
 def targets_dir(dataset: str, visual: str) -> Path:
     return study_root(dataset) / "motion-targets" / visual
+
+
+def equivalence_path(dataset: str, visual: str) -> Path:
+    return study_root(dataset) / "equivalence" / f"motion-{visual}.json"
 
 
 def run_dir(dataset: str, method: Method, seed: int) -> Path:
@@ -187,9 +192,10 @@ class _Builder:
     def evaluate(self, run: RunSpec, train_key: str, matrix: str) -> str:
         module = "gatefall.experiments.physics" if run.recipe is None else "gatefall.experiments.motion"
         key = train_key.replace("train:", "evaluate:", 1)
+        attested = () if run.equivalence is None else ("--equivalence", str(run.equivalence))
         return self.add(Step(key, "evaluate",
                              (*UV, module, "evaluate", "--bundle", str(run.bundle), "--run-dir",
-                              str(run.run_dir), "--split", "test"),
+                              str(run.run_dir), "--split", "test", *attested),
                              (run.run_dir / "evaluation-test.json",), (train_key,), "cpu", run,
                              verify=partial(integrity.evaluation, run, run.run_dir / "evaluation-test.json")),
                         matrix)
@@ -215,7 +221,8 @@ def primary_runs(dataset: str, methods: tuple[Method, ...] = PRIMARY_METHODS) ->
 
 def motion_runs(dataset: str) -> list[RunSpec]:
     return [RunSpec(dataset, method, seed, recipe, motion_run_dir(dataset, method, seed, recipe),
-                    bundle_dir(dataset, method.visual), targets_dir(dataset, method.visual))
+                    bundle_dir(dataset, method.visual), targets_dir(dataset, method.visual),
+                    equivalence_path(dataset, method.visual))
             for method in MOTION_METHODS for seed in SEEDS for recipe in RECIPES]
 
 

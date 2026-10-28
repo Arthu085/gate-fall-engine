@@ -50,6 +50,8 @@ class EvaluatedRun:
     metrics: dict
     evaluation_sha256: str
     provenance_sha256: str
+    origin: str = "executed"
+    equivalence_sha256: str | None = None
 
 
 CLUSTER_UNITS = ("subject", "recording")
@@ -154,7 +156,8 @@ def collect(steps: list[Step], matrix: str) -> list[EvaluatedRun]:
         dataset = report.get("target_dataset", step.run.dataset)
         runs.append(EvaluatedRun(step, dataset, run_label(step), step.run.seed, report,
                                  evaluation_metrics(report, LABEL_NAMES), sha256_file(path),
-                                 sha256_file(step.run.run_dir / "study-provenance.json")))
+                                 sha256_file(step.run.run_dir / "study-provenance.json"), provenance["origin"],
+                                 (provenance.get("equivalence") or {}).get("sha256")))
     check_compatible(runs)
     return runs
 
@@ -348,6 +351,7 @@ def build_report(steps: list[Step], matrix: str, output_root: Path = REPORT_DIR,
     output.mkdir(parents=True, exist_ok=False)
     aggregated = aggregate(runs, matrix, maps)
     _write_csv(output / "runs.csv", [{"dataset": run.dataset, "method": run.label, "seed": run.seed,
+                                      "origin": run.origin, "equivalence_sha256": run.equivalence_sha256,
                                       **flat_metrics(run.metrics)} for run in runs])
     _write_csv(output / "summary.csv", aggregated["summary"])
     _write_csv(output / "per_class.csv", aggregated["per_class"])
@@ -372,7 +376,8 @@ def build_report(steps: list[Step], matrix: str, output_root: Path = REPORT_DIR,
     manifest = {"study": STUDY_ID, "matrix": matrix, "created_utc": utc_now(), "code": git_state(),
                 "protocol_sha256": protocol_sha256(), "figures": figures,
                 "inputs": [{"key": run.step.key, "evaluation_sha256": run.evaluation_sha256,
-                            "provenance_sha256": run.provenance_sha256} for run in runs]}
+                            "provenance_sha256": run.provenance_sha256, "origin": run.origin,
+                            "equivalence_sha256": run.equivalence_sha256} for run in runs]}
     with (output / "report-manifest.json").open("x", encoding="utf-8") as handle:
         json.dump(manifest, handle, ensure_ascii=False, indent=2)
         handle.write("\n")

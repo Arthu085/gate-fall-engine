@@ -28,8 +28,8 @@
    | `audit` | Grade conferida; `coverage.json` com os SHA-256 atuais (senão é refeito) e `passed = true`. |
    | `bundle` | Schema; todo arquivo listado existe com o tamanho registrado e não há arquivos extras; `sources.frames_sha256` igual ao `frames.parquet` atual. |
    | `targets` | Schema; `bundle_sha256` igual ao pacote atual; alvos listados presentes. |
-   | `train` | Identidade planejada; `manifest_sha256` (e `targets_sha256` no movimento) iguais aos atuais; hashes de `config.json`, `stats.json`, `checkpoint.pt` e `last.pt`; `study-provenance.json`, se existir. Sem registro, o executor grava `origin = reused-verified`. |
-   | `evaluate`, `transfer` | Run conferido; `split = test`, `selection_performed = false`, checkpoint, configuração e pacote iguais aos do run; na transferência, `adaptation = none` e o hash do pacote externo atual. |
+   | `train` | Identidade planejada; `manifest_sha256` (e `targets_sha256` no movimento) iguais aos atuais ou, só no movimento, aos originais de um atestado de equivalência válido que os liga aos atuais; hashes de `config.json`, `stats.json`, `checkpoint.pt` e `last.pt`; `study-provenance.json`, se existir, inclusive o SHA-256 do atestado. Sem registro, o executor grava `origin = reused-verified`. |
+   | `evaluate`, `transfer` | Run conferido; `split = test`, `selection_performed = false`, checkpoint, configuração e pacote iguais aos do run; na transferência, `adaptation = none` e o hash do pacote externo atual; em run atestado, `equivalence` igual ao atestado e ao pacote atuais. |
 
    O hash completo dos HDF5 de um pacote é conferido por `load_bundle` ao treinar e avaliar.
 5. **Pesos.** O SHA-256 dos pesos YOLO-Pose, DINOv3 e SAM 3 entra no ledger e em cada
@@ -45,7 +45,10 @@
    - `selection_performed` diferente de `false`;
    - transferência com adaptação.
 8. **Evidência histórica.** Os runs de `runs/reference` são somente leitura, e os runs externos
-   incompatíveis ficam fora dos relatórios do estudo.
+   incompatíveis ficam fora dos relatórios do estudo. Um run de movimento histórico entra só com
+   um atestado de equivalência explícito (`equivalence/motion-<visual>.json`, escrito uma vez),
+   que liga pacote e alvos originais aos atuais sem reescrever manifestos ou hashes; regras e
+   limites em `docs/experiments/comparative-study.md`.
 
 ## Conteúdo mínimo por run
 

@@ -114,9 +114,23 @@ uv run python -m gatefall.study reuse-audit --source /caminho/para/runs_local_ex
 `--source` aponta para o equivalente a `runs/local` da máquina de origem, por exemplo
 `le2i/motion-c1/seed-42/motion_physics/`.
 
-- Copie para o destino planejado só os runs marcados `compatible`.
+Runs treinados sobre pacotes e alvos anteriores ao estudo só ficam `compatible` depois de um
+atestado de equivalência explícito, criado uma vez por protocolo e fonte visual:
+
+```bash
+uv run python -m gatefall.study attest-equivalence --dataset le2i --visual sam3 \
+  --original-bundle /caminho/para/runs/local/le2i/physics/bundles/cs-sam3-s42 \
+  --original-targets /caminho/para/runs/local/le2i/motion-targets-sam
+```
+
+O atestado relê todos os HDF5 e NPZ e recusa qualquer diferença fora da allowlist. Regras e
+limites em [Atestado de equivalência](comparative-study.md#atestado-de-equivalencia-opt-in).
+
+- Copie para o destino planejado só os runs marcados `compatible`, e deles só `config.json`,
+  `metrics.json`, `stats.json`, `checkpoint.pt` e `last.pt`. As avaliações históricas
+  (`historical_evaluations` na auditoria) não valem para runs atestados.
 - Os incompatíveis ficam como evidência histórica fora do estudo.
-- O executor revalida os hashes antes de reusar.
+- O executor revalida os hashes antes de reusar e registra `origin = reused-verified`.
 
 ## 5. Treino e teste
 

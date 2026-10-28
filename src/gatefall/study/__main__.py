@@ -36,6 +36,12 @@ def main() -> None:
     reuse.add_argument("--source", type=Path, required=True,
                        help="Diretório equivalente a runs/local da máquina de origem")
     reuse.add_argument("--output", type=Path)
+    attest = commands.add_parser("attest-equivalence",
+                                 help="Atesta que pacote e alvos históricos equivalem aos atuais do estudo")
+    attest.add_argument("--dataset", choices=("le2i", "le2i-cv"), required=True)
+    attest.add_argument("--visual", choices=("dinov3", "sam3"), required=True)
+    attest.add_argument("--original-bundle", type=Path, required=True)
+    attest.add_argument("--original-targets", type=Path, required=True)
     features = commands.add_parser("features-report", help="Cobertura/alinhamento das features por vídeo")
     features.add_argument("--dataset", required=True, choices=("le2i", "le2i-cv", "upfall", "gmdcsa24"))
     profile = commands.add_parser("profile-extraction", help="Mede custo de extração em diretório temporário")
@@ -92,6 +98,13 @@ def main() -> None:
             with args.output.open("x", encoding="utf-8") as handle:
                 handle.write(text + "\n")
         print(json.dumps({"counts": result["counts"], "planned": result["planned"]}, indent=2))
+    elif args.command == "attest-equivalence":
+        from gatefall.experiments.motion.equivalence import attest
+        from gatefall.study.plan import bundle_dir, equivalence_path, targets_dir
+
+        output = attest(args.original_bundle, args.original_targets, bundle_dir(args.dataset, args.visual),
+                        targets_dir(args.dataset, args.visual), equivalence_path(args.dataset, args.visual))
+        print(f"atestado: {output}")
     elif args.command == "features-report":
         from gatefall.study.coverage import feature_coverage
 

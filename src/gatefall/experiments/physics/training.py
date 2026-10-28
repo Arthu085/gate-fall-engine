@@ -377,23 +377,33 @@ def train(
     return metrics
 
 
-def load_verified_run(bundle: Path, run_dir: Path) -> tuple[dict, dict, dict, dict, dict]:
-    """Confere hashes do run e a origem das estatísticas (só treino deste pacote)."""
+def load_verified_run(bundle: Path, run_dir: Path, equivalence: Path | None = None
+                      ) -> tuple[dict, dict, dict, dict, dict, dict | None]:
+    """Confere hashes do run e a origem das estatísticas (só treino deste pacote).
+
+    Um run treinado sobre outro pacote só é aceito com `equivalence` apontando para um atestado
+    que o liga ao pacote atual; o último item é o resumo desse atestado, ou None.
+    """
     validate_local_run_dir(run_dir)
     manifest, videos = load_bundle(bundle)
     config = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
     metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     stats = json.loads((run_dir / "stats.json").read_text(encoding="utf-8"))
-    if (config.get("schema_version") != SCHEMA_VERSION or config.get("feature_schema") != FEATURE_SCHEMA
-            or config["manifest_sha256"] != sha256_file(bundle / "manifest.json")):
+    if config.get("schema_version") != SCHEMA_VERSION or config.get("feature_schema") != FEATURE_SCHEMA:
         raise ValueError("run incompatível com o pacote/schema")
+    attested = None
+    if config["manifest_sha256"] != sha256_file(bundle / "manifest.json"):
+        if equivalence is None:
+            raise ValueError("run incompatível com o pacote/schema")
+        from gatefall.experiments.motion.equivalence import attested_run
+        attested = attested_run(config, equivalence, bundle)
     for name, field in (("config.json", "config_sha256"), ("stats.json", "stats_sha256"),
                         ("checkpoint.pt", "checkpoint_sha256"), ("last.pt", "last_checkpoint_sha256")):
         if sha256_file(run_dir / name) != metrics[field]:
             raise ValueError(f"hash incompatível: {name}")
     if stats != fit_stats(manifest, videos):
         raise ValueError("estatísticas não correspondem exclusivamente ao treino deste pacote")
-    return manifest, videos, config, metrics, stats
+    return manifest, videos, config, metrics, stats, attested
 
 
 def _load_checkpoint(run_dir: Path, config: dict, visual_dim: int) -> nn.Module:
@@ -449,23 +459,25 @@ def _publish(output: Path, report: dict) -> None:
         handle.write("\n")
 
 
-def evaluate(bundle: Path, run_dir: Path, split: str = "test") -> dict:
+def evaluate(bundle: Path, run_dir: Path, split: str = "test", equivalence: Path | None = None) -> dict:
     if split not in ("train", "val", "test"):
         raise ValueError("split desconhecido")
     validate_local_run_dir(run_dir)
     output = run_dir / f"evaluation-{split}.json"
     if output.exists():
         raise FileExistsError(f"avaliação já existe: {output}")
-    manifest, videos, config, metrics, stats = load_verified_run(bundle, run_dir)
+    manifest, videos, config, metrics, stats, attested = load_verified_run(bundle, run_dir, equivalence)
     model = _load_checkpoint(run_dir, config, manifest["visual_dim"])
     report = _evaluation_report(model, manifest, videos, stats, config, metrics, split)
+    if attested is not None:
+        report["equivalence"] = attested
     _publish(output, report)
     return report
 
 
 def evaluate_external(bundle: Path, run_dir: Path, target_bundle: Path) -> dict:
     """Aplica checkpoint e estatísticas congelados do treino de origem ao teste externo, sem adaptação."""
-    source_manifest, _, config, metrics, stats = load_verified_run(bundle, run_dir)
+    source_manifest, _, config, metrics, stats, _ = load_verified_run(bundle, run_dir)
     target_manifest, target_videos = load_bundle(target_bundle)
     divergent = [key for key in EXTERNAL_COMPATIBILITY_KEYS
                  if source_manifest.get(key) != target_manifest.get(key)]

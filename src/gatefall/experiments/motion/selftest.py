@@ -1,6 +1,8 @@
 """Verificações do experimento: contratos reais, sem medir eficácia em quedas."""
 
+import hashlib
 import json
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -13,7 +15,7 @@ from gatefall.experiments.motion import RECIPES
 from gatefall.experiments.motion.data import build_targets, load_targets, prepare
 from gatefall.experiments.motion.learning import MotionClassifier, motion_losses
 from gatefall.experiments.motion.report import summarize
-from gatefall.experiments.physics.data import RawVideo, load_bundle, prepare_records
+from gatefall.experiments.physics.data import RawVideo, load_bundle, prepare_records, write_json
 from gatefall.experiments.physics.model import FusionClassifier
 from gatefall.experiments.physics.selftest import fixture_pose
 from gatefall.experiments.physics.training import Windows, evaluate, fit_stats, train
@@ -217,9 +219,199 @@ def test_pipeline() -> None:
               "inferência sem alvos, pareamento e hashes")
 
 
+def edit_json(path: Path, change) -> None:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    change(value)
+    write_json(path, value)
+
+
+def relink(bundle: Path, targets: Path) -> None:
+    edit_json(targets / "motion-manifest.json",
+              lambda meta: meta.update(bundle_sha256=sha256_file(bundle / "manifest.json")))
+
+
+def historical_pair(root: Path) -> tuple[Path, Path, Path, Path]:
+    """Pacote e alvos "originais" sem os metadados novos e os atuais com eles, sobre os mesmos HDF5/NPZ."""
+    bundle, targets = fixture(root / "current")
+    original_bundle, original_targets = root / "original" / "bundle", root / "original" / "targets"
+    shutil.copytree(bundle, original_bundle)
+    shutil.copytree(targets, original_targets)
+
+    def legacy(manifest: dict) -> None:
+        del manifest["splits"]
+        for entry in manifest["videos"]:
+            del entry["bytes"]
+        manifest["code_provenance"] = {"git_revision": "historical"}
+
+    edit_json(original_bundle / "manifest.json", legacy)
+    edit_json(original_targets / "motion-manifest.json",
+              lambda meta: meta.update(code_provenance={"git_revision": "historical"}))
+    edit_json(bundle / "manifest.json",
+              lambda manifest: manifest["sources"].update(pose_extractor={"model_name": "fixture"}))
+    relink(original_bundle, original_targets)
+    relink(bundle, targets)
+    return original_bundle, original_targets, bundle, targets
+
+
+def refusal(action) -> str:
+    try:
+        action()
+    except ValueError as error:
+        return str(error)
+    raise AssertionError("contrato inválido foi aceito")
+
+
+def _append(path: Path) -> None:
+    with path.open("ab") as handle:
+        handle.write(b"tampered")
+
+
+def _rewrite_video(bundle: Path, targets: Path) -> None:
+    video = sorted((bundle / "videos").iterdir())[0]
+    _append(video)
+
+    def update(manifest: dict) -> None:
+        entry = next(e for e in manifest["videos"] if e["path"] == f"videos/{video.name}")
+        entry.update(sha256=sha256_file(video), bytes=video.stat().st_size)
+
+    edit_json(bundle / "manifest.json", update)
+    relink(bundle, targets)
+
+
+def _edit_bundle(change):
+    def mutate(original_bundle: Path, original_targets: Path, bundle: Path, targets: Path) -> None:
+        edit_json(bundle / "manifest.json", change)
+        relink(bundle, targets)
+    return mutate
+
+
+def _edit_targets(change):
+    return lambda ob, ot, bundle, targets: edit_json(targets / "motion-manifest.json", change)
+
+
+def _first_source(manifest: dict) -> None:
+    files = manifest["sources"]["files"]["room/train"]
+    files[next(iter(files))] = "0" * 64
+
+
+def _duplicate_identity(manifest: dict) -> None:
+    manifest["videos"][1]["video_id"] = manifest["videos"][0]["video_id"]
+
+
+def _original_extractor(original_bundle: Path, original_targets: Path, bundle: Path, targets: Path) -> None:
+    edit_json(original_bundle / "manifest.json",
+              lambda manifest: manifest["sources"].update(pose_extractor={"model_name": "other"}))
+    relink(original_bundle, original_targets)
+
+
+REJECTED_EQUIVALENCES = (
+    ("HDF5 atual alterado", lambda ob, ot, b, t: _append(sorted((b / "videos").iterdir())[0]), "SHA-256 real"),
+    ("HDF5 original alterado", lambda ob, ot, b, t: _append(sorted((ob / "videos").iterdir())[0]), "SHA-256 real"),
+    ("NPZ atual alterado", lambda ob, ot, b, t: _append(next(t.glob("*.npz"))), "SHA-256 real"),
+    ("HDF5 regravado com manifesto coerente", lambda ob, ot, b, t: _rewrite_video(b, t), "videos["),
+    ("fonte com outro hash", _edit_bundle(_first_source), "sources.files"),
+    ("partição trocada", _edit_bundle(lambda m: m["videos"][1].update(split="test")), "videos[1]"),
+    ("identidade duplicada", _edit_bundle(_duplicate_identity), "mapeamento ambíguo"),
+    ("preparação divergente", _edit_bundle(lambda m: m["preparation_config"].update(seed=43)),
+     "preparation_config"),
+    ("splits sem uma partição", _edit_bundle(lambda m: m.update(splits=["train", "val"])), "splits"),
+    ("proveniência já existente e divergente", _original_extractor, "sources.pose_extractor"),
+    ("horizontes divergentes", _edit_targets(lambda meta: meta.update(horizons=[1, 2])), "horizons"),
+    ("confiança divergente", _edit_targets(lambda meta: meta.update(confidence=.6)), "confidence"),
+    ("alvo original ausente", lambda ob, ot, b, t: next(ot.glob("*.npz")).unlink(), "ausentes"),
+    ("arquivo extra no pacote atual", lambda ob, ot, b, t: (b / "videos" / "extra.h5").write_bytes(b"x"),
+     "não listados"),
+    ("alvos originais de outro pacote",
+     lambda ob, ot, b, t: edit_json(ot / "motion-manifest.json", lambda m: m.update(bundle_sha256="0" * 64)),
+     "bundle_sha256 não aponta"),
+    ("manifesto original ausente", lambda ob, ot, b, t: (ob / "manifest.json").unlink(), "ausente"),
+)
+
+
+def _tampered_text(record: dict) -> None:
+    entry = record["manifests"]["original_bundle"]
+    manifest = json.loads(entry["text"])
+    manifest["preparation_config"]["seed"] = 43
+    entry["text"] = json.dumps(manifest)
+    entry["sha256"] = hashlib.sha256(entry["text"].encode()).hexdigest()
+
+
+TAMPERED_ATTESTATIONS = (
+    ("resumo editado", lambda record: record["allowed_differences"]["bundle"].pop(), "resumo"),
+    ("manifesto embutido editado",
+     lambda record: record["manifests"]["original_bundle"].update(text=record["manifests"]["original_bundle"]["text"] + " "),
+     "SHA-256 do manifesto embutido"),
+    ("manifesto embutido e hash editados", _tampered_text, "preparation_config"),
+    ("schema trocado", lambda record: record.update(schema="other"), "schema"),
+)
+
+
+def test_equivalence() -> None:
+    from gatefall.experiments.motion.equivalence import attest, attested_run, verify_attestation
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        original_bundle, original_targets, bundle, targets = paths = historical_pair(root / "base")
+        output = attest(*paths, root / "equivalence.json")
+        record = json.loads(output.read_text(encoding="utf-8"))
+        assert record["allowed_differences"] == {
+            "bundle": ["code_provenance: diverge", "splits: adicionado", "videos[].bytes: adicionado em 3 vídeo(s)",
+                       "sources.pose_extractor: adicionado"],
+            "targets": ["code_provenance: diverge", "bundle_sha256: remapeado"]}, record["allowed_differences"]
+        assert record["rehashed_files"] == {"original_bundle": 3, "original_targets": 1, "bundle": 3, "targets": 1}
+        summary = verify_attestation(output, bundle, targets)
+        assert summary["original_manifest_sha256"] == sha256_file(original_bundle / "manifest.json")
+        assert summary["current_targets_sha256"] == sha256_file(targets / "motion-manifest.json")
+        try:
+            attest(*paths, output)
+        except FileExistsError:
+            pass
+        else:
+            raise AssertionError("atestado sobrescrito")
+        for index, (name, mutate, fragment) in enumerate(REJECTED_EQUIVALENCES):
+            work = root / f"case-{index}"
+            shutil.copytree(root / "base", work)
+            case = (work / "original" / "bundle", work / "original" / "targets",
+                    work / "current" / "bundle", work / "current" / "targets")
+            mutate(*case)
+            message = refusal(lambda: attest(*case, work / "equivalence.json"))
+            assert fragment in message and not (work / "equivalence.json").exists(), (name, message)
+        for index, (name, change, fragment) in enumerate(TAMPERED_ATTESTATIONS):
+            tampered = json.loads(output.read_text(encoding="utf-8"))
+            change(tampered)
+            path = root / f"tampered-{index}.json"
+            path.write_text(json.dumps(tampered), encoding="utf-8")
+            message = refusal(lambda: verify_attestation(path, bundle, targets))
+            assert fragment in message, (name, message)
+        assert "diferente do bundle" in refusal(lambda: verify_attestation(output, original_bundle))
+        run = root / "historical-run"
+        train(original_bundle, run, arm="C0", fusion="concat", epochs=1, batch_size=8,
+              motion_recipe="baseline", targets=original_targets)
+        config = json.loads((run / "config.json").read_text(encoding="utf-8"))
+        assert attested_run(config, output, bundle, targets)["sha256"] == sha256_file(output)
+        assert "não corresponde" in refusal(lambda: attested_run({**config, "manifest_sha256": "0" * 64},
+                                                                 output, bundle, targets))
+        assert "incompatível" in refusal(lambda: evaluate(bundle, run, "test"))
+        assert "schema" in refusal(lambda: evaluate(bundle, run, "test", root / "tampered-3.json"))
+        assert not (run / "evaluation-test.json").exists()
+        report = evaluate(bundle, run, "test", output)
+        assert report["equivalence"] == summary and report["manifest_sha256"] == config["manifest_sha256"]
+        assert "equivalence" not in evaluate(original_bundle, run, "val", output)
+        # O atestado não relê HDF5 no uso; load_bundle recusa bytes alterados depois de atestar.
+        video = sorted((bundle / "videos").iterdir())[0]
+        content = video.read_bytes()
+        _append(video)
+        verify_attestation(output, bundle, targets)
+        assert "hash de vídeo" in refusal(lambda: evaluate(bundle, run, "train", output))
+        video.write_bytes(content)
+    print("[PASS] equivalência atestada: só metadados da allowlist, bytes relidos, adulterações e "
+          "avaliação de run histórico sobre o pacote atual")
+
+
 def run_selftest() -> None:
     torch.set_num_threads(1)
     test_targets_and_losses()
     test_model()
     test_pipeline()
+    test_equivalence()
     print("Motion selftest PASS. Isto não mede melhoria em dados reais.")

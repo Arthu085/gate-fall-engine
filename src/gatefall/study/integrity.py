@@ -178,8 +178,35 @@ def motion_targets(root: Path, bundle_root: Path) -> Verdict:
     return _produced((root,), problems)
 
 
+def input_problems(run: RunSpec, config: dict) -> tuple[list[str], dict | None]:
+    """Pacote e alvos do run: os atuais, ou ligados aos atuais por um atestado de equivalência.
+
+    O atestado só é consultado quando o run não usa os artefatos atuais; devolve seu resumo.
+    """
+    from gatefall.experiments.motion.equivalence import EquivalenceError, attested_run
+
+    bundle_manifest = run.bundle / "manifest.json"
+    bundle_current = bundle_manifest.is_file() and config.get("manifest_sha256") == sha256_file(bundle_manifest)
+    targets_current = True
+    if run.targets is not None:
+        targets_manifest = run.targets / "motion-manifest.json"
+        recorded = (config.get("motion") or {}).get("targets_sha256")
+        targets_current = targets_manifest.is_file() and recorded == sha256_file(targets_manifest)
+    if bundle_current and targets_current:
+        return [], None
+    if run.equivalence is not None and run.equivalence.is_file():
+        try:
+            return [], attested_run(config, run.equivalence, run.bundle, run.targets)
+        except EquivalenceError as error:
+            return [f"{run.run_dir}: atestado não liga o run aos artefatos atuais: {error}"], None
+    problems = [] if bundle_current else [f"{run.run_dir}: pacote {run.bundle} ausente ou alterado desde o treino"]
+    if not targets_current:
+        problems.append(f"{run.run_dir}: alvos {run.targets} ausentes ou alterados desde o treino")
+    return problems, None
+
+
 def run_problems(run: RunSpec) -> list[str]:
-    """Identidade planejada, pacote e alvos atuais, hashes dos artefatos e proveniência registrada."""
+    """Identidade planejada, pacote e alvos atuais (ou atestados), hashes dos artefatos e proveniência."""
     from gatefall.study.registry import RUN_PROVENANCE, StudyExecutionError, verify_run_provenance
 
     required = ["config.json", "metrics.json", *(name for name, _ in RUN_ARTIFACTS[1:])]
@@ -190,14 +217,7 @@ def run_problems(run: RunSpec) -> list[str]:
     metrics = _read_json(run.run_dir / "metrics.json")
     problems = [f"{run.run_dir}: campo divergente da identidade planejada: {name}"
                 for name in config_mismatches(run, config)]
-    bundle_manifest = run.bundle / "manifest.json"
-    if not bundle_manifest.is_file() or config.get("manifest_sha256") != sha256_file(bundle_manifest):
-        problems.append(f"{run.run_dir}: pacote {run.bundle} ausente ou alterado desde o treino")
-    if run.targets is not None:
-        targets_manifest = run.targets / "motion-manifest.json"
-        recorded = (config.get("motion") or {}).get("targets_sha256")
-        if not targets_manifest.is_file() or recorded != sha256_file(targets_manifest):
-            problems.append(f"{run.run_dir}: alvos {run.targets} ausentes ou alterados desde o treino")
+    problems += input_problems(run, config)[0]
     altered = [name for name, field in RUN_ARTIFACTS if sha256_file(run.run_dir / name) != metrics.get(field)]
     if altered:
         problems.append(f"{run.run_dir}: artefatos não conferem com metrics.json: {altered}")
@@ -228,7 +248,16 @@ def evaluation_problems(run: RunSpec, output: Path, target_bundle: Path | None) 
         target_manifest = target_bundle / "manifest.json"
         expected |= {"adaptation": "none",
                      "target_manifest_sha256": sha256_file(target_manifest) if target_manifest.is_file() else None}
-    return _mismatches(output, _read_json(output), expected)
+    report = _read_json(output)
+    problems = _mismatches(output, report, expected)
+    attested = input_problems(run, config)[1]
+    if attested is not None:
+        # Avaliação de run atestado precisa ter sido feita sobre o pacote atual com este atestado.
+        recorded = report.get("equivalence") or {}
+        problems += _mismatches(output, {f"equivalence.{key}": value for key, value in recorded.items()},
+                                {"equivalence.sha256": attested["sha256"],
+                                 "equivalence.current_manifest_sha256": attested["current_manifest_sha256"]})
+    return problems
 
 
 def evaluation(run: RunSpec, output: Path, target_bundle: Path | None = None) -> Verdict:

@@ -67,6 +67,8 @@ def main() -> None:
     evaluation.add_argument("--bundle", type=Path, required=True)
     evaluation.add_argument("--run-dir", type=Path, required=True)
     evaluation.add_argument("--split", choices=("train", "val", "test"), default="test")
+    evaluation.add_argument("--equivalence", type=Path,
+                            help="Atestado que liga um run histórico ao pacote atual; ignorado se o run usa o atual")
     summary = sub.add_parser("summarize", help="Recusa comparações incompatíveis")
     summary.add_argument("--runs", type=Path, nargs="+", required=True)
     summary.add_argument("--output", type=Path, required=True)

@@ -32,6 +32,7 @@ Sem `--force`, os vídeos já extraídos são pulados.
 | `prepare --dataset {le2i,le2i-cv,upfall,gmdcsa24}` | Datasets do estudo; o GMDCSA-24 gera um pacote só de `test`. |
 | `train --arm {A,B0,B1,C0,C1,TCNTE} --fusion {...,tcnte}` | TCNTE com perda focal e Adam; `timing` em `metrics.json`. |
 | `evaluate --split test` | Alarmes e `timing` no relatório; escrita exclusiva. |
+| `gatefall.experiments.motion evaluate --equivalence ATESTADO` | Run histórico atestado avaliado sobre o pacote atual; o atestado só é consultado se o run não usa o pacote atual. |
 | `evaluate-external --bundle SRC --run-dir RUN --target-bundle DST` | Transferência congelada, sem adaptação. |
 
 ## `gatefall.study`
@@ -44,6 +45,7 @@ Sem `--force`, os vídeos já extraídos são pulados.
 | `run [--matrix ...] [--stage ...]` | Padrão `--dry-run`: só imprime. Com `--execute`, roda os passos pendentes em ordem e reusa só saídas conferidas (integridade, proveniência, cobertura e dependências). Para na primeira falha ou saída `invalid`, sem sobrescrever, e recusa uma árvore Git suja sem `--allow-dirty`. Com `--stage`, confere antes os pré-requisitos transitivos contra o plano completo, sem executá-los, e recusa se algum estiver ausente, pendente ou não conferir. |
 | `report --matrix M` | Agrega avaliações que passam no verificador de integridade, inclusive o pacote externo atual; recusa agregação parcial ou incompatível. |
 | `reuse-audit --source DIR [--output NOVO]` | Audita runs de movimento externos (DIR equivale a `runs/local` da origem). |
+| `attest-equivalence --dataset {le2i,le2i-cv} --visual {dinov3,sam3} --original-bundle P --original-targets P` | Relê os HDF5/NPZ originais e atuais e grava, uma vez, o atestado que liga pacote e alvos históricos aos do estudo; recusa qualquer diferença fora da allowlist. |
 | `features-report --dataset D` | Cobertura e alinhamento das features por vídeo. |
 | `profile-extraction --dataset D --videos N` | Sem `--execute`, só descreve. Com `--execute`, extrai N vídeos de teste num diretório temporário e mede s/quadro. |
 | `selftest` | Plano, causalidade, métricas, estatística, figuras, reuso, executor e relatório. |

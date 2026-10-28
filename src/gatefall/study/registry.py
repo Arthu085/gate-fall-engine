@@ -14,7 +14,7 @@ from pathlib import Path
 from gatefall.hashing import sha256_file
 from gatefall.provenance import git_state, utc_now
 from gatefall.study import STUDY_DIR_NAME, STUDY_ID, STUDY_SCHEMA
-from gatefall.study.integrity import RUN_ARTIFACTS, Verdict, config_mismatches
+from gatefall.study.integrity import RUN_ARTIFACTS, Verdict, config_mismatches, input_problems
 from gatefall.study.plan import STAGES, RunSpec, Step
 from gatefall.study.protocol import canonical_json, protocol_sha256
 
@@ -83,13 +83,17 @@ def run_provenance(run: RunSpec, origin: str, timing: dict | None, weights: dict
     metrics = _read_json(run.run_dir / "metrics.json")
     manifest = _read_json(run.bundle / "manifest.json")
     mismatches = config_mismatches(run, config)
-    if mismatches or config.get("manifest_sha256") != sha256_file(run.bundle / "manifest.json"):
-        raise StudyExecutionError(f"{run.run_dir}: run não corresponde à identidade planejada {mismatches}")
+    inputs, attested = input_problems(run, config)
+    if mismatches or inputs:
+        raise StudyExecutionError(f"{run.run_dir}: run não corresponde à identidade planejada {mismatches} "
+                                  f"ou aos artefatos atuais {inputs}")
+    if attested is not None and origin != "reused-verified":
+        raise StudyExecutionError(f"{run.run_dir}: run atestado só entra como reused-verified")
     artifacts = {name: metrics[field] for name, field in RUN_ARTIFACTS}
     altered = [name for name, digest in artifacts.items() if sha256_file(run.run_dir / name) != digest]
     if altered:
         raise StudyExecutionError(f"{run.run_dir}: artefatos não conferem com metrics.json: {altered}")
-    return {
+    record = {
         "study": STUDY_ID, "schema": STUDY_SCHEMA, "created_utc": utc_now(), "origin": origin,
         "identity": run.identity(), "identity_sha256": run.identity_sha256(),
         "protocol_sha256": protocol_sha256(), "code": git_state(),
@@ -102,6 +106,9 @@ def run_provenance(run: RunSpec, origin: str, timing: dict | None, weights: dict
         "training_timing": metrics.get("timing"), "wall_timing": timing,
         "weights": weights, "environment": environment(),
     }
+    if attested is not None:
+        record["equivalence"] = attested
+    return record
 
 
 def write_run_provenance(run: RunSpec, origin: str, timing: dict | None, weights: dict) -> Path:
@@ -120,6 +127,11 @@ def verify_run_provenance(run: RunSpec) -> dict:
     for name, digest in record["artifacts"].items():
         if sha256_file(run.run_dir / name) != digest:
             raise StudyExecutionError(f"{path}: artefato alterado após o registro: {name}")
+    equivalence = record.get("equivalence")
+    if equivalence is not None:
+        attestation = Path(equivalence["path"])
+        if not attestation.is_file() or sha256_file(attestation) != equivalence["sha256"]:
+            raise StudyExecutionError(f"{path}: atestado de equivalência ausente ou alterado: {attestation}")
     return record
 
 

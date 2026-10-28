@@ -154,9 +154,76 @@ As métricas são recalculadas das predições por janela de cada `evaluation-*.
 
 ## Movimento: runs externos
 
-O contexto do projeto relata 150 runs externos da matriz de movimento, mas nenhum artefato está
-disponível neste repositório. `reuse-audit` compara cada run candidato com o passo planejado
-(schema, receita, semente, pacote, alvos e hashes):
+Os 150 runs históricos da matriz de movimento foram treinados sobre pacotes e alvos anteriores ao
+estudo. Seus `manifest_sha256` e `targets_sha256` apontam para esses manifestos, e não para os do
+estudo; por isso o reuso comum os recusa. `reuse-audit` compara cada run candidato com o passo
+planejado (schema, receita, semente, pacote, alvos e hashes):
 
-- Só runs **compatíveis**, copiados para o destino planejado, são reusados.
-- Os **incompatíveis** permanecem como evidência histórica separada.
+- só runs **compatíveis**, copiados para o destino planejado, são reusados;
+- os **incompatíveis** permanecem como evidência histórica separada.
+
+### Atestado de equivalência (opt-in)
+
+Um run histórico só fica compatível com um atestado explícito, criado por
+`gatefall.study attest-equivalence`. O atestado liga o pacote e os alvos originais aos atuais do
+estudo e fica em `runs/local/<protocolo>/study2026/equivalence/motion-<visual>.json`, escrito uma
+única vez. Nenhum manifesto, hash registrado ou artefato do run é reescrito.
+
+Ao atestar, o comando relê do disco todo HDF5 dos dois pacotes e todo NPZ dos dois alvos. Ele
+recusa o atestado inteiro quando há:
+
+- arquivo ausente, arquivo não listado ou SHA-256 real diferente do registrado;
+- registro por vídeo diferente: identidade, partição, `K`, caminho, hash, hash da pose de
+  origem ou ordem;
+- `video_id` ou caminho repetido (mapeamento ambíguo);
+- alvos que não apontam (`bundle_sha256`) para o pacote do mesmo lado;
+- qualquer diferença de metadados fora da allowlist. A comparação cobre schema, dataset,
+  modalidade, dimensão visual, classes, evidências, fps, `preparation_config`, fontes
+  (`frames_sha256`, papéis e hashes em `files`, proveniência SAM 3) e os parâmetros dos alvos
+  (horizontes, confiança, juntas, coordenadas).
+
+Os alvos atuais também precisam carregar sobre o pacote atual (`load_targets`).
+
+| Manifesto | Diferença admitida |
+| --- | --- |
+| pacote | `code_provenance` pode diferir |
+| pacote | `splits` pode ser adicionado se for `train/val/test`, as partições que o carregador exigia sem o campo |
+| pacote | `videos[].bytes` pode ser adicionado; o valor é conferido contra o tamanho real |
+| pacote | `sources.pose_extractor` e `sources.dinov3_extractor` podem ser adicionados se ausentes no original |
+| alvos | `code_provenance` pode diferir |
+| alvos | `bundle_sha256` é remapeado: cada manifesto aponta para o seu pacote |
+
+O atestado embute o texto dos quatro manifestos. Assim, o uso o reconfere sem os artefatos
+originais e sem confiar no resumo gravado:
+
+- os hashes dos textos embutidos;
+- a comparação refeita, que precisa dar a mesma lista de diferenças admitidas;
+- os hashes do pacote e dos alvos atuais em disco;
+- o `manifest_sha256` e o `targets_sha256` do run, que precisam ser os originais atestados.
+
+O atestado entra no fluxo do estudo assim:
+
+- a verificação de treino, `reuse-audit` e o executor aceitam o run como `reused-verified`. O
+  `study-provenance.json` registra o resumo e o SHA-256 do atestado, e o executor recusa
+  registrar um run atestado como `executed`;
+- `evaluate --equivalence` do módulo de movimento carrega o run sobre o pacote atual. O plano
+  sempre passa esse caminho, que só é consultado quando o run não usa o pacote atual. Sem
+  atestado válido, a recusa estrita de sempre continua valendo;
+- a avaliação registra `equivalence` (resumo do atestado), e a verificação de avaliação exige
+  esse registro igual ao atestado atual. Por isso, uma avaliação histórica, feita sobre o pacote
+  original, é recusada: copie só `config.json`, `metrics.json`, `stats.json`, `checkpoint.pt` e
+  `last.pt`, e refaça a avaliação;
+- `report` aplica as mesmas verificações e publica `origin` e `equivalence_sha256` em `runs.csv`
+  e em `report-manifest.json`.
+
+Limites da garantia:
+
+- a garantia são bytes idênticos de entrada do treino, conferidos no momento do atestado;
+- depois de atestar, mudanças nos artefatos originais não são detectadas, porque não são mais
+  lidos;
+- os HDF5 atuais são relidos por `load_bundle` a cada avaliação, e a verificação de passo confere
+  os seus tamanhos;
+- as fontes em `data/features` não são relidas. Vale o hash registrado nos dois manifestos, que
+  precisa ser igual;
+- o código, o ambiente e os hiperparâmetros do treino histórico ficam fora da garantia, além dos
+  campos da identidade planejada que o reuso comum já confere.

@@ -4,6 +4,7 @@ import json
 import tempfile
 import xml.etree.ElementTree as ElementTree
 import zipfile
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
@@ -11,7 +12,7 @@ import numpy as np
 import torch
 
 from gatefall.study import integrity
-from gatefall.study.methods import GATE_ABLATIONS, PRIMARY_METHODS, Method
+from gatefall.study.methods import GATE_ABLATIONS, MOTION_METHODS, PRIMARY_METHODS, Method
 from gatefall.study.plan import RunSpec, Step, build_plan, matrix_summary
 from gatefall.study.protocol import BATCH_SIZE, EPOCHS, FROZEN_PROTOCOL, SEEDS, protocol_sha256
 
@@ -607,6 +608,112 @@ def test_reuse_audit() -> None:
     print("[PASS] auditoria de reuso: 150 runs planejados, ausentes e incompletos recusados")
 
 
+def _historical_runs(root: Path) -> tuple[list[Step], dict]:
+    """Runs de movimento treinados sobre o pacote "original", planejados sobre o pacote atual equivalente."""
+    from gatefall.experiments.motion.selftest import historical_pair
+    from gatefall.experiments.physics.training import train
+
+    original_bundle, original_targets, bundle, targets = historical_pair(root / "artifacts")
+    trains, evaluations = [], []
+    for seed in SEEDS:
+        run = RunSpec("synthetic", MOTION_METHODS[0], seed, "baseline", root / "runs" / f"seed-{seed}", bundle,
+                      targets, root / "equivalence" / "motion-sam3.json")
+        train(original_bundle, run.run_dir, arm=run.method.arm, fusion=run.method.fusion, seed=seed,
+              epochs=EPOCHS, batch_size=BATCH_SIZE, motion_recipe="baseline", targets=original_targets)
+        key = f"train:synthetic:motion-a:seed-{seed}:baseline"
+        trains.append(Step(key, "train", ("train", str(run.run_dir)), (run.run_dir / "metrics.json",), (), "cpu",
+                           run, frozenset({"motion"}), partial(integrity.trained_run, run)))
+        output = run.run_dir / "evaluation-test.json"
+        evaluations.append(Step(key.replace("train", "evaluate"), "evaluate", ("evaluate", str(run.run_dir)),
+                                (output,), (key,), "cpu", run, frozenset({"motion"}),
+                                partial(integrity.evaluation, run, output)))
+    return [*trains, *evaluations], {"original_bundle": original_bundle, "original_targets": original_targets,
+                                     "bundle": bundle, "targets": targets}
+
+
+def test_attested_reuse() -> None:
+    import pandas as pd
+
+    from gatefall.experiments.motion.equivalence import attest
+    from gatefall.experiments.physics.training import evaluate
+    from gatefall.hashing import sha256_file
+    from gatefall.study.registry import (
+        RUN_PROVENANCE,
+        StudyExecutionError,
+        execute,
+        run_provenance,
+        verify_run_provenance,
+    )
+    from gatefall.study.report import IncompatibleAggregation, build_report
+    from gatefall.study.reuse import audit_candidate
+
+    plan = build_plan(("motion",))
+    commands = {step.key: step.command for step in plan if step.stage == "evaluate"}
+    attested = commands["evaluate:le2i:motion-a:seed-42:baseline"]
+    assert attested[-2:] == ("--equivalence", "runs/local/le2i/study2026/equivalence/motion-sam3.json"), attested
+    assert not any("--equivalence" in step.command for step in build_plan(("le2i",)))
+    torch.set_num_threads(1)
+    with tempfile.TemporaryDirectory(prefix="gatefall-study-attested-") as temporary:
+        root = Path(temporary)
+        steps, paths = _historical_runs(root)
+        trains = [step for step in steps if step.stage == "train"]
+        first = trains[0].run
+        assert first is not None and first.equivalence is not None
+        verdict = integrity.trained_run(first)
+        assert verdict.status == "invalid" and "pacote" in verdict.reasons[0], verdict
+        assert audit_candidate(trains[0], first.run_dir)[0], "run histórico sem atestado auditado como compatível"
+        # Avaliação histórica, feita sobre o pacote original, não vale para o run atestado.
+        evaluate(paths["original_bundle"], first.run_dir, "test")
+        attest(paths["original_bundle"], paths["original_targets"], paths["bundle"], paths["targets"],
+               first.equivalence)
+        reasons, used = audit_candidate(trains[0], first.run_dir)
+        assert reasons == [] and used is not None and used["sha256"] == sha256_file(first.equivalence)
+        assert all(integrity.trained_run(step.run).status == "done" for step in trains if step.run)
+        historical = integrity.evaluation(first, first.run_dir / "evaluation-test.json")
+        assert historical.status == "invalid" and "equivalence.sha256" in historical.reasons[0], historical
+        (first.run_dir / "evaluation-test.json").unlink()
+        assert integrity.trained_run(replace(first, equivalence=None)).status == "invalid", "atestado implícito"
+        _expect(StudyExecutionError, lambda: run_provenance(first, "executed", None, {}),
+                "run atestado registrado como executado")
+
+        def runner(command) -> int:
+            if command[0] != "evaluate":
+                return 3
+            evaluate(paths["bundle"], Path(command[1]), "test", first.equivalence)
+            return 0
+
+        log = execute(steps, log_dir=root / "logs", runner=runner, allow_dirty=True, weights={})
+        events = [json.loads(line) for line in log.read_text().splitlines()]
+        assert [entry["key"] for entry in events if entry["event"] == "reused"] == [step.key for step in trains]
+        assert sum(entry["event"] == "finished" for entry in events) == len(SEEDS)
+        equivalence_sha256 = verify_run_provenance(first)["equivalence"]["sha256"]
+        assert all(verify_run_provenance(step.run)["origin"] == "reused-verified" for step in trains if step.run)
+        assert all(step.verify is not None and step.verify().status == "done" for step in steps)
+        frames = {"synthetic": pd.DataFrame([{"video_id": "room/test", "split": "test", "subject": 1}])}
+        report = build_report(steps, "motion", root / "reports", frames)
+        rows = (report / "runs.csv").read_text().splitlines()
+        assert len(rows) == len(SEEDS) + 1 and all(f"reused-verified,{equivalence_sha256}" in row for row in rows[1:])
+
+        attestation = first.equivalence.read_bytes()
+        first.equivalence.write_bytes(attestation + b"\n")
+        assert integrity.trained_run(first).status == "invalid", "atestado trocado após o registro aceito"
+        _expect(IncompatibleAggregation, lambda: build_report(steps, "motion", root / "reports-stale", frames),
+                "relatório com atestado trocado")
+        record = json.loads(attestation)
+        record["allowed_differences"]["targets"] = []
+        first.equivalence.write_text(json.dumps(record))
+        assert all(step.verify is not None and step.verify().status == "invalid" for step in steps)
+        first.equivalence.write_bytes(attestation)
+        manifest = paths["bundle"] / "manifest.json"
+        content = manifest.read_bytes()
+        manifest.write_bytes(content + b"\n")
+        assert all(step.verify is not None and step.verify().status == "invalid" for step in steps)
+        manifest.write_bytes(content)
+        assert (first.run_dir / RUN_PROVENANCE).is_file() and not (root / "reports-stale").exists()
+    print("[PASS] reuso atestado: auditoria, run e proveniência reused-verified, avaliação refeita no pacote "
+          "atual, relatório e recusas de atestado ou pacote alterados")
+
+
 def run_selftest() -> None:
     test_protocol_and_plan()
     test_metrics()
@@ -614,6 +721,7 @@ def run_selftest() -> None:
     test_subject_clustering()
     test_figures()
     test_reuse_audit()
+    test_attested_reuse()
     test_step_integrity()
     test_causality()
     test_registry_and_report()
