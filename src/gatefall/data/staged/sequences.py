@@ -114,13 +114,17 @@ def sequence_sha256(sequence: ImageSequence) -> str:
     return digest.hexdigest()
 
 
-def stage_upfall_archive(archive: Path, raw_dir: Path) -> Path:
-    """Extrai `SubjectSActivityATrialTCameraC.zip` no layout canônico, sem sobrescrever."""
+def upfall_archive_target(archive: Path, raw_dir: Path) -> Path:
     match = ARCHIVE_PATTERN.fullmatch(archive.name)
     if match is None:
         raise SequenceError(f"nome de arquivo UP-Fall fora do padrão: {archive.name}")
     s, a, t, c = (match[name] for name in ("subject", "activity", "trial", "camera"))
-    target = raw_dir / f"Subject{s}" / f"Activity{a}" / f"Trial{t}" / f"Subject{s}Activity{a}Trial{t}Camera{c}"
+    return raw_dir / f"Subject{s}" / f"Activity{a}" / f"Trial{t}" / f"Subject{s}Activity{a}Trial{t}Camera{c}"
+
+
+def stage_upfall_archive(archive: Path, raw_dir: Path) -> Path:
+    """Extrai `SubjectSActivityATrialTCameraC.zip` no layout canônico, sem sobrescrever."""
+    target = upfall_archive_target(archive, raw_dir)
     if target.exists():
         raise FileExistsError(f"destino já existe; não sobrescrevo: {target}")
     with zipfile.ZipFile(archive) as handle:
