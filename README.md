@@ -231,6 +231,15 @@ eventos e alarmes de C0 e C1 também está implementada e usa o protocolo de ala
 congelado do braço A: veja [Avaliação por eventos de C0](docs/eval/baseline-c0-events.md)
 e [Avaliação por eventos de C1](docs/eval/baseline-c1-events.md).
 
+### Estudo comparativo 2026
+
+O estudo compara oito métodos (A, B0, B1 learned, C0, C1 learned, B1 physics,
+C1 physics e TCNTE adaptado) no Le2i, no UP-Fall e na transferência para o
+GMDCSA-24. A infraestrutura está implementada e as execuções reais estão
+pendentes. Consulte o [desenho do estudo](docs/experiments/comparative-study.md),
+o [roteiro de execução](docs/experiments/comparative-study-runbook.md) e a
+especificação em `specs/003-gatefall-comparative-study-2026/`.
+
 ---
 
 ## Validação do ambiente

@@ -42,6 +42,7 @@ nav:
       - Organização: data/organization.md
       - OmniFall: data/omnifall.md
       - Le2i: data/le2i.md
+      - UP-Fall e GMDCSA-24: data/staged-datasets.md
       - Manifesto e verificação: data/manifest-verification.md
       - Contrato temporal: data/temporal-contract.md
       - Padronização de features de pose: data/pose-standardization.md
@@ -63,6 +64,9 @@ nav:
       - Experimento de consistência (gate físico): train/physics-gate.md
       - Aprendizado de movimento e coerência cinemática: experiments/motion-physics.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md
+  - Estudo comparativo 2026:
+      - Desenho e métricas: experiments/comparative-study.md
+      - Roteiro de execução: experiments/comparative-study-runbook.md
   - Avaliação por eventos:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
       - Braço B0 (protocolo de alarme): eval/baseline-b0-events.md

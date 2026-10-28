@@ -3,7 +3,7 @@
 O limite central é um adapter pequeno de dataset:
 
 ```text
-adapter de dataset (Le2i hoje)
+adapter de dataset (Le2i, UP-Fall, GMDCSA-24)
     ↓
 dados genéricos e processamento temporal
     ↓
@@ -36,6 +36,13 @@ exige atribuir uma dimensão genérica ao dataset.
 loader de features. Assim, preserva janelamento, padding e identidade
 `(video_id, k_end)` sem conhecer Le2i. Contagens e diagnósticos congelados do
 Le2i ficam fora do núcleo reutilizável.
+
+Os datasets do estudo comparativo (`gatefall.datasets.staged`) seguem o mesmo
+contrato. O UP-Fall é uma sequência de imagens e implementa também
+`decode_image_frames`; `gatefall.data.frame_source.decode_dataset_frames` escolhe
+entre esse leitor e a decodificação de vídeo, e os extratores não conhecem a
+diferença. A preparação comum (rótulos OmniFall, partição por sujeito, grade
+causal e auditoria) fica em `gatefall.data.staged`.
 
 Para adicionar outro dataset, implemente o mesmo contrato, registre-o em
 `gatefall.datasets.get_dataset` e mantenha no adapter a resolução de caminhos,

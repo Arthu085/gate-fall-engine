@@ -12,13 +12,24 @@ data/
 ├── processed/le2i_cv/{manifest,frames}.parquet
 ├── features/le2i/pose/<video_id>.h5
 ├── features/le2i/dinov3/<env>/<video_name>.h5
+├── raw/upfall/Subject*/Activity*/Trial*/<câmera>/      # estudo 2026
+├── raw/gmdcsa24/GMDCSA24/Subject */{ADL,Fall}/*.mp4
+├── labels/omnifall_{upfall,gmdcsa24}/
+├── processed/{upfall,gmdcsa24_external}/
+├── features/{upfall,gmdcsa24_external}/{pose,quality,dinov3,sam3}/
 └── scratch/
 
 runs/
 ├── reference/le2i/{baseline_a,baseline_b0,baseline_b1,baseline_c0,baseline_c1}/
 ├── local/le2i/<arma>/           # reprodução local ignorada pelo Git
-└── local/le2i_cv/<arma>/        # reprodução local do protocolo cv, ignorada pelo Git
+├── local/le2i_cv/<arma>/        # reprodução local do protocolo cv, ignorada pelo Git
+├── local/<protocolo>/study2026/ # pacotes e runs do estudo 2026
+├── local/<protocolo>/motion-*/  # matriz de movimento (layout importado)
+└── local/study2026/             # ledgers, perfis, cache de pesos e relatórios
 ```
+
+Os caminhos do [estudo comparativo 2026](../experiments/comparative-study.md)
+estão descritos em [UP-Fall e GMDCSA-24](staged-datasets.md).
 
 `data/labels/omnifall_cv/`, `data/processed/le2i_cv/` e
 `runs/local/le2i_cv/<arma>/` são os artefatos isolados do protocolo Le2i
