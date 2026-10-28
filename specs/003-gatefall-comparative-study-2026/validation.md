@@ -2,6 +2,28 @@
 
 Data: 2026-10-28 · Branch: `feat/gatefall-comparative-study-2026`
 
+## Validação real executada pelo usuário: matriz `le2i`
+
+A matriz `le2i` foi executada pelo usuário com os dados reais do Le2i, no worktree da branch
+(revisão `380a31f`, árvore Git limpa), em uma NVIDIA GeForce GTX 1650. Ao contrário da matriz
+`motion`, todos os runs foram treinados pelo estudo, sem reuso. As evidências ficam em
+`runs/local/` (fora do Git) e foram reconferidas com os verificadores do estudo, sem reexecutar
+treino nem avaliação.
+
+| Evidência | Observado |
+| --- | --- |
+| `execution/execution-2026-10-28T172555Z-e4d87f02.jsonl` (`--stage train`) | 80/80 treinos `finished`, todos com código 0 e nenhum `reused`, das 17:25Z às 18:52Z (cerca de 5207 s somados). |
+| `execution/execution-2026-10-28T185939Z-ed9ad1ad.jsonl` (`--stage evaluate`) | 80/80 avaliações de teste `finished`, todas com código 0 (cerca de 260 s somados), iniciadas às 18:59Z, depois do fim de todos os treinos. |
+| `study-provenance.json` dos 80 runs | 80/80 com `origin = executed`, o protocolo congelado e a revisão `380a31f` sem alterações locais. |
+| `evaluation-*.json` dos 80 runs | 80/80 novas, com `split = test` e `selection_performed = false`. |
+| `gatefall.study plan --matrix le2i` | dados 2/2, pacotes 6/6, treinos 80/80 e avaliações 80/80 conferidos como `done`. |
+| `reports/le2i-2026-10-28T191059Z/` | 80 avaliações agregadas, todas `executed`: 16 grupos (8 métodos × 2 protocolos) com 5 sementes (42–46) cada. Os 80 `evaluation_sha256` de `report-manifest.json` conferem com os arquivos em disco. |
+| Protocolo congelado | `d61f7769cb5c8deba16d9d935e7dcdad3c01ac820aa9bb40e97241917744c531`, igual em ledgers, proveniências e manifesto do relatório, e inalterado desde a matriz `motion`. |
+| Estado do Git | revisão `380a31f`, `git_dirty = false`, em ledgers, proveniências e relatório. |
+
+Os conjuntos de teste são os mesmos da matriz `motion`. A interpretação dos resultados está em
+`docs/experiments/comparative-study.md#resultados-matriz-le2i`.
+
 ## Validação real executada pelo usuário: matriz `motion`
 
 A matriz `motion` foi executada pelo usuário com os dados reais do Le2i, no worktree da branch
@@ -51,8 +73,11 @@ Os itens abaixo **não foram executados**:
   `timegrid`, `audit`) do UP-Fall e do GMDCSA-24;
 - extração de pose, qualidade, DINOv3 e SAM 3 dos datasets novos, e `features-report` real;
 - montagem dos pacotes do UP-Fall e do GMDCSA-24;
-- as matrizes `le2i`, `upfall`, `transfer` e `ablations`;
-- o perfil de extração e os relatórios dessas matrizes.
+- as matrizes `upfall`, `transfer` e `ablations`;
+- o perfil de extração (`profile-extraction`): o `cost.csv` da matriz `le2i` não tem custo de
+  extração nem ponta a ponta;
+- os relatórios das matrizes pendentes.
 
-Os resultados da matriz `motion` são descritivos e pareados por semente. Nenhuma receita foi
-selecionada pelo teste, e nenhum desses runs substitui as referências canônicas A/B/C.
+Os resultados das matrizes `le2i` e `motion` são exploratórios, descritivos e pareados por
+semente. Nenhum método ou receita foi selecionado pelo teste, e nenhum desses runs substitui as
+referências canônicas A/B/C.

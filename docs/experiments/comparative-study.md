@@ -5,9 +5,10 @@ Infraestrutura do estudo comparativo do plano de 23/10/2026. A especificação c
 reais ficam no [roteiro de execução](comparative-study-runbook.md).
 
 !!! warning "Resultados parciais"
-    Só a matriz `motion` foi executada com dados reais
-    ([resultados](#resultados-matriz-motion)). As matrizes `le2i`, `upfall`, `transfer` e
-    `ablations` seguem pendentes. Os selftests validam apenas contratos sintéticos e não medem
+    Só as matrizes `le2i` ([resultados](#resultados-matriz-le2i)) e `motion`
+    ([resultados](#resultados-matriz-motion)) foram executadas com dados reais, e seus
+    resultados são exploratórios. As matrizes `upfall`, `transfer` e `ablations` e o perfil de
+    extração seguem pendentes. Os selftests validam apenas contratos sintéticos e não medem
     desempenho.
 
 ## Datasets
@@ -229,6 +230,162 @@ Limites da garantia:
   precisa ser igual;
 - o código, o ambiente e os hiperparâmetros do treino histórico ficam fora da garantia, além dos
   campos da identidade planejada que o reuso comum já confere.
+
+## Resultados: matriz `le2i`
+
+Execução real do usuário, consolidada em
+`specs/003-gatefall-comparative-study-2026/validation.md`. O relatório usado é
+`runs/local/study2026/reports/le2i-2026-10-28T191059Z/`:
+
+- protocolo `d61f7769cb5c…` e revisão `380a31f` sem alterações locais;
+- 80 treinos executados pelo estudo e 80 avaliações de teste novas, todos `executed`, que formam
+  16 grupos (8 métodos × 2 protocolos) com 5 sementes (42–46) cada.
+
+Todos os números vêm de `summary.csv`, `contrasts.csv` e `per_class.csv` desse relatório. Um Δ é
+a média, entre as 5 sementes, da diferença pareada por semente. A coluna "sementes +/−" conta as
+sementes com Δ positivo e negativo; empates ficam de fora.
+
+Os resultados são exploratórios. Nenhum método, gate, semente ou checkpoint foi escolhido por
+eles: o checkpoint é sempre o `best_val` congelado, e os alarmes seguem o protocolo congelado do
+braço A, sem limiar ajustado. Estes runs usam pose138 e não substituem as
+[referências canônicas A/B/C](../reference/le2i-runs.md), treinadas sobre pose134.
+
+### Limites estatísticos
+
+- **Le2i-CS:** o teste tem só 2 sujeitos (7 e 31 vídeos), 38 gravações e 22 quedas. O bootstrap
+  por sujeito (primário) tem apenas três reamostragens distintas. Nos oito métodos, o limite
+  superior do IC por sujeito é a própria média observada. Ele não serve como evidência, nem
+  quando exclui zero.
+- **Le2i-CV:** o teste tem 5 sujeitos, 60 gravações e 37 quedas. O IC por sujeito continua
+  grosseiro. O `cv` separa ambiente e câmera, não sujeitos: identificadores de sujeito se repetem
+  entre treino e teste ([relatório de generalização](../analysis/le2i-cv-generalization.md)).
+- **IC por gravação:** é secundário. Ele trata como independentes gravações do mesmo sujeito e
+  tende a ser estreito demais.
+- **Sementes:** o desvio entre sementes chega a 0.064 de macro-F1 (B1-learned no CV), da ordem
+  de várias diferenças entre métodos. Cinco sementes estimam mal essa variabilidade.
+- **Eventos:** uma queda vale 0.045 de sensibilidade no CS e 0.027 no CV. Cada protocolo tem
+  cerca de 0.17 h de vídeo avaliado, então um falso alarme vale cerca de 6 FA/h.
+- **Comparações múltiplas:** são 7 contrastes × 4 métricas × 2 protocolos, cada um com dois IC,
+  sem correção e sem teste de significância. Alguns IC que excluem zero são esperados por acaso.
+- **Escopo:** CS e CV são duas partições do mesmo Le2i. O CV é uma mudança composta de ambiente
+  dentro do Le2i (ambiente, câmera, resolução, fps e qualidade de pose variam juntos), não uma
+  validação entre datasets, e não isola nenhum desses fatores.
+- **`lie_down` no CV:** a classe tem 5 janelas de teste e nenhuma de treino, e todos os métodos
+  têm F1 zero nela. Por isso o macro-F1 com suporte do CV (9 classes) fica abaixo do restrito a 8
+  classes, também listado. No CS, os dois coincidem.
+
+### Desempenho por método
+
+Médias entre as 5 sementes. O F1 de `fall` e de `fallen` vem de `per_class.csv` e é descritivo,
+sem IC. A latência é a mediana dos eventos detectados, em segundos; "perdidos" é a média de quedas
+não detectadas.
+
+**Le2i-CS**
+
+| Método | macro-F1 (suporte) ± dp | F1 `fall` | F1 `fallen` | sens. evento | durante a queda | FA/h | latência (s) | perdidos |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A | 0.594 ± 0.029 | 0.694 | 0.754 | 0.818 | 0.791 | 208.9 | 0.34 | 4.0 |
+| B0 | 0.640 ± 0.005 | 0.758 | 0.881 | 0.827 | 0.827 | 51.4 | 0.30 | 3.8 |
+| B1-learned | 0.657 ± 0.020 | 0.772 | 0.860 | 0.927 | 0.927 | 60.7 | 0.29 | 1.6 |
+| B1-physics | 0.644 ± 0.012 | 0.749 | 0.829 | 0.891 | 0.891 | 68.9 | 0.30 | 2.4 |
+| C0 | 0.629 ± 0.016 | 0.745 | 0.853 | 0.955 | 0.955 | 75.9 | 0.30 | 1.0 |
+| C1-learned | 0.628 ± 0.027 | 0.744 | 0.846 | 0.927 | 0.927 | 105.1 | 0.28 | 1.6 |
+| C1-physics | 0.633 ± 0.010 | 0.739 | 0.854 | 0.900 | 0.900 | 91.1 | 0.30 | 2.2 |
+| TCNTE | 0.321 ± 0.041 | 0.427 | 0.655 | 0.909 | 0.827 | 130.7 | 1.26 | 2.0 |
+
+**Le2i-CV**
+
+| Método | macro-F1 (suporte) ± dp | macro-F1 (8) | F1 `fall` | F1 `fallen` | sens. evento | durante a queda | FA/h | latência (s) | perdidos |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A | 0.403 ± 0.019 | 0.454 | 0.643 | 0.696 | 0.827 | 0.816 | 168.5 | 0.40 | 6.4 |
+| B0 | 0.264 ± 0.022 | 0.297 | 0.531 | 0.693 | 0.681 | 0.600 | 234.7 | 0.50 | 11.8 |
+| B1-learned | 0.268 ± 0.064 | 0.302 | 0.540 | 0.704 | 0.778 | 0.665 | 158.9 | 0.43 | 8.2 |
+| B1-physics | 0.248 ± 0.037 | 0.279 | 0.438 | 0.686 | 0.676 | 0.503 | 182.9 | 0.60 | 12.0 |
+| C0 | 0.417 ± 0.017 | 0.470 | 0.684 | 0.742 | 0.811 | 0.811 | 92.7 | 0.40 | 7.0 |
+| C1-learned | 0.424 ± 0.029 | 0.478 | 0.685 | 0.740 | 0.795 | 0.778 | 118.0 | 0.34 | 7.6 |
+| C1-physics | 0.413 ± 0.014 | 0.465 | 0.697 | 0.714 | 0.881 | 0.865 | 73.4 | 0.35 | 4.4 |
+| TCNTE | 0.209 ± 0.030 | 0.235 | 0.369 | 0.564 | 0.735 | 0.638 | 140.8 | 1.15 | 9.8 |
+
+### Contrastes pareados predefinidos
+
+| Contraste | Protocolo | Δ macro-F1 (suporte) ± dp | sementes +/− | IC sujeito | IC gravação | Δ sens. evento | Δ FA/h |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| B0 − A | CS | +0.045 ± 0.030 | 5/0 | [+0.027, +0.059] | [+0.007, +0.083] | +0.009 | −157.6 |
+| B0 − A | CV | −0.140 ± 0.033 | 0/5 | [−0.158, −0.077] | [−0.169, −0.097] | −0.146 | +66.2 |
+| C0 − A | CS | +0.035 ± 0.038 | 4/1 | [−0.018, +0.051] | [+0.009, +0.062] | +0.136 | −133.1 |
+| C0 − A | CV | +0.014 ± 0.020 | 3/2 | [−0.021, +0.033] | [−0.014, +0.036] | −0.016 | −75.8 |
+| B1-learned − B0 | CS | +0.017 ± 0.020 | 4/1 | [+0.008, +0.021] | [−0.001, +0.037] | +0.100 | +9.3 |
+| B1-learned − B0 | CV | +0.004 ± 0.071 | 4/1 | [−0.007, +0.008] | [−0.009, +0.014] | +0.097 | −75.8 |
+| C1-learned − C0 | CS | −0.002 ± 0.014 | 3/2 | [−0.004, +0.018] | [−0.014, +0.011] | −0.027 | +29.2 |
+| C1-learned − C0 | CV | +0.007 ± 0.020 | 4/1 | [−0.005, +0.014] | [−0.011, +0.025] | −0.016 | +25.3 |
+| B1-physics − B1-learned | CS | −0.013 ± 0.018 | 2/3 | [−0.016, −0.006] | [−0.029, +0.001] | −0.036 | +8.2 |
+| B1-physics − B1-learned | CV | −0.020 ± 0.068 | 1/4 | [−0.036, −0.002] | [−0.032, −0.006] | −0.103 | +24.1 |
+| C1-physics − C1-learned | CS | +0.005 ± 0.028 | 3/2 | [−0.001, +0.005] | [−0.010, +0.018] | −0.027 | −14.0 |
+| C1-physics − C1-learned | CV | −0.011 ± 0.015 | 2/3 | [−0.015, +0.004] | [−0.031, +0.005] | +0.086 | −44.5 |
+| TCNTE − A | CS | −0.273 ± 0.042 | 0/5 | [−0.273, −0.256] | [−0.311, −0.237] | +0.091 | −78.2 |
+| TCNTE − A | CV | −0.194 ± 0.045 | 0/5 | [−0.228, −0.144] | [−0.224, −0.152] | −0.092 | −27.7 |
+
+**Inversão de `B0 − A`.** O sinal da concatenação DINOv3 muda entre os protocolos:
+
+- no CS, B0 ganha 0.045 de macro-F1 (5/0 sementes, os dois IC acima de zero) e reduz FA/h em
+  157.6 (0/5; o IC por gravação fica abaixo de zero, o IC por sujeito cruza zero). A sensibilidade
+  por evento quase não muda (+0.009);
+- no CV, B0 perde 0.140 de macro-F1 (0/5, os dois IC abaixo de zero). A sensibilidade por evento
+  cai 0.146, a sensibilidade durante a queda cai 0.216 (0/5), e FA/h sobe 66.2 (os dois IC acima
+  de zero). O F1 de `fall` cai de 0.643 para 0.531;
+- nas médias do CV, os três métodos DINOv3 ficam abaixo de A (0.248 a 0.268 contra 0.403), e os
+  três SAM 3 ficam perto dele (0.413 a 0.424). `C0 − A` no CV é +0.014 (3/2, os dois IC cruzam
+  zero), com FA/h 75.8 menor (os dois IC abaixo de zero).
+
+Como a mudança do CV é composta, o relatório não diz qual fator produz a inversão.
+
+**`B1-physics − B1-learned` negativo nos dois protocolos:**
+
+- **CS:** −0.013 (2/3 sementes). O IC por sujeito fica abaixo de zero, mas é degenerado; o IC por
+  gravação cruza zero ([−0.029, +0.001]). A sensibilidade por evento cai 0.036 (0/3, dois empates),
+  e FA/h sobe 8.2.
+- **CV:** −0.020 (1/4), com os dois IC abaixo de zero. A sensibilidade durante a queda cai 0.162
+  (0/5; IC por gravação [−0.263, −0.065]), e parte das detecções passa para depois da queda (de
+  0.114 para 0.173). FA/h sobe 24.1, com dp de 172.3 entre sementes, e o F1 de `fall` cai de 0.540
+  para 0.438.
+
+Em nenhum dos dois protocolos o gate físico supera o aprendido em B1.
+
+**C1 no CV: operação × macro-F1.** Em `C1-physics − C1-learned`:
+
+- o macro-F1 cai 0.011 (2/3), e os dois IC cruzam zero;
+- a sensibilidade por evento sobe 0.086 (4/1; IC por sujeito [+0.043, +0.123], por gravação
+  [+0.044, +0.135]), e as quedas perdidas caem de 7.6 para 4.4;
+- FA/h cai 44.5 (1/4; IC [−51.8, −30.0] e [−64.3, −26.8]), de 118.0 para 73.4.
+
+O gate físico em C1 detecta mais quedas com menos falsos alarmes no CV, sem ganho de macro-F1 por
+janela. No CS, o mesmo contraste não tem direção comum: +0.005 de macro-F1 (3/2), −0.027 de
+sensibilidade (2/3) e −14.0 FA/h (2/2).
+
+**Déficit do TCNTE.** `TCNTE − A` é −0.273 no CS e −0.194 no CV, com 0/5 sementes e os dois IC
+abaixo de zero nos dois protocolos:
+
+- o F1 de `fall` é 0.427 no CS e 0.369 no CV, contra 0.694 e 0.643 de A;
+- a latência mediana sobe para 1.26 s e 1.15 s, contra 0.34 s e 0.40 s;
+- o déficit é sobretudo de classificação por janela. No CS, a sensibilidade por evento é 0.091
+  maior (4/1, o IC por gravação cruza zero), mas 0.082 da sensibilidade do TCNTE vem de
+  detecções só após a queda, contra 0.027 em A. FA/h fica abaixo do de A nos dois protocolos
+  (−78.2 e −27.7), e A tem o maior FA/h do CS (208.9).
+
+O resultado vale para o TCNTE adaptado ao protocolo do estudo (12 articulações, dez classes e 30
+épocas), não para o modelo publicado.
+
+**Outros contrastes:**
+
+- **`C0 − A` no CS:** +0.035 (4/1; o IC por sujeito cruza zero, o por gravação não), +0.164 de
+  sensibilidade durante a queda (5/0) e −133.1 FA/h (0/5).
+- **`B1-learned − B0`:** +0.017 no CS (4/1), com +0.100 de sensibilidade (5/0). No CV, +0.004 (os
+  dois IC cruzam zero), com +0.097 de sensibilidade e −75.8 FA/h.
+- **`C1-learned − C0`:** macro-F1 perto de zero nos dois protocolos (−0.002 e +0.007, os IC
+  cruzam zero), com FA/h maior (+29.2 e +25.3).
+
+**Custo.** O `cost.csv` deste relatório traz só a classificação por janela e o treino. A extração
+e o custo ponta a ponta dependem de `profile-extraction`, que não foi executado.
 
 ## Resultados: matriz `motion`
 
