@@ -103,6 +103,7 @@ def test_training_and_external_evaluation() -> None:
         assert metrics["timing"]["train_seconds"] > 0 and len(metrics["timing"]["epoch_seconds"]) == 2
         report = evaluate(source, run, "test")
         assert report["events"]["n_fall_events"] == 1 and len(report["predictions"]) == 32
+        assert len(report["alarms"]) == report["events"]["n_alarms_total"]
         transfer = evaluate_external(source, run, external)
         assert transfer["adaptation"] == "none" and transfer["target_dataset"] == "synthetic-ext"
         assert transfer["timing"]["windows"] == 32

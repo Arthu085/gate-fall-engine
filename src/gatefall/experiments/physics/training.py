@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader, Dataset
 from gatefall.config import NUM_CLASSES, TARGET_FPS, TRAIN_STRIDE
 from gatefall.data.windowing import window_frame_indices
 from gatefall.eval.shared.alarm_protocol import BASELINE_A_ALARM_PROTOCOL
-from gatefall.eval.shared.events import split_event_report
+from gatefall.eval.shared.events import detect_alarms_for_video, split_event_report
 from gatefall.experiments.physics import FEATURE_SCHEMA, SCHEMA_VERSION
 from gatefall.experiments.physics.data import code_provenance, load_bundle, write_json
 from gatefall.experiments.physics.model import FUSIONS, TRAINABLE_GATES, FusionClassifier, ordering_loss
@@ -414,7 +414,8 @@ def _evaluation_report(model: nn.Module, manifest: dict, videos: dict, stats: di
     events = split_event_report(ids, ends, true.tolist(), pred.tolist(), BASELINE_A_ALARM_PROTOCOL,
                                 len(data), len(data), int(np.sum(true != -1)), round_latency=False)
     return {"split": split, "classification": classification(true, pred, tuple(manifest["label_names"])),
-            "events": events, "alarm_protocol": BASELINE_A_ALARM_PROTOCOL.to_dict(),
+            "events": events, "alarms": alarm_records(ids, ends, pred),
+            "alarm_protocol": BASELINE_A_ALARM_PROTOCOL.to_dict(),
             "latency_precision": "full", "selection_performed": False,
             "code_provenance": code_provenance(),
             "predictions": [{"video_id": identity, "k_end": end, "label": int(label),
@@ -425,6 +426,20 @@ def _evaluation_report(model: nn.Module, manifest: dict, videos: dict, stats: di
             "timing": {"device": "cpu", "windows": len(data), "classification_seconds": classification_seconds,
                        "seconds_per_window": classification_seconds / len(data),
                        "peak_memory_bytes": peak_memory_bytes("cpu")}}
+
+
+def alarm_records(ids: list[str], ends: list[int], predictions: np.ndarray) -> list[dict]:
+    grouped: dict[str, list[int]] = {}
+    for index, identity in enumerate(ids):
+        grouped.setdefault(identity, []).append(index)
+    alarms = []
+    for identity, indices in grouped.items():
+        order = sorted(indices, key=lambda index: ends[index])
+        found = detect_alarms_for_video(identity, np.array([ends[i] for i in order], dtype=np.int64),
+                                        predictions[order], BASELINE_A_ALARM_PROTOCOL)
+        alarms += [{"video_id": a.video_id, "trigger_k": a.trigger_k, "trigger_time_s": a.trigger_time_s}
+                   for a in found]
+    return alarms
 
 
 def _publish(output: Path, report: dict) -> None:

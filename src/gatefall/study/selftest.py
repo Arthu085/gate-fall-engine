@@ -129,13 +129,15 @@ def test_causality() -> None:
             original, future = bundles[method.visual]
             raw = method.fusion == "tcnte"
             before, stats = _window_logits(model, original, None, raw)
-            after, _ = _window_logits(model, future, stats, raw)
+            after, future_stats = _window_logits(model, future, None, raw)
+            assert future_stats == stats, "estatísticas de normalização dependem de val/test"
             for end, logits in before.items():
                 if end <= cutoff:
                     assert torch.equal(logits, after[end]), f"{method.name}: janela {end} viu o futuro"
             assert any(not torch.equal(before[end], after[end]) for end in before if end > cutoff), (
                 f"{method.name}: perturbação futura não alterou nenhuma janela posterior")
-    print(f"[PASS] causalidade: {len(cases)} classificadores invariantes a quadros após t")
+    print(f"[PASS] causalidade: {len(cases)} classificadores invariantes a quadros após t; "
+          "normalização só do treino")
 
 
 def _prediction_rows(video_id: str, labels: list[int], predictions: list[int]) -> list[dict]:
