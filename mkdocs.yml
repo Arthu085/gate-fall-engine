@@ -60,6 +60,8 @@ nav:
       - Braço B1 (fusão adaptativa por gate): train/baseline-b1.md
       - Braço C0 (fusão pose + SAM 3): train/baseline-c0.md
       - Braço C1 (gate adaptativo com SAM 3): train/baseline-c1.md
+      - Experimento de consistência e provas Lean: train/physics-gate.md
+      - Aprendizado de movimento e coerência cinemática: experiments/motion-physics.md
       - Investigação de determinismo de GPU: train/gpu-determinism.md
   - Avaliação por eventos:
       - Braço A (protocolo de alarme): eval/baseline-a-events.md
@@ -71,6 +73,7 @@ nav:
       - Degradação do gate B1/C1: analysis/gate-degradation.md
       - Generalização entre ambientes (Le2i-CV): analysis/le2i-cv-generalization.md
       - Diagnóstico qualitativo (render): analysis/qualitative-render.md
+      - Resultados externos (gate físico e Motion Physics): experiments/external-results.md
       - Sensibilidade do protocolo de alarme: analysis/alarm-protocol-sensitivity.md
       - Bootstrap agrupado por sujeito (IC): analysis/grouped-bootstrap.md
       - Sumário multi-seed: analysis/multiseed-summary.md

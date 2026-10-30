@@ -172,7 +172,8 @@ def detect_alarms_for_video(
 
 
 def associate_events_and_alarms(
-    events: list[FallEvent], alarms: list[Alarm], protocol: AlarmProtocol
+    events: list[FallEvent], alarms: list[Alarm], protocol: AlarmProtocol,
+    *, round_latency: bool = True,
 ) -> tuple[list[EventOutcome], list[Alarm]]:
     matched_alarm_ids: set[int] = set()
     outcomes: list[EventOutcome] = []
@@ -190,10 +191,9 @@ def associate_events_and_alarms(
             )
             for alarm_id, _alarm in matches:
                 matched_alarm_ids.add(alarm_id)
-            latency_s = round(
-                earliest_alarm.trigger_time_s - event.start_time_s,
-                ndigits=protocol.latency_decimal_places,
-            )
+            latency_s = earliest_alarm.trigger_time_s - event.start_time_s
+            if round_latency:
+                latency_s = round(latency_s, ndigits=protocol.latency_decimal_places)
             matched_alarms = tuple(
                 sorted(
                     (alarm for _alarm_id, alarm in matches),
@@ -286,6 +286,7 @@ def split_event_report(
     usable_windows: int,
     total_windows: int,
     labeled_windows: int,
+    *, round_latency: bool = True,
 ) -> dict:
     if protocol.eval_stride != 1:
         raise ValueError(
@@ -314,7 +315,9 @@ def split_event_report(
         for k_end, true_label in zip(video_k_ends.tolist(), video_true.tolist()):
             true_label_by_video_k[(video_id, k_end)] = true_label
 
-    outcomes, false_alarms = associate_events_and_alarms(all_events, all_alarms, protocol)
+    outcomes, false_alarms = associate_events_and_alarms(
+        all_events, all_alarms, protocol, round_latency=round_latency,
+    )
     n_pre_fall_false_alarms = count_pre_fall_false_alarms(all_events, false_alarms, protocol)
 
     n_fall_events = len(all_events)
@@ -357,12 +360,9 @@ def split_event_report(
 
     latency_seconds: dict[str, object] = {"per_event": per_event_latency}
     if per_event_latency:
-        latency_seconds["mean"] = round(
-            float(np.mean(per_event_latency)), protocol.latency_decimal_places
-        )
-        latency_seconds["median"] = round(
-            float(np.median(per_event_latency)), protocol.latency_decimal_places
-        )
+        for name, value in (("mean", float(np.mean(per_event_latency))),
+                            ("median", float(np.median(per_event_latency)))):
+            latency_seconds[name] = round(value, protocol.latency_decimal_places) if round_latency else value
     else:
         latency_seconds["mean"] = None
         latency_seconds["median"] = None

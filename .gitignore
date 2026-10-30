@@ -105,3 +105,7 @@ site/
 
 # Documentação
 docs/tasks
+
+# Ferramentas portáteis e dependências Lean locais
+.tools/
+formal/.lake/
