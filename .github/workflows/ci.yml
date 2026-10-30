@@ -64,7 +64,19 @@ jobs:
           uv run python -m gatefall.pipeline selftest
           uv run python -m gatefall.selftests.protocol_isolation
           uv run python -m gatefall.selftests.runs
+          uv run python -m gatefall.experiments.physics selftest
       - name: Verificar tipos
         run: uv run pyright
       - name: Construir documentação
         run: uv run mkdocs build --strict
+  formal:
+    name: Lean — contratos matemáticos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: formal
+          auto-config: false
+          build: true
+          build-args: "--wfail"
