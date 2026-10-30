@@ -1,15 +1,18 @@
 # Experimento de consistência e provas Lean
 
 !!! note "Experimento externo importado"
-    Página importada de `rsramos30/gate-fall-engine@301b32e`, sem alteração do método.
-    É um experimento opt-in e não canônico; proveniência, desvios e resultados
-    históricos estão em
+    Implementação do orientador importada de `rsramos30/gate-fall-engine@301b32e`,
+    sem alteração do método. A execução real (158 avaliações de teste em Le2i-CS
+    e Le2i-CV) foi feita depois pelo autor do TCC. É um experimento opt-in e não
+    canônico; proveniência, desvios e resultados estão em
     [Resultados externos](../experiments/external-results.md).
 
 O módulo `gatefall.experiments.physics` permite testar a hipótese de que
 confiabilidade observável e falhas pareadas ajudam a fusão. Ele é opt-in:
 os comandos históricos A/B0/B1/C0/C1 e suas referências continuam disponíveis.
-Os resultados desta implementação são testes sintéticos, não novos resultados Le2i.
+Os selftests desta implementação usam dados sintéticos. As avaliações reais em
+Le2i-CS e Le2i-CV, executadas depois da entrega, estão em
+[Resultados externos](../experiments/external-results.md).
 
 ## O que muda
 
@@ -114,8 +117,10 @@ legada, sensível à geometria da caixa. Portanto a invariância do novo residua
 não implica invariância do gate inteiro. Os resíduos são proxies, não
 probabilidades calibradas ou leis de dinâmica 3D.
 
-A avaliação nesta entrega é limpa. Demonstrar robustez exige posteriormente
+As avaliações executadas são limpas. Demonstrar robustez exige
 uma avaliação de falhas pareadas em dados reservados, com o checkpoint e as
 estatísticas já fixados; ela não deve participar da seleção. Blur real exige
-reinferência das imagens, não ruído artificial em embeddings. Ganhos, sensibilidade
-e FA/h reais dependem dos dados e do retreino ainda não executado nesta entrega.
+reinferência das imagens, não ruído artificial em embeddings. As métricas reais
+de classificação, sensibilidade e FA/h estão em
+[Resultados externos](../experiments/external-results.md), onde não se observou
+superioridade global do gate `physics`.

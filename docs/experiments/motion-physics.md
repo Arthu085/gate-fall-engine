@@ -1,10 +1,11 @@
 # Aprender movimento com coerência cinemática
 
 !!! note "Experimento externo importado"
-    Página importada de `rsramos30/gate-fall-motion-physics@5f6e2ae`, sem alteração do método.
-    É um experimento opt-in e não canônico; proveniência, desvios e resultados
-    históricos estão em
-    [Resultados externos](external-results.md).
+    Implementação do orientador importada de
+    `rsramos30/gate-fall-motion-physics@5f6e2ae`, sem alteração do método. A
+    execução real (150 treinos e 150 avaliações) foi feita depois pelo autor do
+    TCC. É um experimento opt-in e não canônico; proveniência, desvios e
+    resultados estão em [Resultados externos](external-results.md).
 
 ## Em linguagem simples
 
@@ -14,8 +15,9 @@ onde estarão ombros/quadris e qual será sua velocidade média nos próximos in
 Uma penalização adicional cobra concordância entre essas duas previsões.
 
 Não é uma PINN de dinâmica 3D. É supervisão auxiliar com regularização cinemática
-2D. Não medimos gravidade, forças, equilíbrio ou contato com o chão. Ainda não há
-resultado real demonstrando melhoria desta versão.
+2D. Não medimos gravidade, forças, equilíbrio ou contato com o chão. A matriz real
+de 150 treinos e 150 avaliações não demonstrou melhoria global desta versão; ver
+[Resultados externos](external-results.md).
 
 ## O que muda
 
