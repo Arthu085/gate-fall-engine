@@ -60,8 +60,9 @@ sem nova inferência nem treino:
 
 - as 26 linhas das matrizes limpas do predecessor, contra os 130
   `evaluation-test.json` limpos;
-- as 72 linhas de semente 42 (matriz limpa e ablações), contra as avaliações
-  correspondentes;
+- as 54 avaliações de semente 42 (26 da matriz limpa e 28 ablações), contra as
+  avaliações correspondentes; o registro as apresenta em 72 linhas porque as
+  tabelas de ablação repetem 18 controles limpos;
 - os oito contrastes pareados entre fusões;
 - os dez contrastes `motion_physics − motion`, contra os
   `summary/paired-deltas.csv`.
