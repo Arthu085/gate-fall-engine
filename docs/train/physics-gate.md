@@ -1,5 +1,11 @@
 # Experimento de consistência e provas Lean
 
+!!! note "Experimento externo importado"
+    Página importada de `rsramos30/gate-fall-engine@301b32e`, sem alteração do método.
+    É um experimento opt-in e não canônico; proveniência, desvios e resultados
+    históricos estão em
+    [Resultados externos](../experiments/external-results.md).
+
 O módulo `gatefall.experiments.physics` permite testar a hipótese de que
 confiabilidade observável e falhas pareadas ajudam a fusão. Ele é opt-in:
 os comandos históricos A/B0/B1/C0/C1 e suas referências continuam disponíveis.

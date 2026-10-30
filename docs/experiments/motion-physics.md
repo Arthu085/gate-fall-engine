@@ -1,5 +1,11 @@
 # Aprender movimento com coerência cinemática
 
+!!! note "Experimento externo importado"
+    Página importada de `rsramos30/gate-fall-motion-physics@5f6e2ae`, sem alteração do método.
+    É um experimento opt-in e não canônico; proveniência, desvios e resultados
+    históricos estão em
+    [Resultados externos](external-results.md).
+
 ## Em linguagem simples
 
 O GateFall já usa movimento como entrada. Nesta experiência, ele também precisa
@@ -87,12 +93,12 @@ quadro futuro ou espera pelo horizonte é necessário.
 
 ## Instalação e verificação
 
-Ambiente recomendado para o projeto completo: Linux/WSL, Python 3.12 e uv.
-O novo experimento também recebe verificações sintéticas no Windows.
+O módulo foi importado do fork
+[rsramos30/gate-fall-motion-physics](https://github.com/rsramos30/gate-fall-motion-physics)
+no commit `5f6e2ae`, que já contém o gate físico (`301b32e`). Ambiente
+recomendado: Linux/WSL, Python 3.12 e uv, a partir da raiz deste repositório.
 
 ```bash
-git clone https://github.com/rsramos30/gate-fall-motion-physics.git
-cd gate-fall-motion-physics
 uv sync --frozen
 uv run python -m gatefall.experiments.motion selftest
 ```
